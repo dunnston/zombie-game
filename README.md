@@ -309,7 +309,7 @@ recipe gating, upgrade validity, the XP curve, raid escalation and threat
 thresholds.
 
 `tests/browser-smoke.js` is injected into the running dev server and drives the
-live game through 66 assertions using synthetic input events — movement, aiming,
+live game through 77 assertions using synthetic input events — movement, aiming,
 melee, gunfire, ammo, reloading, enemy pursuit, taking damage, searching
 containers, carry-capacity overflow, structure placement and cost, walls
 blocking, enemies attacking structures, workbench upgrades, tier-gated crafting,
@@ -323,15 +323,19 @@ deaths. It is what the raid balance was tuned against:
 
 | Raid | Duration | Structures lost | Walls dropped to |
 | --- | --- | --- | --- |
-| 1 | 44s | 0 | 100% |
-| 3 | 69s | 3 | 12% |
+| 1 | 43s | 0 | 99% |
+| 3 | 64s | 0 | 29% |
 | 5 | overwhelming | the whole base | 0% |
 
-Several real bugs came out of this testing rather than out of review: bullets
-colliding with the player's own walls (which made a walled base unable to shoot
-out), threat decay running before the raid check (so a raid could never
-trigger), raids stalling forever on a stuck enemy, and death backpacks losing
-interaction priority to a nearby workbench.
+Real bugs came out of this testing and out of automated review rather than out
+of writing the code: bullets colliding with the player's own walls (which made a
+walled base unable to shoot out), threat decay running before the raid check (so
+a raid could never trigger), raids stalling forever on a stuck enemy, death
+backpacks losing interaction priority to a nearby workbench, the B key both
+opening and closing build mode in the same frame (making the advertised control
+a no-op), a part-fuelled generator that could never be switched off, an autosave
+during the death countdown restoring a player alive at zero health, and enemies
+punching a wall behind you instead of attacking you.
 
 ---
 

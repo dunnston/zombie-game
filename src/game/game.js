@@ -16,7 +16,7 @@ import { updateBullets, updateTurrets, updateTraps } from './combat.js';
 import { updatePickups, rollContainer, grantLoot, collectBackpack, seedLoot } from './loot.js';
 import {
   buildMenu, canPlace, placeStructure, repairStructure, demolishStructure,
-  updateGenerators, refuelGenerator, upgradeBench, nearestStructure, nearWorkbench,
+  updateGenerators, useGenerator, generatorRunning, upgradeBench, nearestStructure, nearWorkbench,
   stashDepositAll, stashWithdrawAmmo, structureCost, isUnlocked, BUILD_RANGE,
   baseCenter,
 } from './building.js';
@@ -24,6 +24,7 @@ import { updateThreat, addThreat, raidReady } from './threat.js';
 import { startRaid, updateRaid, forceEndRaid } from './raid.js';
 import { visibleRecipes, craft } from './crafting.js';
 import { addXp, chooseUpgrade } from './progression.js';
+import { killPlayer } from './damage.js';
 import { updateFX, clearFX } from '../core/particles.js';
 import * as FX from '../core/particles.js';
 import { Input, key, keyTap, endFrame } from '../core/input.js';
@@ -121,7 +122,9 @@ export function findInteractable() {
       bestD = d;
       best = {
         kind: 'generator', ref: s,
-        label: s.fuel < s.def.fuelMax - 1 ? `Refuel (${Math.round(s.fuel)}/${s.def.fuelMax})` : (s.on ? 'Switch off' : 'Switch on'),
+        label: generatorRunning(s)
+          ? `Switch off  (${Math.round(s.fuel)}/${s.def.fuelMax} fuel)`
+          : `Refuel and start  (${Math.round(s.fuel)}/${s.def.fuelMax})`,
       };
     } else if (s.type === 'bedroll') {
       bestD = d;
@@ -158,7 +161,7 @@ function beginInteract(target) {
       sfx('build');
       break;
     case 'generator':
-      refuelGenerator(target.ref);
+      useGenerator(target.ref);
       break;
     case 'bedroll': {
       const s = target.ref;
@@ -207,7 +210,8 @@ function updateBuildMode() {
   for (let i = 0; i < 9; i++) {
     if (keyTap(`Digit${i + 1}`) && i < menu.length) { G.ui.buildIndex = i; sfx('ui'); }
   }
-  if (Input.rightPressed || keyTap('KeyB') || keyTap('Escape')) {
+  // B and Escape are handled by the caller; only right-click exits from here.
+  if (Input.rightPressed) {
     G.ui.buildMode = false;
     sfx('ui');
     return;
@@ -355,12 +359,14 @@ export function update(dt) {
   const craftKey = keyTap('KeyC');
   if (craftKey) { G.ui.panel = G.ui.panel === 'craft' ? null : 'craft'; sfx('ui'); }
 
-  if (keyTap('KeyB') && !G.ui.buildMode && !G.ui.panel) {
-    G.ui.buildMode = true;
+  // Build mode is toggled in exactly one place. Handling B here *and* inside
+  // updateBuildMode() meant the same edge-triggered press opened and then
+  // immediately closed it, so the advertised key never worked.
+  if (keyTap('KeyB') && !G.ui.panel) {
+    G.ui.buildMode = !G.ui.buildMode;
     sfx('ui');
-  } else if (G.ui.buildMode && G.ui.panel) {
-    G.ui.buildMode = false;
   }
+  if (G.ui.panel) G.ui.buildMode = false;
 
   // ------------------------------------------------------------- systems --
   rebuildSpatial();
@@ -434,6 +440,6 @@ export const api = {
   chooseUpgrade, startRaid, addXp, addRes, countRes, dangerAtPx, solidPx, shake,
   findInteractable, placeStructure, canPlace, spawnEnemy, forceEndRaid,
   visibleRecipes, craft, nearWorkbench, upgradeBench, baseCenter,
-  grantLoot, rollContainer, repairStructure, demolishStructure,
+  grantLoot, rollContainer, repairStructure, demolishStructure, killPlayer,
   WEAPONS, STRUCTURES, RECIPES, CAMERA, PLAYER, THREAT,
 };

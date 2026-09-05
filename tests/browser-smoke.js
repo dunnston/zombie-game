@@ -169,7 +169,25 @@
     p.bag = {};
     G.pickups.length = 0;
 
-    // ------------------------------------------------------- 5. building ---
+    // --------------------------------- 5. building (keyboard-driven first) --
+    // Regression: B must toggle build mode. This is deliberately driven through
+    // the real key path rather than the debug API, because handling B in two
+    // places once made the advertised control a no-op.
+    G.ui.panel = null;
+    G.ui.buildMode = false;
+    d.tap('KeyB');
+    await frames(3);
+    ok('B opens build mode', G.ui.buildMode === true, `buildMode=${G.ui.buildMode}`);
+    d.tap('KeyB');
+    await frames(3);
+    ok('B closes build mode again', G.ui.buildMode === false, `buildMode=${G.ui.buildMode}`);
+    d.tap('KeyB');
+    await frames(3);
+    ok('build mode survives more than one frame', G.ui.buildMode === true);
+    d.tap('Escape');
+    await frames(3);
+    ok('Escape leaves build mode', G.ui.buildMode === false);
+
     d.giveAll();
     const spot = findOpenSpot(G, p.x, p.y, 0);
     d.teleport(spot.x, spot.y);
@@ -185,18 +203,45 @@
       ok('walls are solid', api.solidPx(wall.x, wall.y));
     }
 
-    // Enemies attack structures
+    // Enemies attack structures. The player is parked well out of reach first:
+    // a reachable player correctly outranks scenery, so leaving them next to
+    // the wall would test the opposite behaviour.
     if (wall) {
+      const stand = { x: p.x, y: p.y };
+      d.teleport(wall.x + 700, wall.y);
+      await frames(3);
       const wallHp0 = wall.hp;
       const attacker = api.spawnEnemy('walker', wall.x + 40, wall.y, { aggro: true });
       attacker.objective = wall;
       attacker.raid = true;
       G.raid = { cx: wall.x, cy: wall.y, spec: { waves: 1 }, phase: 'active', killed: 0, total: 1, toSpawn: 0, hasBase: true, wave: 1 };
-      await seconds(4);
+      await seconds(5);
       G.raid = null;
       attacker.raid = false;
+      attacker.dead = true;
       ok('enemies attack player structures', wall.hp < wallHp0 || wall.destroyed,
         `${Math.round(wallHp0)} -> ${wall.destroyed ? 'destroyed' : Math.round(wall.hp)}`);
+      d.teleport(stand.x, stand.y);
+      await frames(3);
+    }
+
+    // ...and the reverse: a zombie beside you hits you, not the wall behind you.
+    if (wall) {
+      G.enemies.length = 0;
+      d.teleport(wall.x - 26, wall.y);
+      await frames(3);
+      d.god(false);
+      p.hp = p.maxHp;
+      p.invuln = 0;
+      const hpBeforeBite = p.hp;
+      const biter = api.spawnEnemy('walker', p.x - 16, p.y, { aggro: true });
+      biter.objective = wall;
+      await seconds(3);
+      ok('a zombie next to you attacks you, not the wall behind you', p.hp < hpBeforeBite,
+        `hp ${Math.round(hpBeforeBite)} -> ${Math.round(p.hp)}`);
+      d.god(true);
+      p.hp = p.maxHp;
+      G.enemies.length = 0;
     }
 
     // Workbench + crafting
@@ -233,16 +278,43 @@
       await seconds(0.5);
       ok('turret power depends on a fuelled generator', unpowered && turret.powered !== false,
         `unpowered=${unpowered} powered=${turret.powered}`);
+
+      // Regression: a part-full generator with no spare fuel must still be
+      // switchable off, or the player can never stop it broadcasting Threat.
+      gen.fuel = 50;
+      gen.on = true;
+      G.stash.fuel = 0;
+      p.bag.fuel = 0;
+      await frames(2);
+      d.teleport(gen.x + 30, gen.y);
+      await frames(3);
+      const genHover = api.findInteractable();
+      ok('a running generator offers to switch off', genHover && genHover.kind === 'generator' &&
+        /Switch off/i.test(genHover.label), genHover && genHover.label);
+      d.tap('KeyE');
+      await frames(3);
+      ok('a part-fuelled generator can be switched off', gen.on === false, `on=${gen.on} fuel=${Math.round(gen.fuel)}`);
+      d.tap('KeyE');
+      await frames(3);
+      ok('switching it back on works without spare fuel', gen.on === true, `on=${gen.on}`);
+      G.stash.fuel = 500;
     }
 
     // ------------------------------------------------------ 6. death loop --
+    // Step outside the compound the test just built, so the killer has a clear
+    // path and this stays deterministic rather than depending on AI steering.
+    const deathSpot = clearOfStructures(G, p.x, p.y);
+    d.teleport(deathSpot.x, deathSpot.y);
+    await frames(3);
     d.god(false);
     p.bag = { scrap: 40, wood: 20 };
     p.hp = 1;
+    p.invuln = 0;
     const packs0 = G.backpacks.length;
     const deaths0 = G.stats.deaths;
-    api.spawnEnemy('brute', p.x + 12, p.y, { aggro: true });
-    await seconds(4.5);
+    api.spawnEnemy('brute', p.x + 14, p.y, { aggro: true });
+    api.spawnEnemy('runner', p.x - 14, p.y, { aggro: true });
+    await seconds(6);
     ok('player can die', G.stats.deaths > deaths0, `deaths ${G.stats.deaths}`);
     ok('death drops a recoverable pack', G.backpacks.length > packs0, `${G.backpacks.length} packs`);
     await seconds(4);
@@ -335,11 +407,39 @@
     const pharm = G.world.containers.filter((c) => c.table === 'pharmacy' || c.table === 'hospitalCrate').length;
     ok('hospital has medical loot', pharm >= 10, `${pharm}`);
 
+    // ------------------------------------------------- 10b. save while dead --
+    // Regression: an autosave landing inside the death countdown must not
+    // restore a player who is alive on zero health.
+    // Death itself is covered above; this drives the death path directly so the
+    // assertion is about save/load behaviour and nothing else.
+    G.enemies.length = 0;
+    p.bag = { scrap: 12 };
+    api.killPlayer();
+    await frames(2);
+    if (p.dead) {
+      ok('player is mid-death for the save test', true);
+      api.saveGame();
+      await seconds(4);
+      api.loadGame();
+      await frames(3);
+      ok('a save made while dead restores a living player',
+        !G.player.dead && G.player.hp > 0, `dead=${G.player.dead} hp=${Math.round(G.player.hp)}`);
+      ok('the restored player is not stranded at zero health',
+        G.player.hp >= G.player.maxHp * 0.5, `hp=${Math.round(G.player.hp)}`);
+    } else {
+      ok('player is mid-death for the save test', false, 'killPlayer did not take');
+    }
+    d.god(true);
+    G.enemies.length = 0;
+    G.backpacks.length = 0;
+    G.player.hp = G.player.maxHp;
+
     // ------------------------------------------------------- 11. save/load --
+    // loadGame() swaps G.player for a fresh object, so read through G from here.
     const saved = api.saveGame();
     ok('game saves', saved);
     const structCount = G.structures.length;
-    const lvl = p.level;
+    const lvl = G.player.level;
     const loaded = api.loadGame();
     ok('game loads', loaded);
     ok('structures survive a save/load round trip', G.structures.length === structCount,
@@ -408,6 +508,27 @@
     return null;
   }
   window.__placeNear = placeNear;
+
+  /** Open ground well away from any player-built structure. */
+  function clearOfStructures(G, x, y) {
+    const api = window.DEADLINE.api;
+    const far = (px, py) => G.structures.every((s) =>
+      s.destroyed || Math.hypot(s.x - px, s.y - py) > 260);
+    for (let r = 300; r < 1400; r += 40) {
+      for (let a = 0; a < 20; a++) {
+        const ang = (a / 20) * Math.PI * 2;
+        const px = x + Math.cos(ang) * r;
+        const py = y + Math.sin(ang) * r;
+        if (px < 200 || py < 200 || px > G.world.w * 32 - 200 || py > G.world.h * 32 - 200) continue;
+        if (api.solidPx(px, py)) continue;
+        if (api.solidPx(px + 24, py) || api.solidPx(px - 24, py)) continue;
+        if (api.solidPx(px, py + 24) || api.solidPx(px, py - 24)) continue;
+        if (!far(px, py)) continue;
+        return { x: px, y: py };
+      }
+    }
+    return { x, y };
+  }
 
   function findNearbySolid(G) {
     const api = window.DEADLINE.api;

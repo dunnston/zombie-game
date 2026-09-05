@@ -232,8 +232,21 @@ export function updateEnemies(dt) {
       continue;                                     // committed to the swing
     }
 
-    // A wall between the enemy and its goal becomes the goal.
-    const blocker = blockerAhead(e, wantAngle);
+    // Flesh first. A reachable player always outranks scenery — otherwise a
+    // zombie standing right next to you would punch the wall behind you and
+    // ignore you entirely, which is both wrong and trivially exploitable.
+    const playerInReach = !p.dead && dist2(e.x, e.y, p.x, p.y) < (e.def.atkRange + p.r) ** 2;
+    if (playerInReach && e.atkCd <= 0) {
+      e.atkCd = e.def.atkCd;
+      e.windup = 0.24;
+      e.pendingStruct = null;
+      e.angle = Math.atan2(p.y - e.y, p.x - e.x);
+      e.blocker = null;
+      continue;
+    }
+
+    // Otherwise, a wall between the enemy and its goal becomes the goal.
+    const blocker = playerInReach ? null : blockerAhead(e, wantAngle);
     if (blocker && (e.aggro || e.raid)) {
       e.blocker = blocker;
       if (e.atkCd <= 0) {
@@ -251,13 +264,6 @@ export function updateEnemies(dt) {
       e.atkCd = e.def.atkCd;
       e.windup = 0.22;
       e.pendingStruct = targetStruct;
-      e.angle = wantAngle;
-      continue;
-    }
-    if (targetIsPlayer && !p.dead && dTarget < e.def.atkRange + p.r && e.atkCd <= 0) {
-      e.atkCd = e.def.atkCd;
-      e.windup = 0.24;
-      e.pendingStruct = null;
       e.angle = wantAngle;
       continue;
     }

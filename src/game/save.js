@@ -3,13 +3,23 @@
 
 import { G, notify } from './state.js';
 import { createWorld, removeProp } from './world.js';
-import { createPlayer } from './player.js';
+import { createPlayer, pickRandomSpawn } from './player.js';
 import { makeStructure } from './building.js';
 import { reapplyUpgrades } from './progression.js';
 import { bestArmor } from './loot.js';
-import { xpForLevel } from './config.js';
+import { clamp } from '../core/util.js';
+import { xpForLevel, TILE } from './config.js';
 
 const KEY = 'deadline.save.v3';
+
+/** Where a dead player would come back, and at what health. */
+function resolveRespawn(p) {
+  if (p.spawnStructure && !p.spawnStructure.destroyed) {
+    return { x: p.spawnStructure.x, y: p.spawnStructure.y + TILE, hp: p.maxHp };
+  }
+  const spot = pickRandomSpawn();
+  return { x: spot.x, y: spot.y, hp: p.maxHp };
+}
 
 export function hasSave() {
   try { return !!localStorage.getItem(KEY); } catch { return false; }
@@ -18,6 +28,13 @@ export function hasSave() {
 export function saveGame() {
   try {
     const p = G.player;
+    // An autosave can land inside the death countdown. Persisting hp: 0 with no
+    // death state would restore a player who is walking around dead, so resolve
+    // the pending respawn at save time exactly as respawnPlayer would. The
+    // backpack has already been dropped and is saved separately, so no
+    // consequence is skipped.
+    const resolved = p.dead ? resolveRespawn(p) : { x: p.x, y: p.y, hp: p.hp };
+
     const data = {
       v: G.version,
       seed: G.world.seed,
@@ -38,7 +55,7 @@ export function saveGame() {
       })),
       backpacks: G.backpacks.map((b) => ({ x: b.x, y: b.y, c: b.contents })),
       player: {
-        x: p.x, y: p.y, hp: p.hp, stam: p.stam,
+        x: resolved.x, y: resolved.y, hp: resolved.hp, stam: p.stam,
         weapons: p.weapons, slot: p.slot, mag: p.mag,
         bag: p.bag, items: p.items, armors: p.armors,
         level: p.level, xp: p.xp, pendingLevels: p.pendingLevels, upgrades: p.upgrades,
@@ -110,7 +127,10 @@ export function loadGame() {
     p.upgrades = pd.upgrades || {};
     reapplyUpgrades(p);
     p.armor = bestArmor(p);
-    p.hp = Math.min(pd.hp ?? p.maxHp, p.maxHp);
+    // Belt and braces: never restore a player who is alive on zero health,
+    // whatever an older or hand-edited save claims.
+    p.hp = clamp(pd.hp ?? p.maxHp, 1, p.maxHp);
+    p.dead = false;
     p.stam = Math.min(pd.stam ?? p.maxStam, p.maxStam);
     G.player = p;
 

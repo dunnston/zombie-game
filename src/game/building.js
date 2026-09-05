@@ -195,16 +195,45 @@ export function updateGenerators(dt) {
   }
 }
 
-export function refuelGenerator(s) {
-  const need = s.def.fuelMax - s.fuel;
-  if (need < 1) { s.on = !s.on; notify(s.on ? 'Generator on' : 'Generator off', '#d8e8c0'); sfx('ui'); return true; }
-  let take = takeRes(G.player.bag, 'fuel', Math.ceil(need));
-  if (take < need) take += takeRes(G.stash, 'fuel', Math.ceil(need) - take);
-  if (take <= 0) { sfx('deny'); notify('No fuel', '#c96a5a'); return false; }
-  s.fuel = Math.min(s.def.fuelMax, s.fuel + take);
+/** True when the generator is actually running, as opposed to merely switched on. */
+export const generatorRunning = (s) => !!s.on && s.fuel > 0;
+
+/**
+ * One key does both jobs, but switching *off* always takes priority.
+ *
+ * Routing every interaction through refuelling meant a half-full generator with
+ * no spare fuel could never be shut down — it just burned on, broadcasting
+ * Threat, which directly contradicts being able to lie low.
+ */
+export function useGenerator(s) {
+  if (generatorRunning(s)) {
+    s.on = false;
+    s.running = false;
+    notify('Generator off', '#d8e8c0');
+    sfx('ui');
+    return true;
+  }
+
+  // It is off or dry: top it up if we can, then start it.
+  const need = Math.ceil(s.def.fuelMax - s.fuel);
+  let take = 0;
+  if (need > 0) {
+    take = takeRes(G.player.bag, 'fuel', need);
+    if (take < need) take += takeRes(G.stash, 'fuel', need - take);
+    if (take > 0) {
+      s.fuel = Math.min(s.def.fuelMax, s.fuel + take);
+      FX.text(s.x, s.y - 16, `+${take} FUEL`, '#d2762c', 11, -32, 0.8);
+    }
+  }
+
+  if (s.fuel <= 0) {
+    sfx('deny');
+    notify('No fuel — find some before this will run', '#c96a5a');
+    return false;
+  }
   s.on = true;
   sfx('build');
-  FX.text(s.x, s.y - 16, `+${take} FUEL`, '#d2762c', 11, -32, 0.8);
+  notify(take > 0 ? `Generator refuelled and running` : 'Generator on', '#b7e08a');
   return true;
 }
 
