@@ -14,7 +14,9 @@ import { raiseAttribute, buyPerk } from '../game/progression.js';
 import {
   ATTRS, ATTR_IDS, ATTR_MAX, perksFor, perkStatus, canRaiseAttr,
 } from '../game/perks.js';
-import { liveSurvivors, survivorCap, rationsHeld, SURVIVOR } from '../game/survivors.js';
+import {
+  liveSurvivors, survivorCap, rationsHeld, rationsCarried, SURVIVOR,
+} from '../game/survivors.js';
 import { clockString, darkness, phaseAt } from '../game/daynight.js';
 import { threatLabel, threatColor } from '../game/threat.js';
 import { dangerAtPx } from '../game/world.js';
@@ -1010,20 +1012,31 @@ function drawPeopleTab(ctx, px, py, pw, ph) {
     x, y + 15,
   );
 
+  // The stash is the pantry, exactly like the ammo they shoot. Food in your own
+  // pack feeds nobody until you drop it off, so say so plainly.
   const rations = rationsHeld();
+  const carried = rationsCarried();
   const burn = crew.length * SURVIVOR.upkeepPerMin * p.upkeepMul;
   ctx.font = '11px "Courier New", monospace';
   ctx.fillStyle = rations > 0 ? (rations < burn * 5 ? C.gold : C.text) : C.warn;
   ctx.fillText(
-    `Rations ${Math.floor(rations)}   ·   burning ${burn.toFixed(1)}/min` +
+    `Stash Rations ${Math.floor(rations)}   ·   burning ${burn.toFixed(1)}/min` +
     (burn > 0 ? `   ·   ${rations > 0 ? `${Math.floor(rations / Math.max(0.01, burn))} min left` : 'STARVING'}` : ''),
     x, y + 34,
   );
+  if (carried > 0) {
+    ctx.fillStyle = rations <= 0 ? C.warn : C.dim;
+    ctx.fillText(
+      `You are carrying ${Math.floor(carried)} — deposit at the stash to feed them`,
+      x, y + 50,
+    );
+  }
   const ammo = countRes(G.stash, 'ammoP');
   ctx.fillStyle = ammo > 40 ? C.text : C.gold;
-  ctx.fillText(`Stash 9mm ${ammo}   ·   they fire from the stash, so keep it full`, x, y + 50);
+  ctx.fillText(`Stash 9mm ${ammo}   ·   they fire from the stash, so keep it full`,
+    x, y + (carried > 0 ? 66 : 50));
 
-  y += 68;
+  y += carried > 0 ? 84 : 68;
 
   if (crew.length === 0) {
     ctx.font = '12px "Courier New", monospace';

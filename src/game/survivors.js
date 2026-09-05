@@ -151,9 +151,13 @@ export function updateUpkeep(dt) {
   const minutes = upkeepAccum / 60;
   upkeepAccum = 0;
 
+  // Charge this tick's upkeep *plus* whatever is outstanding, so restocking the
+  // pantry actually clears a shortage. Billing only the current tick would leave
+  // any accrued debt permanent and the crew starving forever.
   const need = alive.length * SURVIVOR.upkeepPerMin * minutes * G.player.upkeepMul;
-  const paid = takeRes(G.stash, 'rations', need) + takeRes(G.player.bag, 'rations', 0);
-  G.rationDebt = (G.rationDebt || 0) + (need - paid);
+  const owed = need + (G.rationDebt || 0);
+  const paid = takeRes(G.stash, 'rations', owed);
+  G.rationDebt = Math.max(0, owed - paid);
 
   if (G.rationDebt > 1) {
     // Hungry survivors are weaker and slowly starve rather than vanishing.
@@ -163,15 +167,21 @@ export function updateUpkeep(dt) {
     }
     if (!G.rationWarned || G.time - G.rationWarned > 45) {
       G.rationWarned = G.time;
-      notify('Your people are out of Rations — find food', '#e05a4a', true);
+      notify('Your people are out of Rations — stock the stash', '#e05a4a', true);
     }
+    // Cap the backlog so a long trip away is recoverable, not a death spiral.
     G.rationDebt = Math.min(G.rationDebt, 5);
   } else {
     for (const s of alive) s.hungry = false;
   }
 }
 
-export const rationsHeld = () => countRes(G.stash, 'rations') + countRes(G.player.bag, 'rations');
+/**
+ * The pantry is the stash, exactly like the ammo your people shoot. Food in
+ * your own pack is no use to anyone until you drop it off.
+ */
+export const rationsHeld = () => countRes(G.stash, 'rations');
+export const rationsCarried = () => countRes(G.player.bag, 'rations');
 
 // ------------------------------------------------------------------- combat --
 

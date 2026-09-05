@@ -11,6 +11,7 @@ import * as FX from '../core/particles.js';
 import {
   ATTRS, PERKS_BY_ID, recomputeStats, canRaiseAttr, perkStatus, attrCost, perkCost,
 } from './perks.js';
+import { refreshAllSurvivors } from './survivors.js';
 
 /** Points awarded for reaching a given level. Every fifth level pays double. */
 export const pointsForLevel = (level) => (level % 5 === 0 ? 2 : 1);
@@ -56,6 +57,9 @@ export function raiseAttribute(id) {
   p.attrs[id] += 1;
   p.skillPoints -= attrCost();
   recomputeStats(p);
+  // Survivors cache their stats from the player's multipliers, so Charisma has
+  // to reach the people already standing in your base, not just the next hire.
+  refreshAllSurvivors();
   // Gains in max health/stamina are handed over rather than left as headroom.
   p.hp += Math.max(0, p.maxHp - hpBefore);
   p.stam += Math.max(0, p.maxStam - stamBefore);
@@ -78,6 +82,7 @@ export function buyPerk(perkId) {
   p.perks[perkId] = (p.perks[perkId] || 0) + 1;
   p.skillPoints -= perkCost();
   recomputeStats(p);
+  refreshAllSurvivors();          // Inspiring Presence must reach the current crew
   p.hp += Math.max(0, p.maxHp - hpBefore);
   p.stam += Math.max(0, p.maxStam - stamBefore);
 

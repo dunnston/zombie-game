@@ -30,7 +30,8 @@ import { initClock, updateClock, nightFactors, clockString, darkness } from './d
 import { recomputeStats, ATTRS, PERKS, perkStatus } from './perks.js';
 import {
   updateSurvivors, updateUpkeep, seedRescues, recruit, reviveSurvivor,
-  liveSurvivors, survivorCap, refreshAllSurvivors, makeSurvivor, SURVIVOR,
+  liveSurvivors, survivorCap, refreshAllSurvivors, makeSurvivor,
+  rationsHeld, rationsCarried, SURVIVOR,
 } from './survivors.js';
 import { updateFX, clearFX } from '../core/particles.js';
 import * as FX from '../core/particles.js';
@@ -485,6 +486,7 @@ export const api = {
   grantLoot, rollContainer, repairStructure, demolishStructure, killPlayer,
   raiseAttribute, buyPerk, recomputeStats, ATTRS, PERKS, perkStatus,
   seedRescues, recruit, reviveSurvivor, liveSurvivors, survivorCap,
-  refreshAllSurvivors, makeSurvivor, clockString, darkness, nightFactors, SURVIVOR,
+  refreshAllSurvivors, makeSurvivor, rationsHeld, rationsCarried,
+  clockString, darkness, nightFactors, SURVIVOR,
   WEAPONS, STRUCTURES, RECIPES, CAMERA, PLAYER, THREAT,
 };

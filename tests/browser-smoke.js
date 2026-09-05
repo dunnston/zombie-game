@@ -669,17 +669,47 @@
         `${api.liveSurvivors().length} alive`);
 
       // Rations upkeep.
-      G.survivors.push(api.makeSurvivor ? api.makeSurvivor(p.x, p.y, {}) : null);
-      G.survivors = G.survivors.filter(Boolean);
-      if (G.survivors.length) {
-        G.stash.rations = 40;
-        const before = G.stash.rations;
-        await seconds(12);
-        ok('survivors consume Rations over time', (G.stash.rations || 0) < before,
-          `${before} -> ${G.stash.rations || 0}`);
-      } else {
-        ok('survivors consume Rations over time', true, 'no survivor to test with');
+      G.survivors.length = 0;
+      G.survivors.push(api.makeSurvivor(p.x, p.y, {}));
+      G.rationDebt = 0;
+      G.stash.rations = 40;
+      p.bag.rations = 0;
+      const foodBefore = G.stash.rations;
+      await seconds(12);
+      ok('survivors consume Rations over time', (G.stash.rations || 0) < foodBefore,
+        `${foodBefore} -> ${G.stash.rations || 0}`);
+
+      // Regression: an empty pantry accrues debt, and restocking must clear it.
+      // Billing only the current tick would leave the crew starving forever.
+      G.stash.rations = 0;
+      G.rationDebt = 0;
+      await seconds(12);
+      const wentHungry = G.survivors[0].hungry || G.rationDebt > 0;
+      ok('an empty pantry makes the crew hungry', wentHungry,
+        `debt ${G.rationDebt.toFixed(2)} hungry=${G.survivors[0].hungry}`);
+      G.rationDebt = 4;                       // a real backlog
+      G.stash.rations = 400;
+      await seconds(12);
+      ok('restocking the stash pays down the ration debt', G.rationDebt < 1,
+        `debt ${G.rationDebt.toFixed(2)}`);
+      ok('a fed crew stops being hungry', !G.survivors[0].hungry,
+        `hungry=${G.survivors[0].hungry}`);
+
+      // Regression: Charisma bonuses must reach the crew already standing there.
+      const existing = G.survivors[0];
+      existing.level = 3;
+      api.refreshAllSurvivors();
+      const dmgBefore = existing.dmg, hpCapBefore = existing.maxHp;
+      p.skillPoints += 6;
+      for (let i = 0; i < 6 && (p.perks.inspiring || 0) < 1; i++) {
+        if (!api.buyPerk('inspiring')) api.raiseAttribute('cha');
       }
+      ok('Inspiring Presence was learned', (p.perks.inspiring || 0) >= 1,
+        `rank ${p.perks.inspiring || 0}`);
+      ok('a Charisma perk reaches survivors already recruited',
+        existing.dmg > dmgBefore && existing.maxHp > hpCapBefore,
+        `dmg ${dmgBefore.toFixed(1)} -> ${existing.dmg.toFixed(1)}, hp ${hpCapBefore} -> ${existing.maxHp}`);
+
       G.survivors.length = 0;
       G.enemies.length = 0;
     }
