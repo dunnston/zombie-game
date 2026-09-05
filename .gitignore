@@ -9,3 +9,5 @@ Thumbs.db
 .vscode/
 test-results/
 screenshots/
+.playwright-mcp/
+*.png
