@@ -751,7 +751,7 @@ function drawCharPanel(ctx, W, H) {
 // ------------------------------------------------------------- craft panel ---
 
 function drawCraftPanel(ctx, W, H) {
-  const w = Math.min(720, W - 60), h = Math.min(560, H - 60);
+  const w = Math.min(720, W - 60), h = Math.min(620, H - 50);
   const x = (W - w) / 2, y = (H - h) / 2;
 
   const bench = nearWorkbench(G.player.x, G.player.y);
@@ -760,21 +760,28 @@ function drawCraftPanel(ctx, W, H) {
 
   ctx.font = '11px "Courier New", monospace';
   ctx.fillStyle = C.dim;
-  ctx.fillText('Crafting is instant. Materials come from your pack and any stash.', x + 20, y + 42);
+  ctx.fillText('Crafting is instant. Materials come from your pack and any stash.', x + 20, y + 40);
 
+  // The upgrade prompt gets its own full-width row so it can never collide
+  // with the recipe grid.
+  let listTop = y + 54;
   if (bench && bench.tier < 2) {
-    const bw = 250, bh = 26;
-    const bx = x + w - bw - 20, by = y + 30;
+    const bw = w - 40, bh = 30;
+    const bx = x + 20, by = y + 50;
+    const afford = canAfford(BENCH_UPGRADE_COST);
     if (button(ctx, bx, by, bw, bh, 'UPGRADE WORKBENCH → II', {
-      enabled: canAfford(BENCH_UPGRADE_COST),
+      enabled: afford,
       sub: null,
       color: C.blue,
     })) {
       upgradeBench(bench);
     }
-    ctx.font = '9px "Courier New", monospace';
-    ctx.fillStyle = canAfford(BENCH_UPGRADE_COST) ? C.dim : '#a06a5a';
-    ctx.fillText(costString(BENCH_UPGRADE_COST), bx, by + bh + 12);
+    ctx.font = '10px "Courier New", monospace';
+    ctx.fillStyle = afford ? C.dim : '#a06a5a';
+    ctx.textAlign = 'right';
+    ctx.fillText(costString(BENCH_UPGRADE_COST), bx + bw - 10, by + 19);
+    ctx.textAlign = 'left';
+    listTop = by + bh + 10;
   }
 
   const list = RECIPES;
@@ -784,7 +791,7 @@ function drawCraftPanel(ctx, W, H) {
   let i = 0;
   for (const r of list) {
     const cx = x + 20 + (i % cols) * (cw + 10);
-    const cy = y + 62 + Math.floor(i / cols) * (chh + 6);
+    const cy = listTop + Math.floor(i / cols) * (chh + 6);
     if (cy + chh > y + h - 12) break;
     i++;
 
@@ -811,14 +818,14 @@ function drawCraftPanel(ctx, W, H) {
 // --------------------------------------------------------------- map panel ---
 
 function drawMapPanel(ctx, W, H) {
-  const size = Math.min(W - 120, H - 120);
+  const size = Math.min(W - 120, H - 140);
   const x = (W - size) / 2, y = (H - size) / 2;
   const world = G.world;
 
   ctx.fillStyle = 'rgba(6,8,5,0.86)';
   ctx.fillRect(0, 0, W, H);
 
-  panel(ctx, x - 12, y - 34, size + 24, size + 46, 'TOWN MAP  —  M to close');
+  panel(ctx, x - 12, y - 34, size + 24, size + 66, 'TOWN MAP  —  M to close');
 
   const img = ensureMinimap();
   ctx.save();

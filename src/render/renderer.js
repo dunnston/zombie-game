@@ -209,7 +209,25 @@ function drawProp(ctx, p) {
   ctx.fill();
   ctx.globalAlpha = 1;
   ctx.drawImage(spr, -spr.width / 2, -spr.height / 2);
+
+  // Chopping feedback: a shudder on impact and a bar once it's wounded.
+  if (p.hitAt !== undefined && G.time - p.hitAt < 0.12) {
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = '#fff';
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.drawImage(spr, -spr.width / 2 + 1, -spr.height / 2);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+  }
   ctx.restore();
+
+  if (p.maxHp && p.hp < p.maxHp) {
+    const frac = clamp(p.hp / p.maxHp, 0, 1);
+    ctx.fillStyle = '#00000099';
+    ctx.fillRect(p.x - 15, p.y - 26, 30, 4);
+    ctx.fillStyle = '#a3763f';
+    ctx.fillRect(p.x - 14, p.y - 25, 28 * frac, 2);
+  }
 }
 
 function drawContainer(ctx, c) {
@@ -264,11 +282,23 @@ function drawStructure(ctx, s) {
     }
   }
   if (s.type === 'generator' && s.running) {
-    const t = Math.sin(G.time * 22) * 0.5 + 0.5;
-    ctx.fillStyle = `rgba(210,160,60,${0.25 + t * 0.3})`;
+    // A running-light and a shudder, not a glowing blob.
+    const t = Math.sin(G.time * 24) * 0.5 + 0.5;
+    ctx.fillStyle = `rgba(255,190,90,${0.55 + t * 0.45})`;
     ctx.beginPath();
-    ctx.arc(0, 0, 20 + t * 3, 0, TAU);
+    ctx.arc(9, -9, 2.2, 0, TAU);
     ctx.fill();
+    ctx.strokeStyle = `rgba(220,150,60,${0.12 + t * 0.12})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 21 + t * 2, 0, TAU);
+    ctx.stroke();
+    // Fuel gauge on the casing.
+    const f = s.fuel / s.def.fuelMax;
+    ctx.fillStyle = '#12150f';
+    ctx.fillRect(-9, 11, 18, 3);
+    ctx.fillStyle = f > 0.3 ? '#d2762c' : '#c94a3a';
+    ctx.fillRect(-9, 11, 18 * f, 3);
   }
   if (s.type === 'bedroll' && G.player.spawnStructure === s) {
     ctx.strokeStyle = `rgba(160,220,140,${0.35 + Math.sin(G.time * 2) * 0.2})`;
@@ -740,7 +770,7 @@ function drawPostEffects(ctx, W, H) {
   // Danger tint — the further you stray, the redder the world reads.
   const tier = G.ui.dangerTier || 1;
   if (tier > 1) {
-    ctx.globalAlpha = (tier - 1) * 0.045;
+    ctx.globalAlpha = (tier - 1) * 0.032;
     ctx.fillStyle = tier >= 4 ? '#ff2a1a' : '#ff5a2a';
     ctx.fillRect(0, 0, W, H);
     ctx.globalAlpha = 1;

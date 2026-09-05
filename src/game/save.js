@@ -2,7 +2,7 @@
 // just the deltas: what's been looted, what's been built, and who you are.
 
 import { G, notify } from './state.js';
-import { createWorld } from './world.js';
+import { createWorld, removeProp } from './world.js';
 import { createPlayer } from './player.js';
 import { makeStructure } from './building.js';
 import { reapplyUpgrades } from './progression.js';
@@ -30,6 +30,7 @@ export function saveGame() {
       stashItems: G.stashItems,
       tutorial: { step: G.tutorial.step, done: G.tutorial.done },
       looted: G.world.containers.filter((c) => c.looted).map((c) => c.id),
+      chopped: G.world.chopped,
       discovered: G.world.locations.filter((l) => l.discovered).map((l) => l.id),
       structures: G.structures.map((s) => ({
         t: s.type, tx: s.tx, ty: s.ty, hp: s.hp, maxHp: s.maxHp,
@@ -71,6 +72,10 @@ export function loadGame() {
     for (const c of G.world.containers) if (lootedSet.has(c.id)) c.looted = true;
     const discSet = new Set(data.discovered || []);
     for (const l of G.world.locations) if (discSet.has(l.id)) l.discovered = true;
+    for (const key of data.chopped || []) {
+      const prop = G.world.propGrid.get(key);
+      if (prop) removeProp(G.world, prop);
+    }
 
     G.enemies.length = 0;
     G.bullets.length = 0;

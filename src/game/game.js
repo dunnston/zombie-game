@@ -96,10 +96,15 @@ export function findInteractable() {
   const R = PLAYER.interactRange;
   let best = null, bestD = R * R;
 
+  // Death drops win outright. If you died beside your own workbench, "recover
+  // my gear" is always what you meant, not "upgrade the bench".
+  let packBest = null, packD = R * R;
   for (const b of G.backpacks) {
     const d = dist2(p.x, p.y, b.x, b.y);
-    if (d < bestD) { bestD = d; best = { kind: 'backpack', ref: b, label: 'Recover your pack' }; }
+    if (d < packD) { packD = d; packBest = { kind: 'backpack', ref: b, label: 'Recover your pack' }; }
   }
+  if (packBest) return packBest;
+
   for (const c of G.world.containers) {
     if (c.looted) continue;
     const d = dist2(p.x, p.y, c.x, c.y);

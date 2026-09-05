@@ -117,25 +117,28 @@ export const CONSUMABLES = {
 
 // ---------------------------------------------------------------- enemies ---
 
+// `structMul` scales damage against player structures only. Walkers and runners
+// are a threat to *you*; brutes are what actually breaches a wall. That split is
+// what makes the tier-3 raid feel like a step change.
 export const ENEMIES = {
   walker: {
-    id: 'walker', name: 'Walker', hp: 58, speed: 50, dmg: 13, atkCd: 1.0,
-    atkRange: 26, r: 12, xp: 10, sense: 330, knockResist: 0, structMul: 1.0,
+    id: 'walker', name: 'Walker', hp: 58, speed: 60, dmg: 13, atkCd: 1.0,
+    atkRange: 26, r: 12, xp: 10, sense: 330, knockResist: 0, structMul: 0.5,
     body: '#5c6b45', dark: '#3d4a2e', threat: 0.35,
   },
   runner: {
-    id: 'runner', name: 'Runner', hp: 44, speed: 122, dmg: 11, atkCd: 0.65,
-    atkRange: 25, r: 11, xp: 18, sense: 430, knockResist: 0.15, structMul: 0.7,
+    id: 'runner', name: 'Runner', hp: 44, speed: 132, dmg: 11, atkCd: 0.65,
+    atkRange: 25, r: 11, xp: 18, sense: 430, knockResist: 0.15, structMul: 0.4,
     body: '#7a5a3c', dark: '#513a26', threat: 0.5,
   },
   brute: {
-    id: 'brute', name: 'Brute', hp: 300, speed: 46, dmg: 34, atkCd: 1.35,
-    atkRange: 34, r: 19, xp: 55, sense: 380, knockResist: 0.75, structMul: 2.6,
+    id: 'brute', name: 'Brute', hp: 300, speed: 52, dmg: 34, atkCd: 1.35,
+    atkRange: 34, r: 19, xp: 55, sense: 380, knockResist: 0.75, structMul: 2.2,
     body: '#6b4b52', dark: '#452f34', threat: 1.1,
   },
   behemoth: {
-    id: 'behemoth', name: 'Behemoth', hp: 1100, speed: 42, dmg: 58, atkCd: 1.6,
-    atkRange: 44, r: 27, xp: 200, sense: 900, knockResist: 0.95, structMul: 4.5,
+    id: 'behemoth', name: 'Behemoth', hp: 1100, speed: 46, dmg: 58, atkCd: 1.6,
+    atkRange: 44, r: 27, xp: 200, sense: 900, knockResist: 0.95, structMul: 4.0,
     body: '#7d4348', dark: '#4a262b', threat: 2.5, boss: true,
   },
 };
@@ -159,27 +162,27 @@ export const STRUCTURES = {
     desc: 'Unlocks crafting while you stand near it. Upgradeable.',
   },
   barricade: {
-    id: 'barricade', name: 'Barricade', cost: { wood: 8 }, hp: 130,
+    id: 'barricade', name: 'Barricade', cost: { wood: 8 }, hp: 160,
     solid: true, tier: 1, threat: 0.5, wall: true,
     desc: 'Cheap, fast, and flimsy. Good for funnelling.',
   },
   woodWall: {
-    id: 'woodWall', name: 'Wood Wall', cost: { wood: 16 }, hp: 280,
+    id: 'woodWall', name: 'Wood Wall', cost: { wood: 16 }, hp: 340,
     solid: true, tier: 1, threat: 1, wall: true,
     desc: 'The bread-and-butter wall.',
   },
   reinforcedWall: {
-    id: 'reinforcedWall', name: 'Reinforced Wall', cost: { wood: 12, scrap: 22 }, hp: 760,
+    id: 'reinforcedWall', name: 'Reinforced Wall', cost: { wood: 12, scrap: 22 }, hp: 920,
     solid: true, tier: 1, threat: 1.5, wall: true,
     desc: 'Wood and sheet metal. Buys you real time.',
   },
   metalWall: {
-    id: 'metalWall', name: 'Steel Wall', cost: { scrap: 45, parts: 2 }, hp: 1700,
+    id: 'metalWall', name: 'Steel Wall', cost: { scrap: 45, parts: 2 }, hp: 2100,
     solid: true, tier: 2, threat: 2, wall: true,
     desc: 'Brutes still get through — eventually.',
   },
   gate: {
-    id: 'gate', name: 'Gate', cost: { wood: 22, scrap: 12 }, hp: 460,
+    id: 'gate', name: 'Gate', cost: { wood: 22, scrap: 12 }, hp: 560,
     solid: true, tier: 1, threat: 1.5, gate: true,
     desc: 'Stand next to it and press E to open or close.',
   },
@@ -357,12 +360,16 @@ export const UPGRADES = [
 
 export const THREAT = {
   max: 100,
-  decayPerSec: 0.30,          // slow bleed-off so hiding is a real option
+  // Decay has to be slower than a scavenging run generates, or the meter never
+  // moves for a player who explores instead of building — which would gut the
+  // "your activity summons the horde" premise. ~7/min bleed-off still makes
+  // deliberately lying low a real option.
+  decayPerSec: 0.12,
   killWalk: 0.35,
   perGunshot: 1.0,            // scaled per-weapon by WEAPONS[].threat
   perBuild: 1.0,              // scaled per-structure by STRUCTURES[].threat
   perCraft: 0.4,
-  perLoot: 0.25,
+  perLoot: 0.45,
   generatorPerSec: 0.55,
   turretPerShot: 0.06,
   postRaidReset: 14,

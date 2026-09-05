@@ -15,6 +15,10 @@ const rng = makeRng(0xF00DBEEF);
 
 export const WARNING_TIME = 12;
 
+const STALL_INTERVAL = 4;      // seconds between progress checks
+const STALL_LIMIT = 12;        // seconds of no progress before relocating
+const MAX_RAID_SECONDS = 300;  // absolute ceiling on a single raid
+
 export function startRaid() {
   const index = G.raidsDone;
   const spec = raidSpec(index);
@@ -104,7 +108,9 @@ export function updateRaid(dt) {
       const anchorOnPlayer = !raid.hasBase || dist2(p.x, p.y, raid.cx, raid.cy) > 1500 * 1500;
       const ax = anchorOnPlayer ? p.x : raid.cx;
       const ay = anchorOnPlayer ? p.y : raid.cy;
-      const spot = spawnRing(ax, ay, 700, 1050);
+      // Close enough that shamblers arrive in seconds rather than a minute,
+      // far enough to stay off screen when they appear.
+      const spot = spawnRing(ax, ay, 520, 800);
       if (spot) {
         const type = pickRaidType(raid.spec.mix);
         const hpMul = 1 + raid.index * 0.06;
@@ -128,12 +134,50 @@ export function updateRaid(dt) {
     }
   }
 
+  // Anti-stall. A raider that gets hung up on terrain it cannot steer around
+  // would otherwise leave the raid unwinnable, blocking all progression. If one
+  // stops closing on the base, it is quietly moved to a fresh approach lane.
+  raid.stallCheck = (raid.stallCheck ?? STALL_INTERVAL) - dt;
+  if (raid.stallCheck <= 0) {
+    raid.stallCheck = STALL_INTERVAL;
+    for (const e of G.enemies) {
+      if (!e.raid || e.dead) continue;
+      const d = Math.hypot(e.x - raid.cx, e.y - raid.cy);
+      if (e.lastRaidDist === undefined) { e.lastRaidDist = d; e.raidStall = 0; continue; }
+      // Only count it as stalled if it is both far away and not getting closer.
+      if (d > 240 && d > e.lastRaidDist - 30) e.raidStall = (e.raidStall || 0) + STALL_INTERVAL;
+      else e.raidStall = 0;
+      e.lastRaidDist = d;
+
+      if (e.raidStall >= STALL_LIMIT) {
+        const spot = spawnRing(raid.cx, raid.cy, 360, 560);
+        if (spot) {
+          e.x = spot.x; e.y = spot.y;
+          e.vx = 0; e.vy = 0;
+          e.raidStall = 0;
+          e.lastRaidDist = Math.hypot(e.x - raid.cx, e.y - raid.cy);
+          e.objective = raidTarget(e);
+          e.aggro = true;
+        }
+      }
+    }
+  }
+
+  // Hard backstop: no raid may outlast this, whatever goes wrong.
+  raid.elapsed = (raid.elapsed || 0) + dt;
+  if (raid.elapsed > MAX_RAID_SECONDS) {
+    notify('The horde breaks off and scatters', '#d9c46a', true);
+    for (let i = G.enemies.length - 1; i >= 0; i--) if (G.enemies[i].raid) G.enemies.splice(i, 1);
+    finishRaid();
+    return;
+  }
+
   // ---------------------------------------------------------- wave / end ---
   const alive = G.enemies.reduce((n, e) => n + (e.raid && !e.dead ? 1 : 0), 0);
   if (raid.toSpawn <= 0 && alive === 0) {
     if (raid.wave < raid.spec.waves) {
-      raid.interWave = (raid.interWave ?? 4.5) - dt;
-      if (raid.interWave <= 0) { raid.interWave = 4.5; startWave(raid); }
+      raid.interWave = (raid.interWave ?? 3.5) - dt;
+      if (raid.interWave <= 0) { raid.interWave = 3.5; startWave(raid); }
     } else {
       finishRaid();
     }

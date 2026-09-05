@@ -124,6 +124,16 @@ export function solidTile(tx, ty) {
 export const solidPx = (px, py) => solidTile(Math.floor(px / TILE), Math.floor(py / TILE));
 
 /**
+ * Terrain-only collision, ignoring player-built structures.
+ *
+ * Bullets use this so you can fire over your own barricades. Top-down, your
+ * walls are chest height; more importantly, a base you cannot shoot out of is
+ * a base that actively punishes you for building it.
+ */
+export const terrainBlocksPx = (px, py) =>
+  isBlockedTile(G.world, Math.floor(px / TILE), Math.floor(py / TILE));
+
+/**
  * Slide-along-walls circle movement. Resolves X and Y independently so an
  * entity brushing a wall keeps its remaining momentum instead of sticking.
  */

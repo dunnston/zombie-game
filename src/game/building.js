@@ -255,12 +255,21 @@ export function baseCenter() {
   return { x: sx / n, y: sy / n, hasBase: true };
 }
 
-/** Enemies target the closest valuable structure, falling back to the player. */
+/**
+ * What a raider walks toward. Deliberately the *nearest* structure rather than
+ * the most valuable one: that makes the horde break on the perimeter, which is
+ * the whole point of building a perimeter. Valuable structures get a modest
+ * pull so raiders that are already inside head for the workbench, not back out.
+ */
 export function raidTarget(from) {
-  const priority = nearestStructure(from.x, from.y, 4000, (s) => s.def.protect);
-  if (priority) return priority;
-  const any = nearestStructure(from.x, from.y, 4000, (s) => s.def.wall || s.def.gate);
-  return any || null;
+  let best = null, bestScore = Infinity;
+  for (const s of G.structures) {
+    if (s.destroyed) continue;
+    // Weighting <1 makes protected structures effectively "closer".
+    const score = dist2(from.x, from.y, s.x, s.y) * (s.def.protect ? 0.55 : 1);
+    if (score < bestScore) { bestScore = score; best = s; }
+  }
+  return best;
 }
 
 export function stashDepositAll() {

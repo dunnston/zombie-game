@@ -6,13 +6,16 @@
 // fun rather than infuriating.
 
 import { WEAPONS, STRUCTURES, THREAT, TILE } from './config.js';
-import { G, solidPx, notify, shake, takeRes, countRes } from './state.js';
+import { G, terrainBlocksPx, notify, shake, takeRes, countRes } from './state.js';
 import { damageEnemy, destroyStructure } from './damage.js';
 import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
 import { angleDelta, dist2, clamp, TAU } from '../core/util.js';
 import { addThreat } from './threat.js';
 import { turretPowered } from './building.js';
+import { propAtTile, removeProp } from './world.js';
+import { spawnPickup } from './loot.js';
+import { addXp } from './progression.js';
 
 const scratch = [];
 
@@ -51,7 +54,7 @@ export function updateBullets(dt) {
       b.x += (b.vx * dt) / steps;
       b.y += (b.vy * dt) / steps;
 
-      if (solidPx(b.x, b.y)) {
+      if (terrainBlocksPx(b.x, b.y)) {
         FX.sparks(b.x, b.y, -b.vx, -b.vy, 4, '#cfd6dd');
         FX.decal(b.x, b.y, 2, '#1a1a18');
         sfx('hitWall');
@@ -113,8 +116,50 @@ export function meleeAttack(p, w) {
     }
     // Brief hitstop makes a heavy swing land hard.
     if (w.id === 'sledge') G.slowmo = Math.max(G.slowmo, 0.06);
+  } else {
+    // Nothing to fight? Chop whatever scenery is in front of you instead.
+    chopProp(p, w, dmg);
   }
   return hits.length;
+}
+
+/**
+ * Melee against harvestable scenery. Trees are the main early wood supply, and
+ * clearing them opens firing lines for turrets — so felling one is a real
+ * tactical decision, not just a resource tap.
+ */
+function chopProp(p, w, dmg) {
+  const reach = w.range + p.r;
+  const tx = Math.floor((p.x + Math.cos(p.angle) * reach * 0.7) / TILE);
+  const ty = Math.floor((p.y + Math.sin(p.angle) * reach * 0.7) / TILE);
+  const prop = propAtTile(G.world, tx, ty);
+  if (!prop) return false;
+
+  if (!G.tutorial.done.chop) {
+    G.tutorial.done.chop = true;
+    notify('Keep swinging — felled trees give Wood and clear firing lines', '#a3763f', true);
+  }
+
+  // Axes are not a thing here; heavy blunt weapons are simply better at it.
+  const chopMul = w.id === 'sledge' ? 1.6 : w.id === 'machete' ? 1.3 : 1;
+  prop.hp -= dmg * chopMul;
+  prop.hitAt = G.time;          // renderer reads this; avoids a per-frame prop loop
+  FX.debris(prop.x, prop.y, 5, '#4a3a22');
+  sfx('meleeHit');
+  shake(1.2);
+
+  if (prop.hp <= 0) {
+    const yield_ = 6 + Math.round(Math.random() * 5 * p.lootMul);
+    removeProp(G.world, prop);
+    FX.debris(prop.x, prop.y, 18, '#3f5226');
+    FX.text(prop.x, prop.y - 20, `WOOD +${yield_}`, '#a3763f', 12, -38, 1.0);
+    sfx('structureBreak');
+    for (let i = 0; i < Math.min(4, Math.ceil(yield_ / 3)); i++) {
+      spawnPickup(prop.x, prop.y, 'res', 'wood', Math.ceil(yield_ / Math.min(4, Math.ceil(yield_ / 3))));
+    }
+    addXp(4);
+  }
+  return true;
 }
 
 // --------------------------------------------------------------------- guns --

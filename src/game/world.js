@@ -28,6 +28,8 @@ export function createWorld(seed = 20240917) {
     tiles: new Uint8Array(W * W).fill(T.GRASS),
     blocked: new Uint8Array(W * W),
     props: [],
+    propGrid: new Map(),        // "tx,ty" -> harvestable prop
+    chopped: [],                // tiles harvested this run, for the save file
     containers: [],
     locations: LOCATIONS.map((l) => ({ ...l, discovered: false })),
     danger: new Uint8Array(W * W).fill(1),
@@ -349,7 +351,15 @@ export function createWorld(seed = 20240917) {
     if (!rng.chance(p)) continue;
     if (rng.chance(0.72)) {
       block(x, y, 1);
-      world.props.push({ kind: 'tree', si: rng.int(0, 3), rot: 0, x: (x + 0.5) * TILE, y: (y + 0.5) * TILE });
+      // Trees are choppable: they gate sight lines and turret fire, and they
+      // are the renewable-ish wood supply that early base building runs on.
+      const tree = {
+        kind: 'tree', si: rng.int(0, 3), rot: 0, tx: x, ty: y,
+        x: (x + 0.5) * TILE, y: (y + 0.5) * TILE,
+        hp: 70, maxHp: 70, harvest: 'wood', flash: 0,
+      };
+      world.props.push(tree);
+      world.propGrid.set(`${x},${y}`, tree);
     } else {
       world.props.push({ kind: rng.chance(0.7) ? 'bush' : 'rock', si: rng.int(0, 2), rot: rng.range(0, 6.28), x: (x + 0.5) * TILE, y: (y + 0.5) * TILE });
     }
@@ -425,6 +435,20 @@ export function locationAtPx(world, px, py) {
     if (tx >= x && ty >= y && tx < x + w && ty < y + h) return l;
   }
   return null;
+}
+
+/** The harvestable prop occupying a tile, if any. */
+export const propAtTile = (world, tx, ty) => world.propGrid.get(`${tx},${ty}`) || null;
+
+/** Removes a harvested prop and frees the tile it was blocking. */
+export function removeProp(world, prop) {
+  const i = world.props.indexOf(prop);
+  if (i >= 0) world.props.splice(i, 1);
+  world.propGrid.delete(`${prop.tx},${prop.ty}`);
+  world.chopped.push(`${prop.tx},${prop.ty}`);
+  if (prop.tx >= 0 && prop.ty >= 0 && prop.tx < world.w && prop.ty < world.h) {
+    world.blocked[prop.ty * world.w + prop.tx] = 0;
+  }
 }
 
 export const WORLD_PX = WORLD_SIZE;
