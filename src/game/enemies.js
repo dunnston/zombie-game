@@ -11,6 +11,8 @@ import {
 } from './state.js';
 import { dangerAtPx } from './world.js';
 import { damagePlayer, damageStructure } from './damage.js';
+import { damageSurvivor, SURVIVOR } from './survivors.js';
+import { nightFactors } from './daynight.js';
 import { sfx } from '../core/audio.js';
 import { makeRng, dist2, clamp, angleDelta, TAU } from '../core/util.js';
 
@@ -18,6 +20,7 @@ const rng = makeRng(0xBADDCAFE);
 const scratch = [];
 
 export const MAX_ENEMIES = 160;
+const SURVIVOR_R = SURVIVOR.r;
 
 // Ambient population target per danger tier, measured near the player.
 const DENSITY = [0, 5, 10, 17, 24];
@@ -98,7 +101,8 @@ export function updateSpawning(dt) {
 
   const tier = dangerAtPx(G.world, p.x, p.y);
   const near = countNear(p.x, p.y, 950);
-  const want = DENSITY[clamp(tier, 1, 4)];
+  // After dark there are simply more of them abroad.
+  const want = DENSITY[clamp(tier, 1, 4)] * nightFactors().density;
   if (near >= want) return;
 
   const ring = Math.max(880, G.viewRadius + 180);
@@ -162,6 +166,7 @@ function blockerAhead(e, angle) {
 export function updateEnemies(dt) {
   const p = G.player;
   const hash = G.spatial;
+  const night = nightFactors();
 
   for (const e of G.enemies) {
     if (e.dead) continue;
@@ -180,7 +185,17 @@ export function updateEnemies(dt) {
     // ---------------------------------------------------------- targeting --
     let tx, ty, targetStruct = null, targetIsPlayer = false;
     const dPlayer2 = dist2(e.x, e.y, p.x, p.y);
-    const senseR = e.def.sense * (p.sneaking ? 0.55 : 1);
+    const senseR = e.def.sense * (p.sneaking ? 0.55 : 1) * night.sense;
+
+    // Survivors are people too: a zombie that gets close to one goes for it.
+    let victim = null, victimD = 999999;
+    for (const sv of G.survivors) {
+      if (sv.dead) continue;
+      const d = dist2(e.x, e.y, sv.x, sv.y);
+      if (d < victimD) { victimD = d; victim = sv; }
+    }
+    const survivorInReach = victim &&
+      victimD < (e.def.atkRange + SURVIVOR_R) * (e.def.atkRange + SURVIVOR_R);
 
     if (!p.dead && (e.aggro || dPlayer2 < senseR * senseR)) {
       // Sight check stops enemies tracking you through solid buildings.
@@ -223,19 +238,37 @@ export function updateEnemies(dt) {
           if (dist2(e.x, e.y, s.x, s.y) < (e.def.atkRange + TILE) * (e.def.atkRange + TILE)) {
             damageStructure(s, e.def.dmg * e.def.structMul, e.x, e.y);
           }
+        } else if (e.pendingSurvivor && !e.pendingSurvivor.dead) {
+          const sv = e.pendingSurvivor;
+          if (dist2(e.x, e.y, sv.x, sv.y) < (e.def.atkRange + SURVIVOR_R + 6) ** 2) {
+            damageSurvivor(sv, e.def.dmg, e.x, e.y);
+          }
         } else if (!p.dead && dist2(e.x, e.y, p.x, p.y) < (e.def.atkRange + p.r + 6) ** 2) {
           damagePlayer(e.def.dmg, e.x, e.y, e.def.name);
         }
         e.pendingStruct = null;
+        e.pendingSurvivor = null;
       }
       e.lastX = e.x; e.lastY = e.y;
       continue;                                     // committed to the swing
     }
 
-    // Flesh first. A reachable player always outranks scenery — otherwise a
+    // Flesh first. A reachable person always outranks scenery — otherwise a
     // zombie standing right next to you would punch the wall behind you and
     // ignore you entirely, which is both wrong and trivially exploitable.
     const playerInReach = !p.dead && dist2(e.x, e.y, p.x, p.y) < (e.def.atkRange + p.r) ** 2;
+
+    // A survivor within arm's reach gets bitten, even mid-approach to a wall.
+    if (!playerInReach && survivorInReach && e.atkCd <= 0) {
+      e.atkCd = e.def.atkCd;
+      e.windup = 0.24;
+      e.pendingStruct = null;
+      e.pendingSurvivor = victim;
+      e.angle = Math.atan2(victim.y - e.y, victim.x - e.x);
+      e.blocker = null;
+      continue;
+    }
+
     if (playerInReach && e.atkCd <= 0) {
       e.atkCd = e.def.atkCd;
       e.windup = 0.24;
@@ -272,7 +305,7 @@ export function updateEnemies(dt) {
     const moveAngle = steer(e, wantAngle);
     e.angle = e.angle + clamp(angleDelta(e.angle, moveAngle), -9 * dt, 9 * dt);
 
-    let speed = e.def.speed;
+    let speed = e.def.speed * night.speed;
     if (e.slowT > 0) speed *= 0.45;
     if (!e.aggro && !e.raid) speed *= 0.45;
     // Runners lunge in bursts rather than sprinting flat out.

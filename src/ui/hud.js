@@ -3,14 +3,21 @@
 
 import {
   RES, WEAPONS, ARMORS, CONSUMABLES, STRUCTURES, TILE, THREAT, TERRAIN, T,
-  UPGRADES, RECIPES, BENCH_UPGRADE_COST,
+  RECIPES, BENCH_UPGRADE_COST,
 } from '../game/config.js';
 import { G, countRes, totalRes, canAfford } from '../game/state.js';
 import { Input } from '../core/input.js';
 import { currentWeapon, bagLoad } from '../game/player.js';
 import { buildMenu, structureCost, isUnlocked, nearWorkbench, upgradeBench } from '../game/building.js';
 import { visibleRecipes, craftStatus, craft } from '../game/crafting.js';
-import { chooseUpgrade } from '../game/progression.js';
+import { raiseAttribute, buyPerk } from '../game/progression.js';
+import {
+  ATTRS, ATTR_IDS, ATTR_MAX, perksFor, perkStatus, canRaiseAttr,
+} from '../game/perks.js';
+import {
+  liveSurvivors, survivorCap, rationsHeld, rationsCarried, SURVIVOR,
+} from '../game/survivors.js';
+import { clockString, darkness, phaseAt } from '../game/daynight.js';
 import { threatLabel, threatColor } from '../game/threat.js';
 import { dangerAtPx } from '../game/world.js';
 import { clamp, TAU, clock } from '../core/util.js';
@@ -134,6 +141,7 @@ export function drawHUD(ctx, deviceW, deviceH, interactive = true) {
   G.ui.dangerTier = dangerAtPx(G.world, p.x, p.y);
 
   drawVitals(ctx, W, H);
+  drawClock(ctx, W, H);
   drawWeaponBar(ctx, W, H);
   drawThreat(ctx, W, H);
   drawResourceStrip(ctx, W, H);
@@ -146,7 +154,6 @@ export function drawHUD(ctx, deviceW, deviceH, interactive = true) {
   if (G.ui.panel === 'char') drawCharPanel(ctx, W, H);
   else if (G.ui.panel === 'craft') drawCraftPanel(ctx, W, H);
   else if (G.ui.panel === 'map') drawMapPanel(ctx, W, H);
-  else if (G.ui.panel === 'levelup') drawLevelUp(ctx, W, H);
 
   if (p.dead) drawDeath(ctx, W, H);
   if (G.paused) drawPause(ctx, W, H);
@@ -202,10 +209,65 @@ function drawVitals(ctx, W, H) {
   ctx.fillStyle = bandages + kits > 0 ? C.text : C.dim;
   ctx.fillText(`Q  HEAL   bandage ${bandages}   medkit ${kits}`, x, y + 74);
 
-  if (p.pendingLevels > 0) {
+  if (p.skillPoints > 0) {
     ctx.fillStyle = C.gold;
     ctx.font = 'bold 12px "Courier New", monospace';
-    ctx.fillText(`▲ ${p.pendingLevels} UPGRADE READY`, x, y + 100);
+    ctx.fillText(
+      `▲ ${p.skillPoints} SKILL POINT${p.skillPoints === 1 ? '' : 'S'} — TAB`,
+      x, y + 100,
+    );
+  }
+}
+
+/** Day counter, clock and phase. Sits under the vitals block. */
+function drawClock(ctx, W, H) {
+  const p = G.player;
+  const x = 16;
+  const y = p.skillPoints > 0 ? 128 : 112;
+  const dark = darkness().alpha;
+  const phase = phaseAt(G.dayTime);
+
+  ctx.fillStyle = C.bgSoft;
+  ctx.fillRect(x - 8, y - 8, 252, 40);
+  ctx.strokeStyle = C.border;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x - 7.5, y - 7.5, 251, 39);
+
+  ctx.font = 'bold 15px "Courier New", monospace';
+  ctx.fillStyle = C.text;
+  ctx.fillText(`DAY ${G.day}`, x, y + 10);
+  ctx.font = 'bold 14px "Courier New", monospace';
+  ctx.fillStyle = dark > 0.5 ? '#8f9ad0' : C.gold;
+  ctx.fillText(clockString(), x + 78, y + 10);
+  ctx.font = 'bold 11px "Courier New", monospace';
+  ctx.fillStyle = { dawn: '#d0a05a', day: '#d0c46a', dusk: '#d98a4a', night: '#8f9ad0' }[phase.id];
+  ctx.textAlign = 'right';
+  ctx.fillText(phase.name, x + 236, y + 10);
+  ctx.textAlign = 'left';
+
+  // A day-long bar with the night stretch marked out.
+  const bw = 236;
+  ctx.fillStyle = '#1a2016';
+  ctx.fillRect(x, y + 16, bw, 7);
+  ctx.fillStyle = 'rgba(60,72,130,0.55)';
+  ctx.fillRect(x + bw * 0.72, y + 16, bw * 0.28, 7);
+  ctx.fillStyle = 'rgba(210,150,70,0.4)';
+  ctx.fillRect(x + bw * 0.58, y + 16, bw * 0.14, 7);
+  ctx.fillStyle = '#e8e0c0';
+  ctx.fillRect(x + bw * G.dayTime - 1, y + 14, 2, 11);
+  ctx.strokeStyle = '#00000066';
+  ctx.strokeRect(x + 0.5, y + 16.5, bw - 1, 6);
+
+  // Survivor tally, only once you actually have people.
+  const crew = liveSurvivors();
+  if (crew.length > 0 || survivorCap() > 0) {
+    const down = crew.filter((s) => s.downed).length;
+    ctx.font = '11px "Courier New", monospace';
+    ctx.fillStyle = down > 0 ? C.warn : C.dim;
+    ctx.fillText(
+      `PEOPLE ${crew.length}/${survivorCap()}${down ? `  ·  ${down} DOWN` : ''}  ·  FOOD ${Math.floor(rationsHeld())}`,
+      x, y + 38,
+    );
   }
 }
 
@@ -654,33 +716,225 @@ function drawBuildBar(ctx, W, H) {
 
 // -------------------------------------------------------------- char panel ---
 
+const CHAR_TABS = ['SKILLS', 'STATUS', 'PEOPLE'];
+
 function drawCharPanel(ctx, W, H) {
-  const w = Math.min(760, W - 60), h = Math.min(520, H - 60);
+  const w = Math.min(860, W - 50), h = Math.min(600, H - 50);
   const x = (W - w) / 2, y = (H - h) / 2;
-  panel(ctx, x, y, w, h, 'CHARACTER  —  TAB to close');
   const p = G.player;
 
-  const col1 = x + 20, col2 = x + w / 2 + 10;
-  let yy = y + 48;
+  panel(ctx, x, y, w, h, `CHARACTER  —  TAB to close`);
+
+  // Tabs
+  const tw = 120, th = 26;
+  for (let i = 0; i < CHAR_TABS.length; i++) {
+    const bx = x + 14 + i * (tw + 6), by = y + 30;
+    const sel = (G.ui.tab || 0) === i;
+    const hot = inside(bx, by, tw, th);
+    ctx.fillStyle = sel ? 'rgba(120,160,86,0.42)' : hot ? 'rgba(90,120,66,0.3)' : 'rgba(24,30,20,0.8)';
+    ctx.fillRect(bx, by, tw, th);
+    ctx.strokeStyle = sel ? C.borderHi : C.border;
+    ctx.lineWidth = sel ? 2 : 1;
+    ctx.strokeRect(bx + 0.5, by + 0.5, tw - 1, th - 1);
+    ctx.font = 'bold 12px "Courier New", monospace';
+    ctx.fillStyle = sel ? C.text : C.dim;
+    ctx.textAlign = 'center';
+    ctx.fillText(CHAR_TABS[i], bx + tw / 2, by + 17);
+    ctx.textAlign = 'left';
+    if (hot && clicked()) { G.ui.tab = i; sfx('ui'); }
+  }
+
+  // Points banner
+  ctx.textAlign = 'right';
+  ctx.font = 'bold 14px "Courier New", monospace';
+  ctx.fillStyle = p.skillPoints > 0 ? C.gold : C.dim;
+  ctx.fillText(
+    p.skillPoints > 0 ? `${p.skillPoints} SKILL POINT${p.skillPoints === 1 ? '' : 'S'}` : 'no skill points',
+    x + w - 16, y + 48,
+  );
+  ctx.font = '10px "Courier New", monospace';
+  ctx.fillStyle = C.dim;
+  ctx.fillText(`LEVEL ${p.level}   ·   ${Math.floor(p.xp)} / ${p.xpNext} XP`, x + w - 16, y + 64);
+  ctx.textAlign = 'left';
+
+  const top = y + 76;
+  if ((G.ui.tab || 0) === 0) drawSkillsTab(ctx, x, top, w, h - (top - y) - 14);
+  else if (G.ui.tab === 1) drawStatusTab(ctx, x, top, w, h - (top - y) - 14);
+  else drawPeopleTab(ctx, x, top, w, h - (top - y) - 14);
+}
+
+// ------------------------------------------------------------- skills tab ---
+
+function drawSkillsTab(ctx, px, py, pw, ph) {
+  const p = G.player;
+  const colW = 290;
+  const x = px + 16, y = py + 6;
+
+  if (!G.ui.attrSel) G.ui.attrSel = ATTR_IDS[0];
+
+  ctx.font = 'bold 11px "Courier New", monospace';
+  ctx.fillStyle = C.borderHi;
+  ctx.fillText('ATTRIBUTES', x, y + 4);
+  ctx.font = '10px "Courier New", monospace';
+  ctx.fillStyle = C.dim;
+  ctx.fillText('click a name  ·  [+] spends a point', x, y + 18);
+
+  let ry = y + 30;
+  for (const id of ATTR_IDS) {
+    const a = ATTRS[id];
+    const rank = p.attrs[id] || 1;
+    const sel = G.ui.attrSel === id;
+    const rowH = 46;
+    const hot = inside(x, ry, colW - 42, rowH);
+
+    ctx.fillStyle = sel ? 'rgba(120,160,86,0.26)' : hot ? 'rgba(90,120,66,0.16)' : 'rgba(20,26,16,0.6)';
+    ctx.fillRect(x, ry, colW - 42, rowH);
+    ctx.strokeStyle = sel ? a.color : C.border;
+    ctx.lineWidth = sel ? 2 : 1;
+    ctx.strokeRect(x + 0.5, ry + 0.5, colW - 43, rowH - 1);
+    if (hot && clicked()) { G.ui.attrSel = id; sfx('ui'); }
+
+    ctx.font = 'bold 13px "Courier New", monospace';
+    ctx.fillStyle = a.color;
+    ctx.fillText(a.abbr, x + 8, ry + 17);
+    ctx.font = '12px "Courier New", monospace';
+    ctx.fillStyle = C.text;
+    ctx.fillText(a.name, x + 44, ry + 17);
+
+    // Rank pips
+    for (let i = 0; i < ATTR_MAX; i++) {
+      ctx.fillStyle = i < rank ? a.color : 'rgba(255,255,255,0.10)';
+      ctx.fillRect(x + 8 + i * 13, ry + 25, 10, 6);
+    }
+    ctx.font = 'bold 11px "Courier New", monospace';
+    ctx.fillStyle = C.dim;
+    ctx.fillText(`${rank}`, x + 8 + ATTR_MAX * 13 + 6, ry + 32);
+
+    // Clipped: these strings must never bleed under the [+] button.
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x + 6, ry + 34, colW - 54, 12);
+    ctx.clip();
+    ctx.font = '9px "Courier New", monospace';
+    ctx.fillStyle = C.dim;
+    ctx.fillText(a.perRank, x + 8, ry + 42);
+    ctx.restore();
+
+    // Buy button
+    const can = canRaiseAttr(p, id);
+    const bx = x + colW - 36, bw = 30;
+    const bhot = inside(bx, ry + 8, bw, 30);
+    ctx.fillStyle = can.ok ? (bhot ? 'rgba(140,190,100,0.6)' : 'rgba(90,120,66,0.45)') : 'rgba(30,34,26,0.6)';
+    ctx.fillRect(bx, ry + 8, bw, 30);
+    ctx.strokeStyle = can.ok ? C.borderHi : '#333d2a';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(bx + 0.5, ry + 8.5, bw - 1, 29);
+    ctx.font = 'bold 17px "Courier New", monospace';
+    ctx.fillStyle = can.ok ? C.text : '#4c5544';
+    ctx.textAlign = 'center';
+    ctx.fillText(rank >= ATTR_MAX ? '—' : '+', bx + bw / 2, ry + 29);
+    ctx.textAlign = 'left';
+    if (bhot && clicked()) raiseAttribute(id);
+
+    ry += rowH + 6;
+  }
+
+  // ------------------------------------------------------------- perks --
+  const kx = px + colW + 8;
+  const kw = pw - colW - 30;
+  const attr = ATTRS[G.ui.attrSel];
+  const list = perksFor(G.ui.attrSel);
+
+  ctx.font = 'bold 12px "Courier New", monospace';
+  ctx.fillStyle = attr.color;
+  ctx.fillText(`${attr.name.toUpperCase()} PERKS`, kx, y + 4);
+  ctx.font = '10px "Courier New", monospace';
+  ctx.fillStyle = C.dim;
+  ctx.fillText(attr.blurb, kx, y + 18);
+
+  let ky = y + 30;
+  for (const perk of list) {
+    const st = perkStatus(p, perk);
+    const rank = st.rank;
+    const rowH = 62;
+    const maxed = rank >= perk.max;
+    const hot = inside(kx, ky, kw, rowH);
+    const buyable = st.ok;
+
+    ctx.fillStyle = st.locked ? 'rgba(18,20,16,0.72)'
+      : maxed ? 'rgba(60,80,46,0.34)'
+        : hot && buyable ? 'rgba(90,120,66,0.42)' : 'rgba(24,30,20,0.75)';
+    ctx.fillRect(kx, ky, kw, rowH);
+    ctx.strokeStyle = maxed ? C.accent : st.locked ? '#333d2a' : buyable && hot ? C.borderHi : C.border;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(kx + 0.5, ky + 0.5, kw - 1, rowH - 1);
+    if (hot && buyable && clicked()) buyPerk(perk.id);
+
+    ctx.font = 'bold 13px "Courier New", monospace';
+    ctx.fillStyle = st.locked ? '#5c6650' : maxed ? C.accent : C.text;
+    ctx.fillText(perk.name, kx + 10, ky + 19);
+
+    // Rank pips
+    for (let i = 0; i < perk.max; i++) {
+      ctx.fillStyle = i < rank ? attr.color : 'rgba(255,255,255,0.12)';
+      ctx.fillRect(kx + kw - 14 - (perk.max - i) * 12, ky + 11, 9, 9);
+    }
+
+    ctx.font = '11px "Courier New", monospace';
+    ctx.fillStyle = st.locked ? '#4c5544' : C.dim;
+    wrapText(ctx, perk.desc, kx + 10, ky + 36, kw - 26, 13);
+
+    ctx.font = 'bold 10px "Courier New", monospace';
+    if (st.locked) {
+      ctx.fillStyle = '#a06a5a';
+      ctx.fillText(`LOCKED — needs ${attr.abbr} ${perk.req}`, kx + 10, ky + rowH - 7);
+    } else if (maxed) {
+      ctx.fillStyle = C.accent;
+      ctx.fillText('MASTERED', kx + 10, ky + rowH - 7);
+    } else if (p.skillPoints > 0) {
+      ctx.fillStyle = C.gold;
+      ctx.fillText('CLICK TO LEARN — 1 point', kx + 10, ky + rowH - 7);
+    } else {
+      ctx.fillStyle = C.dim;
+      ctx.fillText(`requires ${attr.abbr} ${perk.req}`, kx + 10, ky + rowH - 7);
+    }
+
+    ky += rowH + 6;
+    if (ky + rowH > py + ph) break;
+  }
+}
+
+// ------------------------------------------------------------- status tab ---
+
+function drawStatusTab(ctx, px, py, pw, ph) {
+  const p = G.player;
+  const col1 = px + 20, col2 = px + pw / 2 + 10;
+  let yy = py + 16;
 
   ctx.font = 'bold 12px "Courier New", monospace';
   ctx.fillStyle = C.borderHi;
-  ctx.fillText('STATS', col1, yy);
+  ctx.fillText('DERIVED', col1, yy);
   yy += 20;
   ctx.font = '12px "Courier New", monospace';
+  const pct = (v) => `${v >= 1 ? '+' : ''}${Math.round((v - 1) * 100)}%`;
   const stats = [
-    ['Level', p.level],
-    ['Max Health', Math.round(p.maxHp)],
-    ['Max Stamina', Math.round(p.maxStam)],
-    ['Melee damage', `+${Math.round((p.meleeMul - 1) * 100)}%`],
-    ['Firearm damage', `+${Math.round((p.gunMul - 1) * 100)}%`],
-    ['Reload speed', `+${Math.round((1 / p.reloadMul - 1) * 100)}%`],
-    ['Move speed', `+${Math.round((p.speedMul - 1) * 100)}%`],
-    ['Carry capacity', p.carryCap],
-    ['Loot yield', `+${Math.round((p.lootMul - 1) * 100)}%`],
-    ['Structure HP', `+${Math.round((p.structHpMul - 1) * 100)}%`],
-    ['Build cost', `-${Math.round((1 - p.buildCostMul) * 100)}%`],
-    ['Threat generated', `-${Math.round((1 - p.threatMul) * 100)}%`],
+    ['Max health', Math.round(p.maxHp)],
+    ['Max stamina', Math.round(p.maxStam)],
+    ['Carry capacity', Math.round(p.carryCap)],
+    ['Melee damage', pct(p.meleeMul)],
+    ['Firearm damage', pct(p.gunMul)],
+    ['Critical chance', `${Math.round(p.critChance * 100)}%`],
+    ['Weapon spread', `${Math.round((p.spreadMul - 1) * 100)}%`],
+    ['Bullet range', pct(p.rangeMul)],
+    ['Loot yield', pct(p.lootMul)],
+    ['Rare loot', pct(p.rareLootMul)],
+    ['Search speed', `+${Math.round((1 / p.searchMul - 1) * 100)}%`],
+    ['Structure cost', `${Math.round((p.buildCostMul - 1) * 100)}%`],
+    ['Structure health', pct(p.structHpMul)],
+    ['Turret power', pct(p.turretMul)],
+    ['Healing', pct(p.healMul)],
+    ['Threat generated', `${Math.round((p.threatMul - 1) * 100)}%`],
+    ['Experience', pct(p.xpMul)],
   ];
   for (const [k, v] of stats) {
     ctx.fillStyle = C.dim;
@@ -689,79 +943,150 @@ function drawCharPanel(ctx, W, H) {
     ctx.textAlign = 'right';
     ctx.fillText(`${v}`, col1 + 300, yy);
     ctx.textAlign = 'left';
-    yy += 17;
+    yy += 16;
   }
 
-  yy += 8;
+  let ry = py + 16;
   ctx.font = 'bold 12px "Courier New", monospace';
   ctx.fillStyle = C.borderHi;
-  ctx.fillText('RUN', col1, yy);
-  yy += 18;
+  ctx.fillText('THE RUN', col2, ry);
+  ry += 20;
   ctx.font = '12px "Courier New", monospace';
   const runStats = [
-    ['Time survived', clock(G.time)],
+    ['Day', G.day],
+    ['Time', clockString()],
+    ['Survived', clock(G.time)],
     ['Kills', G.stats.kills],
     ['Containers looted', G.stats.looted],
     ['Structures built', G.stats.built],
     ['Items crafted', G.stats.crafted],
     ['Raids repelled', G.raidsDone],
     ['Deaths', G.stats.deaths],
+    ['People with you', `${liveSurvivors().length} / ${survivorCap()}`],
   ];
   for (const [k, v] of runStats) {
     ctx.fillStyle = C.dim;
-    ctx.fillText(k, col1, yy);
+    ctx.fillText(k, col2, ry);
     ctx.fillStyle = C.text;
     ctx.textAlign = 'right';
-    ctx.fillText(`${v}`, col1 + 300, yy);
+    ctx.fillText(`${v}`, col2 + 260, ry);
     ctx.textAlign = 'left';
-    yy += 17;
+    ry += 16;
   }
 
-  // Upgrades owned
-  let ry = y + 48;
-  ctx.font = 'bold 12px "Courier New", monospace';
-  ctx.fillStyle = C.borderHi;
-  ctx.fillText('UPGRADES', col2, ry);
-  ry += 20;
-  ctx.font = '11px "Courier New", monospace';
-  let any = false;
-  for (const u of UPGRADES) {
-    const n = p.upgrades[u.id] || 0;
-    if (!n) continue;
-    any = true;
-    ctx.fillStyle = C.accent;
-    ctx.fillText(`${u.name} ${n > 1 ? `x${n}` : ''}`, col2, ry);
-    ctx.fillStyle = C.dim;
-    ctx.fillText(u.desc, col2 + 4, ry + 13);
-    ry += 30;
-  }
-  if (!any) {
-    ctx.fillStyle = C.dim;
-    ctx.fillText('None yet — level up to choose.', col2, ry);
-    ry += 24;
-  }
-
-  // Loadout
-  ry += 10;
+  ry += 14;
   ctx.font = 'bold 12px "Courier New", monospace';
   ctx.fillStyle = C.borderHi;
   ctx.fillText('LOADOUT', col2, ry);
-  ry += 20;
+  ry += 18;
   ctx.font = '11px "Courier New", monospace';
   for (let i = 0; i < p.weapons.length; i++) {
     const wd = WEAPONS[p.weapons[i]];
     ctx.fillStyle = i === p.slot ? C.gold : C.text;
     ctx.fillText(`${i + 1}. ${wd.name}`, col2, ry);
     ctx.fillStyle = C.dim;
-    ctx.fillText(wd.kind === 'gun' ? `${wd.dmg}dmg x${wd.pellets || 1}  mag ${wd.mag}` : `${wd.dmg} dmg`, col2 + 180, ry);
-    ry += 16;
-  }
-  ry += 6;
-  for (const id in p.items) {
-    if (!p.items[id]) continue;
-    ctx.fillStyle = CONSUMABLES[id] ? CONSUMABLES[id].color : C.text;
-    ctx.fillText(`${CONSUMABLES[id]?.name || id} x${p.items[id]}`, col2, ry);
+    ctx.fillText(wd.kind === 'gun' ? `${wd.dmg} x${wd.pellets || 1}  mag ${wd.mag}` : `${wd.dmg} dmg`, col2 + 175, ry);
     ry += 15;
+  }
+  const arm = p.armor ? ARMORS[p.armor] : null;
+  ctx.fillStyle = arm ? C.accent : C.dim;
+  ctx.fillText(arm ? `${arm.name} — ${Math.round(arm.dr * 100)}% armour` : 'No armour', col2, ry + 6);
+}
+
+// ------------------------------------------------------------- people tab ---
+
+function drawPeopleTab(ctx, px, py, pw, ph) {
+  const p = G.player;
+  const x = px + 20;
+  let y = py + 16;
+  const crew = liveSurvivors();
+  const cap = survivorCap();
+
+  ctx.font = 'bold 12px "Courier New", monospace';
+  ctx.fillStyle = C.borderHi;
+  ctx.fillText(`YOUR PEOPLE   ${crew.length} / ${cap}`, x, y);
+  ctx.font = '10px "Courier New", monospace';
+  ctx.fillStyle = C.dim;
+  ctx.fillText(
+    'Charisma raises your capacity. They hold the base, shoot what comes, and eat Rations.',
+    x, y + 15,
+  );
+
+  // The stash is the pantry, exactly like the ammo they shoot. Food in your own
+  // pack feeds nobody until you drop it off, so say so plainly.
+  const rations = rationsHeld();
+  const carried = rationsCarried();
+  const burn = crew.length * SURVIVOR.upkeepPerMin * p.upkeepMul;
+  ctx.font = '11px "Courier New", monospace';
+  ctx.fillStyle = rations > 0 ? (rations < burn * 5 ? C.gold : C.text) : C.warn;
+  ctx.fillText(
+    `Stash Rations ${Math.floor(rations)}   ·   burning ${burn.toFixed(1)}/min` +
+    (burn > 0 ? `   ·   ${rations > 0 ? `${Math.floor(rations / Math.max(0.01, burn))} min left` : 'STARVING'}` : ''),
+    x, y + 34,
+  );
+  if (carried > 0) {
+    ctx.fillStyle = rations <= 0 ? C.warn : C.dim;
+    ctx.fillText(
+      `You are carrying ${Math.floor(carried)} — deposit at the stash to feed them`,
+      x, y + 50,
+    );
+  }
+  const ammo = countRes(G.stash, 'ammoP');
+  ctx.fillStyle = ammo > 40 ? C.text : C.gold;
+  ctx.fillText(`Stash 9mm ${ammo}   ·   they fire from the stash, so keep it full`,
+    x, y + (carried > 0 ? 66 : 50));
+
+  y += carried > 0 ? 84 : 68;
+
+  if (crew.length === 0) {
+    ctx.font = '12px "Courier New", monospace';
+    ctx.fillStyle = C.dim;
+    ctx.fillText(
+      cap === 0
+        ? 'Nobody will follow you yet. Raise Charisma to open a slot.'
+        : 'Nobody yet. Survivors are marked with a green ring out in the town.',
+      x, y,
+    );
+    return;
+  }
+
+  for (const s of crew) {
+    const rowH = 52;
+    ctx.fillStyle = 'rgba(24,30,20,0.75)';
+    ctx.fillRect(x, y, pw - 40, rowH);
+    ctx.strokeStyle = s.downed ? C.warn : s.hungry ? '#a06a5a' : C.border;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x + 0.5, y + 0.5, pw - 41, rowH - 1);
+
+    ctx.font = 'bold 13px "Courier New", monospace';
+    ctx.fillStyle = s.downed ? C.warn : C.text;
+    ctx.fillText(s.name, x + 12, y + 20);
+    ctx.font = '11px "Courier New", monospace';
+    ctx.fillStyle = C.gold;
+    ctx.fillText(`LVL ${s.level}`, x + 110, y + 20);
+    ctx.fillStyle = C.dim;
+    ctx.fillText(`${s.kills} kills`, x + 180, y + 20);
+    if (s.hungry) { ctx.fillStyle = '#e0904a'; ctx.fillText('HUNGRY', x + 260, y + 20); }
+    if (s.downed) { ctx.fillStyle = C.warn; ctx.fillText('DOWN', x + 260, y + 20); }
+
+    // Health + xp bars
+    bar(ctx, x + 12, y + 28, 180, 7, s.hp / s.maxHp,
+      s.hp / s.maxHp > 0.5 ? '#7ec46a' : s.hp / s.maxHp > 0.25 ? '#d9c46a' : '#e05a4a');
+    ctx.font = '9px "Courier New", monospace';
+    ctx.fillStyle = C.dim;
+    ctx.fillText(`${Math.round(s.hp)}/${s.maxHp}`, x + 198, y + 35);
+
+    const need = SURVIVOR.xpPerLevel * s.level;
+    bar(ctx, x + 260, y + 28, 140, 7, s.level >= SURVIVOR.maxLevel ? 1 : s.xp / need, '#9a7ec4');
+    ctx.fillStyle = C.dim;
+    ctx.fillText(s.level >= SURVIVOR.maxLevel ? 'veteran' : `${Math.floor(s.xp)}/${need} xp`, x + 406, y + 35);
+
+    ctx.font = '10px "Courier New", monospace';
+    ctx.fillStyle = C.dim;
+    ctx.fillText(`damage ${Math.round(s.dmg)}`, x + 12, y + 47);
+
+    y += rowH + 6;
+    if (y + rowH > py + ph) break;
   }
 }
 
@@ -901,63 +1226,6 @@ function drawMapPanel(ctx, W, H) {
   ctx.font = '11px "Courier New", monospace';
   ctx.fillStyle = C.dim;
   ctx.fillText('White = you   ·   Gold = dropped pack   ·   Cyan = base structures   ·   Red tint = danger', x, y + size + 20);
-}
-
-// ---------------------------------------------------------------- level up ---
-
-function drawLevelUp(ctx, W, H) {
-  const choices = G.ui.levelChoices || [];
-  ctx.fillStyle = 'rgba(6,8,5,0.8)';
-  ctx.fillRect(0, 0, W, H);
-
-  const cw = 260, ch = 190, gap = 20;
-  const total = choices.length * cw + (choices.length - 1) * gap;
-  const x0 = (W - total) / 2;
-  const y = H / 2 - ch / 2;
-
-  ctx.textAlign = 'center';
-  ctx.font = 'bold 30px "Courier New", monospace';
-  ctx.fillStyle = C.gold;
-  ctx.fillText(`LEVEL ${G.player.level}`, W / 2, y - 60);
-  ctx.font = '13px "Courier New", monospace';
-  ctx.fillStyle = C.dim;
-  ctx.fillText('Choose an upgrade — click or press 1 / 2 / 3', W / 2, y - 36);
-  ctx.textAlign = 'left';
-
-  for (let i = 0; i < choices.length; i++) {
-    const u = choices[i];
-    const x = x0 + i * (cw + gap);
-    const hot = inside(x, y, cw, ch);
-
-    ctx.fillStyle = hot ? 'rgba(90,120,66,0.5)' : 'rgba(20,26,16,0.94)';
-    ctx.fillRect(x, y, cw, ch);
-    ctx.strokeStyle = hot ? C.gold : C.border;
-    ctx.lineWidth = hot ? 3 : 2;
-    ctx.strokeRect(x + 1, y + 1, cw - 2, ch - 2);
-
-    ctx.font = 'bold 10px "Courier New", monospace';
-    ctx.fillStyle = { COMBAT: '#e0704a', SCAVENGING: '#e8c86a', BUILDING: '#59b8c4', SURVIVAL: '#8fd07a' }[u.cat] || C.dim;
-    ctx.fillText(u.cat, x + 16, y + 28);
-
-    ctx.font = 'bold 18px "Courier New", monospace';
-    ctx.fillStyle = C.text;
-    ctx.fillText(u.name, x + 16, y + 62);
-
-    ctx.font = '12px "Courier New", monospace';
-    ctx.fillStyle = C.dim;
-    wrapText(ctx, u.desc, x + 16, y + 92, cw - 32, 16);
-
-    const owned = G.player.upgrades[u.id] || 0;
-    ctx.font = '10px "Courier New", monospace';
-    ctx.fillStyle = C.dim;
-    ctx.fillText(`owned ${owned} / ${u.max}`, x + 16, y + ch - 34);
-
-    ctx.font = 'bold 22px "Courier New", monospace';
-    ctx.fillStyle = C.gold;
-    ctx.fillText(`${i + 1}`, x + cw - 30, y + ch - 20);
-
-    if (hot && clicked()) chooseUpgrade(u.id);
-  }
 }
 
 function wrapText(ctx, text, x, y, maxW, lh) {

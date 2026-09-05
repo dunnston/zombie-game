@@ -494,6 +494,62 @@ function turretHeadSprite() {
   });
 }
 
+function floodlightSprite() {
+  return mk(32, 32, (g) => {
+    // Tripod legs
+    g.strokeStyle = '#3a3f44';
+    g.lineWidth = 2.5;
+    for (const a of [Math.PI * 0.5, Math.PI * 1.17, Math.PI * 1.83]) {
+      g.beginPath();
+      g.moveTo(16, 18);
+      g.lineTo(16 + Math.cos(a) * 11, 20 + Math.sin(a) * 9);
+      g.stroke();
+    }
+    // Head
+    roundRect(g, 6, 4, 20, 14, 3, '#2e3438');
+    roundRect(g, 7.5, 5.5, 17, 11, 2, '#565e66');
+    // Lens
+    const grd = g.createLinearGradient(9, 7, 23, 15);
+    grd.addColorStop(0, '#fff6cf');
+    grd.addColorStop(1, '#d8bd6a');
+    g.fillStyle = grd;
+    g.fillRect(9, 7, 14, 8);
+    g.strokeStyle = '#22262a';
+    g.lineWidth = 1;
+    g.strokeRect(9, 7, 14, 8);
+    g.fillStyle = '#8d949b';
+    g.fillRect(14, 17, 4, 3);
+  });
+}
+
+/** Top-down survivor. Deliberately reads as a person, not a zombie. */
+function survivorSprite(tint) {
+  const size = 34;
+  return mk(size, size, (g, w, h) => {
+    const cx = w / 2, cy = h / 2;
+    // Rifle held across the front
+    g.fillStyle = '#2b2f33';
+    g.fillRect(cx + 2, cy - 1.6, 15, 3.2);
+    g.fillStyle = '#4a3a28';
+    g.fillRect(cx - 2, cy - 1.4, 5, 2.8);
+    // Body
+    g.fillStyle = '#14180f';
+    g.beginPath(); g.ellipse(cx, cy, 10.5, 9, 0, 0, TAU); g.fill();
+    g.fillStyle = tint;
+    g.beginPath(); g.ellipse(cx, cy, 9, 7.6, 0, 0, TAU); g.fill();
+    // Webbing
+    g.fillStyle = '#3a4230';
+    g.fillRect(cx - 2.5, cy - 6.5, 3, 13);
+    // Head with a bandana
+    g.fillStyle = '#14180f';
+    g.beginPath(); g.arc(cx + 3, cy, 5.6, 0, TAU); g.fill();
+    g.fillStyle = '#d8bb92';
+    g.beginPath(); g.arc(cx + 3, cy, 4.7, 0, TAU); g.fill();
+    g.fillStyle = '#8a4a4a';
+    g.beginPath(); g.arc(cx + 2.4, cy, 4.7, -2.1, 2.1); g.fill();
+  });
+}
+
 function backpackSprite() {
   return mk(28, 28, (g) => {
     roundRect(g, 5, 4, 18, 21, 4, '#3d3527');
@@ -582,8 +638,12 @@ export function buildSprites() {
   Sprites.s_bedroll = bedrollSprite();
   Sprites.s_generator = generatorSprite();
   Sprites.s_turret = turretBaseSprite();
+  Sprites.s_floodlight = floodlightSprite();
   Sprites.turretHead = turretHeadSprite();
   Sprites.backpack = backpackSprite();
+
+  Sprites.survivors = ['#7a8fa8', '#8a7f6a', '#7f8a6a', '#8a6f7a'].map(survivorSprite);
+  Sprites.survivorFlash = Sprites.survivors.map((s) => whiten(s));
 
   return Sprites;
 }

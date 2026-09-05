@@ -1,6 +1,7 @@
 // The player: stats, movement, aiming, attacking, healing, death and respawn.
 
 import { PLAYER, WEAPONS, CONSUMABLES, xpForLevel, bagWeight } from './config.js';
+import { startingAttrs, recomputeStats } from './perks.js';
 import { G, moveCircle, notify, unstick } from './state.js';
 import { Input, key, keyTap } from '../core/input.js';
 import { meleeAttack, fireGun, startReload, updateReload } from './combat.js';
@@ -14,9 +15,9 @@ const rng = makeRng(0x51EE99);
 export function createPlayer(x, y) {
   const p = {
     x, y, vx: 0, vy: 0, angle: 0, r: PLAYER.r,
-    hp: PLAYER.maxHp, maxHp: PLAYER.maxHp,
-    stam: PLAYER.maxStam, maxStam: PLAYER.maxStam,
-    stamRegen: PLAYER.stamRegen, stamLock: 0,
+    hp: PLAYER.maxHp,
+    stam: PLAYER.maxStam,
+    stamLock: 0,
     dead: false, respawnT: 0, invuln: 0, hurtFlash: 0, lastHurt: 99,
 
     weapons: ['fists', 'pipe'],
@@ -37,17 +38,19 @@ export function createPlayer(x, y) {
     sneaking: false,
     sprinting: false,
 
-    level: 1, xp: 0, xpNext: xpForLevel(1), pendingLevels: 0, upgrades: {},
-
-    // Modifiers — every upgrade in config.js writes into these.
-    meleeMul: 1, gunMul: 1, reloadMul: 1, fireRateMul: 1, spreadMul: 1,
-    lootMul: 1, carryCap: PLAYER.carryCap, searchMul: 1, pickupRange: PLAYER.pickupRange,
-    buildCostMul: 1, structHpMul: 1, turretMul: 1,
-    healMul: 1, healSpeedMul: 1, speedMul: 1, threatMul: 1, noiseMul: 1,
+    // Progression: levels pay out skill points, spent on attribute ranks or
+    // perks. Every derived stat below is produced by recomputeStats().
+    level: 1, xp: 0, xpNext: xpForLevel(1), skillPoints: 0,
+    attrs: startingAttrs(),
+    perks: {},
+    secondWindCd: 0,
 
     spawnPoint: null, spawnStructure: null,
     godMode: false,
   };
+  recomputeStats(p);
+  p.hp = p.maxHp;
+  p.stam = p.maxStam;
   for (const w of p.weapons) if (WEAPONS[w].mag) p.mag[w] = WEAPONS[w].mag;
   return p;
 }
@@ -108,6 +111,11 @@ export function updatePlayer(dt) {
   p.hurtFlash = Math.max(0, p.hurtFlash - dt);
   p.attackCd = Math.max(0, p.attackCd - dt);
   p.recoil *= Math.exp(-9 * dt);
+  p.secondWindCd = Math.max(0, p.secondWindCd - dt);
+
+  // Adrenaline (Strength perk) is a live state, not a stat, so it can flicker
+  // on and off with your health bar.
+  p.adrenalineActive = !!p.adrenaline && p.hp / p.maxHp < 0.34;
 
   if (p.swing) {
     p.swing.t += dt;
@@ -154,7 +162,7 @@ export function updatePlayer(dt) {
 
   // Actions that root you in place.
   const rooted = !!(p.searching || p.using);
-  let speed = PLAYER.speed * p.speedMul;
+  let speed = PLAYER.speed * p.speedMul * (p.adrenalineActive ? 1.15 : 1);
   if (p.sprinting) speed *= PLAYER.sprintMul;
   if (p.sneaking) speed *= 0.5;
   if (rooted) speed = 0;

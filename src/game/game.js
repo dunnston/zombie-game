@@ -16,15 +16,23 @@ import { updateBullets, updateTurrets, updateTraps } from './combat.js';
 import { updatePickups, rollContainer, grantLoot, collectBackpack, seedLoot } from './loot.js';
 import {
   buildMenu, canPlace, placeStructure, repairStructure, demolishStructure,
-  updateGenerators, useGenerator, generatorRunning, upgradeBench, nearestStructure, nearWorkbench,
+  updateGenerators, updateFloodlights, useGenerator, generatorRunning,
+  upgradeBench, nearestStructure, nearWorkbench,
   stashDepositAll, stashWithdrawAmmo, structureCost, isUnlocked, BUILD_RANGE,
   baseCenter,
 } from './building.js';
 import { updateThreat, addThreat, raidReady } from './threat.js';
 import { startRaid, updateRaid, forceEndRaid } from './raid.js';
 import { visibleRecipes, craft } from './crafting.js';
-import { addXp, chooseUpgrade } from './progression.js';
+import { addXp, raiseAttribute, buyPerk } from './progression.js';
 import { killPlayer } from './damage.js';
+import { initClock, updateClock, nightFactors, clockString, darkness } from './daynight.js';
+import { recomputeStats, ATTRS, PERKS, perkStatus } from './perks.js';
+import {
+  updateSurvivors, updateUpkeep, seedRescues, recruit, reviveSurvivor,
+  liveSurvivors, survivorCap, refreshAllSurvivors, makeSurvivor,
+  rationsHeld, rationsCarried, SURVIVOR,
+} from './survivors.js';
 import { updateFX, clearFX } from '../core/particles.js';
 import * as FX from '../core/particles.js';
 import { Input, key, keyTap, endFrame } from '../core/input.js';
@@ -55,6 +63,11 @@ export function newGame(seed = 20240917) {
   clearFX();
 
   G.notifications.length = 0;
+  G.survivors.length = 0;
+  G.rescues.length = 0;
+  G.survivorSeq = 0;
+  G.rationDebt = 0;
+  initClock();
   G.stash = {};
   G.stashItems = {};
   G.benchTier = 0;
@@ -79,6 +92,7 @@ export function newGame(seed = 20240917) {
   G.camera.x = spot.x;
   G.camera.y = spot.y;
 
+  seedRescues(G.world, 8);
   seedArea(spot.x, spot.y, 1100, 5);
   notify('You wake up on the roadside. Find shelter before dark.', '#d8e8c0', true);
   return G;
@@ -108,6 +122,25 @@ export function findInteractable() {
     if (d < packD) { packD = d; packBest = { kind: 'backpack', ref: b, label: 'Recover your pack' }; }
   }
   if (packBest) return packBest;
+
+  // A downed survivor is the next most urgent thing in the world.
+  for (const s of G.survivors) {
+    if (!s.downed || s.dead) continue;
+    const d = dist2(p.x, p.y, s.x, s.y);
+    if (d < bestD) {
+      bestD = d;
+      best = { kind: 'revive', ref: s, label: `Help ${s.name} up  (${Math.ceil(s.downT)}s)` };
+    }
+  }
+  if (best) return best;
+
+  for (const r of G.rescues) {
+    const d = dist2(p.x, p.y, r.x, r.y);
+    if (d < bestD) {
+      bestD = d;
+      best = { kind: 'rescue', ref: r, label: `Recruit ${r.name}  (${liveSurvivors().length}/${survivorCap()})` };
+    }
+  }
 
   for (const c of G.world.containers) {
     if (c.looted) continue;
@@ -152,6 +185,12 @@ function beginInteract(target) {
     case 'backpack':
       collectBackpack(p, target.ref);
       break;
+    case 'rescue':
+      recruit(target.ref);
+      break;
+    case 'revive':
+      reviveSurvivor(target.ref);
+      break;
     case 'stash':
       stashDepositAll();
       break;
@@ -188,7 +227,10 @@ function finishSearch() {
   c.looted = true;
   G.stats.looted++;
 
-  const entries = rollContainer(c, p.lootMul);
+  const entries = rollContainer(c, p.lootMul, {
+    rareMul: p.rareLootMul,
+    doubleChance: p.doubleDropChance,
+  });
   const { lines, anyMajor } = grantLoot(p, entries, c.x, c.y);
 
   let y = c.y - 12;
@@ -346,20 +388,11 @@ export function update(dt) {
   if (keyTap('F5')) { saveGame() ? notify('Game saved', '#b7e08a') : notify('Save failed', '#c96a5a'); }
 
   if (keyTap('Escape')) {
-    if (G.ui.panel && G.ui.panel !== 'levelup') { G.ui.panel = null; sfx('ui'); }
+    if (G.ui.panel) { G.ui.panel = null; sfx('ui'); }
     else if (G.ui.buildMode) { G.ui.buildMode = false; sfx('ui'); }
-    else if (G.ui.panel !== 'levelup') { G.paused = !G.paused; sfx('ui'); }
+    else { G.paused = !G.paused; sfx('ui'); }
   }
 
-  if (G.ui.panel === 'levelup') {
-    for (let i = 0; i < 3; i++) {
-      if (keyTap(`Digit${i + 1}`) && G.ui.levelChoices && G.ui.levelChoices[i]) {
-        chooseUpgrade(G.ui.levelChoices[i].id);
-      }
-    }
-    updateFX(dt);
-    return;                                    // the draft pauses the world
-  }
   if (G.paused) { updateFX(dt); return; }
 
   const craftKey = keyTap('KeyC');
@@ -408,11 +441,15 @@ export function update(dt) {
     G.ui.buildMode = false;
   }
 
+  updateClock(dt);
   updateEnemies(dt);
+  updateSurvivors(dt);
   updateBullets(dt);
   updateTurrets(dt);
   updateTraps(dt);
   updateGenerators(dt);
+  updateFloodlights();
+  updateUpkeep(dt);
   updatePickups(dt);
   updateSpawning(dt);
   updateThreat(dt);
@@ -443,9 +480,13 @@ export function update(dt) {
 export const api = {
   newGame, startGame, saveGame, loadGame, clearSave, hasSave,
   buildMenu, structureCost, isUnlocked, currentWeapon, selectSlot,
-  chooseUpgrade, startRaid, addXp, addRes, countRes, dangerAtPx, solidPx, shake,
+  startRaid, addXp, addRes, countRes, dangerAtPx, solidPx, shake,
   findInteractable, placeStructure, canPlace, spawnEnemy, forceEndRaid,
   visibleRecipes, craft, nearWorkbench, upgradeBench, baseCenter,
   grantLoot, rollContainer, repairStructure, demolishStructure, killPlayer,
+  raiseAttribute, buyPerk, recomputeStats, ATTRS, PERKS, perkStatus,
+  seedRescues, recruit, reviveSurvivor, liveSurvivors, survivorCap,
+  refreshAllSurvivors, makeSurvivor, rationsHeld, rationsCarried,
+  clockString, darkness, nightFactors, SURVIVOR,
   WEAPONS, STRUCTURES, RECIPES, CAMERA, PLAYER, THREAT,
 };

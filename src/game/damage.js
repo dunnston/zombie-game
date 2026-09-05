@@ -9,6 +9,7 @@ import * as FX from '../core/particles.js';
 import { addXp } from './progression.js';
 import { addThreat } from './threat.js';
 import { enemyDrop, dropBackpack } from './loot.js';
+import { creditSurvivorKill } from './survivors.js';
 import { clamp } from '../core/util.js';
 
 // ------------------------------------------------------------------ enemies --
@@ -58,6 +59,8 @@ export function killEnemy(e, source = 'player') {
   if (e.def.boss) { shake(9); FX.ring(e.x, e.y, 10, 160, 0.7, '#e05a4a', 4); }
 
   addXp(e.def.xp * (G.raid ? 1.25 : 1), null);
+  // A survivor who lands the kill earns the experience for it.
+  creditSurvivorKill(source, e.def.xp);
   enemyDrop(e);
   if (!G.raid) addThreat(THREAT.killWalk * (e.def.threat || 0.4));
   if (G.raid) G.raid.killed++;
@@ -89,6 +92,20 @@ export function damagePlayer(amount, fromX, fromY, label = '') {
   shake(2 + dealt * 0.08);
   sfx('playerHurt');
   if (label) FX.text(p.x, p.y - 26, `-${Math.round(dealt)}`, '#ff8a7a', 13, -44, 0.7);
+
+  // Second Wind (Constitution perk): one free survival on a long cooldown.
+  if (p.hp <= 0 && p.secondWind && p.secondWindCd <= 0) {
+    p.hp = 1;
+    p.secondWindCd = 120;
+    p.invuln = 1.4;
+    FX.ring(p.x, p.y, 8, 130, 0.8, '#ffe08a', 4);
+    FX.text(p.x, p.y - 34, 'SECOND WIND', '#ffe08a', 16, -30, 1.6);
+    screenFlash('#c8a24a', 0.6);
+    shake(8);
+    sfx('levelUp');
+    notify('Second Wind — you should not have survived that', '#ffe08a', true);
+    return dealt;
+  }
 
   if (p.hp <= 0) killPlayer();
   return dealt;

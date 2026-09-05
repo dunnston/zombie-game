@@ -173,7 +173,8 @@ export function demolishStructure(s) {
 
 // -------------------------------------------------------------------- power --
 
-export function turretPowered(t) {
+/** True if any running generator covers this structure. */
+export function hasPower(t) {
   for (const s of G.structures) {
     if (s.type !== 'generator' || s.destroyed) continue;
     if (!s.on || s.fuel <= 0) continue;
@@ -181,6 +182,16 @@ export function turretPowered(t) {
     if (dist2(s.x, s.y, t.x, t.y) <= r * r) return true;
   }
   return false;
+}
+
+export const turretPowered = hasPower;
+
+/** Floodlights only push back the dark while they are actually powered. */
+export function updateFloodlights() {
+  for (const s of G.structures) {
+    if (s.type !== 'floodlight' || s.destroyed) continue;
+    s.powered = hasPower(s);
+  }
 }
 
 export function updateGenerators(dt) {

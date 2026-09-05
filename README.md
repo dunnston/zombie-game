@@ -35,9 +35,10 @@ npm test
 npm run build
 ```
 
-`npm test` runs 31 Node assertions over the pure logic (world generation, loot
-tables, balance invariants, progression curves). `npm run build` produces a
-static bundle in `dist/` that can be opened from any static host.
+`npm test` runs 47 Node assertions over the pure logic (world generation, loot
+tables, balance invariants, progression curves, perk trees, the day curve).
+`npm run build` produces a static bundle in `dist/` that can be opened from any
+static host.
 
 Requires Node 18+. No API keys, no external services, no network access at
 runtime.
@@ -61,7 +62,7 @@ runtime.
 | `Q` | Use a bandage or medkit |
 | `B` | Build mode (right click or `B` again to exit) |
 | `C` | Crafting (stand near a workbench for the good recipes) |
-| `Tab` | Character sheet |
+| `Tab` | Character sheet — attributes, perks, your people |
 | `M` | Town map |
 | `Esc` | Close a panel, or open the pause menu |
 | `F5` | Save now (the game also autosaves every 25 seconds) |
@@ -180,9 +181,15 @@ Pick a piece, see a ghost preview with a live validity check, click to place.
 Hold to lay a run of walls. No timers.
 
 Walls (barricade → wood → reinforced → steel), gates you can open and close,
-spike traps, a workbench, a stash, a bedroll, a fuel-burning generator, and an
-auto turret that needs generator power within 260px and feeds on 9mm from your
-stash. Plus repair and salvage tools (salvage returns 50%).
+spike traps, a workbench, a stash, a bedroll, a fuel-burning generator, an auto
+turret that needs generator power within 260px and feeds on 9mm from your stash,
+and a floodlight that holds back the night. Plus repair and salvage tools
+(salvage returns 50%).
+
+Build **anywhere**. There is no designated home plot — your base is simply where
+your structures are, and raids, survivors and respawns all follow it. The test
+suite asserts a full working base can be founded in every one of the nine
+districts.
 
 ### Crafting
 
@@ -216,13 +223,66 @@ Raiders that get hung up on terrain are relocated to a fresh approach lane, and
 no raid may outlast a hard ceiling — a raid can never become unwinnable and
 block your progression.
 
+### Day and night
+
+A full day runs about nine minutes. Dawn, day, dusk, night — the light fades on
+a smooth ramp rather than snapping, and the HUD carries a day counter, a clock
+and a bar showing how much daylight is left.
+
+Night is the pressure valve. The map goes dark and shrinks to whatever your
+lights reach; there are nearly twice as many infected abroad; they notice you
+sooner; and every gunshot generates far more Threat. You carry a small pool of
+light with you, your workbench and generator glow faintly, and a **Floodlight**
+(needs generator power) turns a yard into an island you can actually fight in.
+No light ever clears the dark completely — a floodlit base still reads as night.
+
+Everything you built during the day decides whether you enjoy the night or dread
+it.
+
 ### Progression
 
 XP from fighting, scavenging, crafting, building, chopping, surviving raids and
-discovering districts. Each level offers a choice of three upgrades drawn from
-fifteen, spread across Combat, Scavenging, Building and Survival — more health,
-harder melee, cheaper structures, tougher walls, bigger packs, faster searching,
-quieter operation. Most stack several times.
+discovering districts.
+
+Levelling grants **skill points** — one per level, two on every fifth — and does
+*not* interrupt play. You spend them in the character sheet when you are
+somewhere safe enough to think, on either an attribute rank or a perk.
+
+Six attributes, each ranked 1–10, each with its own perk tree:
+
+| | Per rank | Its tree |
+| --- | --- | --- |
+| **Strength** | +9% melee, +25 carry, +6% chop | Pack Mule, Heavy Hitter, Demolisher, Adrenaline |
+| **Perception** | -4% spread, -5% search time | Scrounger, Quick Hands, Eagle Eye, Sixth Sense |
+| **Constitution** | +12 health, +10 stamina | Thick Skin, Marathon, Iron Stomach, Second Wind |
+| **Charisma** | +1 survivor slot per 2 ranks | Recruiter, Inspiring Presence, Quartermaster, Natural Leader |
+| **Intelligence** | +7% XP, -3% build cost | Fast Learner, Engineer, Fortifier, Gunsmith, Fire Control |
+| **Luck** | +2% crit, +5% rare loot | Scavenger's Luck, Lucky Strike, Ammo Cache, Low Profile, Fortune Favours |
+
+Perks are gated on the rank of their parent attribute, so investing in an
+attribute is what opens its tree. Twenty-six perks, most of them multi-rank.
+
+Stats are rebuilt by a single pure recompute pass — base, then attributes, then
+perks — rather than by mutating the player on purchase. There is exactly one
+place a modifier can come from, which makes save/load, respawns and any future
+respec trivially correct.
+
+### Survivors
+
+You find people out in the town, marked with a green ring, and bring them home.
+How many will follow you is gated by **Charisma**.
+
+They garrison whatever you have built, shoot what comes at it, and get better at
+it — ten levels of more health and more damage, earned from their own kills.
+They fire 9mm **from your stash**, so arming them is a real decision, and they
+eat **Rations**, so feeding them is another. Run out of food and they weaken.
+
+They can also be knocked down, and if you don't reach them in time — a medkit or
+two bandages — they die permanently, and their levels die with them. A base is
+worth defending because of who is standing in it, not because of what the walls
+cost.
+
+### Saving
 
 ### Saving
 
@@ -303,13 +363,14 @@ nearest-neighbour filtering.
 npm test
 ```
 
-31 Node assertions covering world generation determinism, spawn-point safety,
+47 Node assertions covering world generation determinism, spawn-point safety,
 danger tiers, loot-table integrity and theming, weapon/enemy/wall tier ordering,
-recipe gating, upgrade validity, the XP curve, raid escalation and threat
-thresholds.
+recipe gating, the XP curve, raid escalation, threat thresholds, every attribute
+and perk actually changing a stat, perk gating by rank and cost, recompute
+idempotency, the day/night curve and clock, and survivor scaling.
 
 `tests/browser-smoke.js` is injected into the running dev server and drives the
-live game through 83 assertions using synthetic input events — movement, aiming,
+live game through 123 assertions using synthetic input events — movement, aiming,
 melee, gunfire, ammo, reloading, enemy pursuit, taking damage, searching
 containers, carry-capacity overflow, structure placement and cost, walls
 blocking, enemies attacking structures, workbench upgrades, tier-gated crafting,

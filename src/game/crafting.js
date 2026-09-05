@@ -1,7 +1,7 @@
 // Crafting. Instant by design — the resource cost is the whole cost.
 
 import { RECIPES, WEAPONS, ARMORS, CONSUMABLES, THREAT } from './config.js';
-import { G, canAfford, spend, addResCapped, notify, scaledCost } from './state.js';
+import { G, canAfford, spend, addRes, addResCapped, notify, scaledCost } from './state.js';
 import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
 import { addXp } from './progression.js';
@@ -49,8 +49,14 @@ export function craft(r, benchTier) {
     label = `${CONSUMABLES[r.give.item].name} x${r.give.n}`;
   } else if (r.give.res) {
     for (const id in r.give.res) {
-      const got = addResCapped(p.bag, id, r.give.res[id], p.carryCap);
-      if (got < r.give.res[id]) notify('Pack full — some output was lost', '#d9c46a');
+      // Gunsmith boosts crafted ammunition specifically.
+      const isAmmo = id === 'ammoP' || id === 'ammoS' || id === 'ammoR';
+      const want = Math.round(r.give.res[id] * (isAmmo ? p.craftYieldMul : 1));
+      const got = addResCapped(p.bag, id, want, p.carryCap);
+      if (got < want) {
+        addRes(G.stash, id, want - got);
+        notify('Pack full — the rest went to your stash', '#d9c46a');
+      }
     }
   }
 
