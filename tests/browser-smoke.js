@@ -28,6 +28,9 @@
     if (!autoClearLevelUp) return;
   }
 
+  // A guard's engagement range, for comparing against a posted sniper's.
+  const SURVIVOR_RANGE_BASE = 300;
+
   // A suite that hangs is far worse than one that fails, so every wait checks
   // an absolute deadline and aborts loudly.
   let deadline = Infinity;
@@ -597,17 +600,29 @@
       d.god(true);
 
       // Charisma gates how many people will follow you.
+      // The roster has two independent limits now, so test the Charisma one on
+      // its own — the effective cap is min(charisma, bunks) and there are no
+      // bunks yet at this point.
       p.attrs.cha = 2;
       api.recomputeStats(p);
-      const capLow = api.survivorCap();
+      const chaLow = api.rosterLimits().charisma;
       p.skillPoints += 12;
       for (let i = 0; i < 20 && p.attrs.cha < 8; i++) {
         if (!api.raiseAttribute('cha')) { p.skillPoints += 1; }
       }
-      ok('Charisma raises the survivor cap', api.survivorCap() > capLow,
-        `${capLow} -> ${api.survivorCap()}`);
+      ok('Charisma raises how many will follow you', api.rosterLimits().charisma > chaLow,
+        `${chaLow} -> ${api.rosterLimits().charisma}`);
 
       ok('survivors are seeded around the town', G.rescues.length > 0, `${G.rescues.length}`);
+
+      // Somewhere for them to sleep — bunks are a hard gate on recruiting.
+      d.giveAll();
+      G.benchTier = 2;
+      const homePlot = clearOpenPlot(G, 6);
+      d.teleport(homePlot.x, homePlot.y);
+      await frames(3);
+      const firstBunk = placeNear('bunk');
+      ok('a bunk can be built to make room', !!firstBunk);
 
       // Recruit one through the real interaction path.
       const rescue = G.rescues[0];
@@ -712,6 +727,147 @@
 
       G.survivors.length = 0;
       G.enemies.length = 0;
+    }
+
+    // ------------------------------- 11d2. bunks, jobs and furniture --------
+    {
+      d.god(true);
+      G.enemies.length = 0;
+      G.survivors.length = 0;
+      for (const s of [...G.structures]) api.demolishStructure(s);
+      G.structures.length = 0;
+      G.structGrid.clear();
+      d.giveAll();
+      G.stash.ammoP = 600;
+      G.stash.rations = 400;
+      G.benchTier = 2;
+
+      // Settle somewhere open but still within a scavenger's working radius of
+      // real containers, or the Scavenger test has nothing to send them to.
+      const plot = openPlotNearLoot(G, 5);
+      d.teleport(plot.x, plot.y);
+      await frames(3);
+      p.attrs.cha = 8;
+      api.recomputeStats(p);
+      const nearbyLoot = G.world.containers.filter((c) =>
+        !c.looted && !c.hidden && Math.hypot(c.x - plot.x, c.y - plot.y) < 900).length;
+      ok('the job-test base has containers within scavenging range', nearbyLoot > 0, `${nearbyLoot}`);
+
+      // Bunks are a hard gate on recruiting, separate from Charisma.
+      const noBunks = api.rosterLimits();
+      ok('Charisma alone does not house anybody', noBunks.cap === 0 && noBunks.charisma > 0,
+        `charisma ${noBunks.charisma} bunks ${noBunks.bunks} cap ${noBunks.cap}`);
+      const anyRescue = G.rescues[0];
+      d.teleport(anyRescue.x + 30, anyRescue.y);
+      await frames(3);
+      ok('recruiting is refused with nowhere to sleep', api.recruit(anyRescue) === null);
+
+      d.teleport(plot.x, plot.y);
+      await frames(3);
+      const bunkA = placeNear('bunk');
+      const bunkB = placeNear('bunk');
+      ok('bunks can be built', !!bunkA && !!bunkB);
+      const withBunks = api.rosterLimits();
+      ok('each bunk houses one survivor', withBunks.bunks === 2, `${withBunks.bunks}`);
+      ok('the roster cap is the lower of the two limits',
+        withBunks.cap === Math.min(withBunks.charisma, withBunks.bunks), `${withBunks.cap}`);
+
+      const stash2 = placeNear('stash');
+      const wall2 = placeNear('woodWall');
+      ok('a stash and a wall are available for the job tests', !!stash2 && !!wall2);
+
+      const worker = api.makeSurvivor(plot.x + 40, plot.y, { level: 3 });
+      G.survivors.push(worker);
+      await frames(3);
+
+      // Builder: repairs damage, paying out of the stash.
+      wall2.hp = wall2.maxHp * 0.25;
+      const wallHp0 = wall2.hp;
+      ok('a survivor can be put on Builder duty', api.assignJob(worker, 'builder'));
+      for (let i = 0; i < 26 && wall2.hp < wall2.maxHp; i++) await seconds(0.5);
+      ok('builders repair damaged structures', wall2.hp > wallHp0,
+        `${Math.round(wallHp0)} -> ${Math.round(wall2.hp)}`);
+
+      // Scavenger: loots a container and hauls it home.
+      const lootedBefore = G.world.containers.filter((c) => c.looted).length;
+      ok('a survivor can be put on Scavenger duty', api.assignJob(worker, 'scavenger'));
+      ok('changing job clears the previous job\'s target', worker.runTarget === null);
+      for (let i = 0; i < 40; i++) {
+        await seconds(0.5);
+        if (G.world.containers.filter((c) => c.looted).length > lootedBefore && !worker.carrying) break;
+      }
+      ok('scavengers loot containers on their own',
+        G.world.containers.filter((c) => c.looted).length > lootedBefore,
+        `${G.world.containers.filter((c) => c.looted).length - lootedBefore} looted`);
+
+      // Switching back must not leave the container as a repair target — that
+      // was the actual bug. Put them beside the wall so this measures target
+      // handling and not how long a walk home takes.
+      // Force a container target so the cross-job case is actually exercised,
+      // rather than depending on whether they happened to be mid-run.
+      worker.runTarget = G.world.containers.find((c) => !c.looted && !c.hidden) || null;
+      const scavTarget = worker.runTarget;
+      wall2.hp = wall2.maxHp * 0.3;
+      const wallHp1 = wall2.hp;
+      api.assignJob(worker, 'builder');
+      ok('the scavenger target is dropped on reassignment',
+        scavTarget !== null && worker.runTarget === null,
+        `was ${scavTarget && scavTarget.label}, now ${worker.runTarget}`);
+      worker.x = wall2.x + 34;
+      worker.y = wall2.y;
+      await frames(3);
+      for (let i = 0; i < 40 && wall2.hp < wall2.maxHp; i++) await seconds(0.5);
+      ok('a builder recalled from scavenging still repairs', wall2.hp > wallHp1,
+        `${Math.round(wallHp1)} -> ${Math.round(wall2.hp)}`);
+      ok('structure health never goes non-finite', Number.isFinite(wall2.hp), `${wall2.hp}`);
+
+      // Sniper: needs a tower, and gains real range on it.
+      ok('Sniper duty is refused with no Watchtower', api.assignJob(worker, 'sniper') === false);
+      const tower = placeNear('watchtower');
+      ok('a watchtower can be built', !!tower);
+      ok('Sniper duty works once a tower exists', api.assignJob(worker, 'sniper'));
+      await frames(4);
+      ok('the sniper is posted on the tower', worker.tower === tower);
+      ok('a posted sniper shoots much further', worker.shotRange > SURVIVOR_RANGE_BASE,
+        `${worker.shotRange}`);
+      ok('a posted sniper hits much harder', worker.shotDmgMul > 1.5, `${worker.shotDmgMul}`);
+      ok('one tower takes one sniper', api.freeTowers().length === 0);
+
+      // Losing the tower demotes them rather than stranding them.
+      tower.destroyed = true;
+      await frames(4);
+      ok('losing the tower demotes the sniper', worker.job === 'guard', worker.job);
+
+      G.survivors.length = 0;
+      for (const s of [...G.structures]) api.demolishStructure(s);
+      G.structures.length = 0;
+      G.structGrid.clear();
+    }
+
+    // Furniture actually reaches the world, and reads true to its building.
+    {
+      const kinds = new Map();
+      for (const c of G.world.containers) kinds.set(c.kind, (kinds.get(c.kind) || 0) + 1);
+      ok('the town is furnished with many kinds of searchable thing',
+        kinds.size >= 20, `${kinds.size} kinds across ${G.world.containers.length} containers`);
+      for (const k of ['bookshelf', 'dresser', 'wardrobe', 'fridge', 'desk', 'nightstand']) {
+        ok(`houses contain ${k}s`, (kinds.get(k) || 0) > 0, `${kinds.get(k) || 0}`);
+      }
+
+      const inLoc = (c, id) => {
+        const l = G.world.locations.find((x) => x.id === id);
+        return c.tx >= l.rect[0] && c.ty >= l.rect[1] &&
+          c.tx < l.rect[0] + l.rect[2] && c.ty < l.rect[1] + l.rect[3];
+      };
+      const hardwareRacks = G.world.containers.filter((c) => c.kind === 'toolrack').length;
+      ok('the hardware store has tool racks', hardwareRacks > 0, `${hardwareRacks}`);
+      const milLockers = G.world.containers.filter((c) => inLoc(c, 'military') && c.kind === 'footlocker').length;
+      ok('the checkpoint has footlockers', milLockers > 0, `${milLockers}`);
+      const houseFridges = G.world.containers.filter((c) => inLoc(c, 'suburb') && c.kind === 'fridge').length;
+      ok('suburban houses have refrigerators', houseFridges > 0, `${houseFridges}`);
+      // A wardrobe in a gun locker would break the "read the building" promise.
+      const badPolice = G.world.containers.filter((c) => inLoc(c, 'police') && c.kind === 'wardrobe').length;
+      ok('precinct interiors are not furnished like bedrooms', badPolice === 0, `${badPolice}`);
     }
 
     // ------------------------------------------- 11e. a base, anywhere ------
@@ -839,6 +995,31 @@
       }
     }
     return { x: 80 * 32, y: 80 * 32 };
+  }
+
+  /** A clear plot that still has unlooted containers within scavenging range. */
+  function openPlotNearLoot(G, n) {
+    const W = G.world.w;
+    const clear = (tx, ty) => {
+      for (let j = -n; j <= n; j++) {
+        for (let i = -n; i <= n; i++) {
+          const x = tx + i, y = ty + j;
+          if (x < 2 || y < 2 || x >= W - 2 || y >= W - 2) return false;
+          if (G.world.blocked[y * W + x]) return false;
+        }
+      }
+      return true;
+    };
+    const loot = G.world.containers.filter((c) => !c.looted && !c.hidden);
+    for (let ty = 8; ty < W - 8; ty += 2) {
+      for (let tx = 8; tx < W - 8; tx += 2) {
+        if (G.world.danger[ty * W + tx] > 2) continue;
+        if (!clear(tx, ty)) continue;
+        const px = tx * 32 + 16, py = ty * 32 + 16;
+        if (loot.some((c) => Math.hypot(c.x - px, c.y - py) < 600)) return { x: px, y: py };
+      }
+    }
+    return clearOpenPlot(G, n);
   }
 
   /** Open ground well away from any player-built structure. */

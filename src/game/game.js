@@ -31,7 +31,8 @@ import { recomputeStats, ATTRS, PERKS, perkStatus } from './perks.js';
 import {
   updateSurvivors, updateUpkeep, seedRescues, recruit, reviveSurvivor,
   liveSurvivors, survivorCap, refreshAllSurvivors, makeSurvivor,
-  rationsHeld, rationsCarried, SURVIVOR,
+  rationsHeld, rationsCarried, JOBS, JOB_IDS, rosterLimits, freeTowers,
+  assignJob, SCAVENGE, BUILDER, SURVIVOR,
 } from './survivors.js';
 import { updateFX, clearFX } from '../core/particles.js';
 import * as FX from '../core/particles.js';
@@ -487,6 +488,7 @@ export const api = {
   raiseAttribute, buyPerk, recomputeStats, ATTRS, PERKS, perkStatus,
   seedRescues, recruit, reviveSurvivor, liveSurvivors, survivorCap,
   refreshAllSurvivors, makeSurvivor, rationsHeld, rationsCarried,
+  JOBS, JOB_IDS, rosterLimits, freeTowers, assignJob, SCAVENGE, BUILDER,
   clockString, darkness, nightFactors, SURVIVOR,
   WEAPONS, STRUCTURES, RECIPES, CAMERA, PLAYER, THREAT,
 };

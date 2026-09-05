@@ -443,6 +443,51 @@ function bedrollSprite() {
   });
 }
 
+function bunkSprite() {
+  return mk(32, 32, (g) => {
+    // A bunk bed from above: frame, two mattresses, a folded blanket.
+    roundRect(g, 2, 3, 28, 26, 2, '#3a2c1c');
+    g.fillStyle = '#5c4630'; g.fillRect(3.5, 4.5, 25, 23);
+    for (const y of [6, 17]) {
+      roundRect(g, 5, y, 22, 9, 2, '#d8d2c0');
+      g.fillStyle = '#b8b2a0'; g.fillRect(6, y + 1, 20, 2.5);   // pillow
+      g.fillStyle = '#6a7a8a'; g.fillRect(6, y + 4.5, 20, 4);   // blanket
+    }
+    g.fillStyle = '#8d949b';
+    g.fillRect(3, 3, 26, 1.5);
+    g.fillRect(3, 15, 26, 1.5);
+  });
+}
+
+function watchtowerSprite() {
+  return mk(32, 32, (g) => {
+    // Legs splaying out from under the platform.
+    g.strokeStyle = '#3a2c1c';
+    g.lineWidth = 3;
+    for (const [x, y] of [[5, 5], [27, 5], [5, 27], [27, 27]]) {
+      g.beginPath(); g.moveTo(16, 16); g.lineTo(x, y); g.stroke();
+    }
+    // Platform.
+    roundRect(g, 4, 4, 24, 24, 3, '#3a2c1c');
+    g.fillStyle = '#6b5233'; g.fillRect(6, 6, 20, 20);
+    g.strokeStyle = '#4a3722';
+    g.lineWidth = 1;
+    for (let i = 8; i < 26; i += 4) {
+      g.beginPath(); g.moveTo(6, i); g.lineTo(26, i); g.stroke();
+    }
+    // Rail and a sandbag on the corner.
+    g.strokeStyle = '#84673f';
+    g.lineWidth = 2;
+    g.strokeRect(7, 7, 18, 18);
+    g.fillStyle = '#7a7250';
+    roundRect(g, 18, 8, 7, 5, 2, '#7a7250');
+    // Ladder.
+    g.fillStyle = '#4a3722'; g.fillRect(14, 26, 5, 6);
+    g.fillStyle = '#84673f';
+    for (let y = 27; y < 32; y += 2) g.fillRect(14, y, 5, 1);
+  });
+}
+
 function generatorSprite() {
   return mk(32, 32, (g) => {
     roundRect(g, 2, 6, 28, 22, 3, '#2b2f33');
@@ -491,6 +536,170 @@ function turretHeadSprite() {
     // Sensor eye
     g.fillStyle = '#d94f4f';
     g.beginPath(); g.arc(11, cy, 2.2, 0, TAU); g.fill();
+  });
+}
+
+// ---------------------------------------------------------------- furniture -
+// Household and workplace fittings the player can search. Each one has to be
+// recognisable at a glance from directly above, at roughly 30px.
+
+const WOOD_D = '#4a3722';
+const WOOD_M = '#6b5233';
+const WOOD_L = '#84673f';
+
+function furnitureSprite(kind) {
+  const S = 30;
+  return mk(S, S, (g, w, h) => {
+    const body = (dark, mid) => {
+      roundRect(g, 2, 3, S - 4, S - 7, 2, dark);
+      g.fillStyle = mid;
+      g.fillRect(3.5, 4.5, S - 7, S - 10);
+    };
+
+    if (kind === 'bookshelf') {
+      body(WOOD_D, WOOD_M);
+      // Shelves seen from above: rows of book spines.
+      const spines = ['#8a4a3a', '#3f5a72', '#6a7a3a', '#7a6a3a', '#5a3a5a', '#3a6a5a'];
+      for (let row = 0; row < 3; row++) {
+        const y = 6 + row * 7;
+        g.fillStyle = '#2e2318';
+        g.fillRect(4, y + 5, S - 8, 1.5);
+        let x = 5;
+        while (x < S - 6) {
+          const bw = 1.5 + hash2(row * 31 + x, 7) * 2.2;
+          g.fillStyle = spines[Math.floor(hash2(x, row) * spines.length)];
+          g.fillRect(x, y, bw, 5);
+          x += bw + 0.8;
+        }
+      }
+    } else if (kind === 'dresser') {
+      body(WOOD_D, WOOD_L);
+      g.strokeStyle = '#3a2c1c';
+      g.lineWidth = 1;
+      for (let i = 1; i <= 2; i++) {
+        const y = 4 + i * 7;
+        g.beginPath(); g.moveTo(4, y); g.lineTo(S - 4, y); g.stroke();
+      }
+      g.fillStyle = '#c9a227';
+      for (let i = 0; i < 3; i++) {
+        g.fillRect(S / 2 - 5, 7 + i * 7, 4, 1.8);
+        g.fillRect(S / 2 + 1, 7 + i * 7, 4, 1.8);
+      }
+    } else if (kind === 'wardrobe') {
+      body('#3a2c1c', WOOD_M);
+      g.strokeStyle = '#2e2318';
+      g.lineWidth = 1.5;
+      g.beginPath(); g.moveTo(S / 2, 4); g.lineTo(S / 2, S - 4); g.stroke();
+      g.fillStyle = '#c9a227';
+      g.fillRect(S / 2 - 4, S / 2 - 1, 2.5, 5);
+      g.fillRect(S / 2 + 1.5, S / 2 - 1, 2.5, 5);
+      g.fillStyle = '#00000033';
+      g.fillRect(4, 4, S - 8, 3);
+    } else if (kind === 'desk') {
+      body('#3a2c1c', WOOD_L);
+      // Monitor, keyboard, scattered paper.
+      g.fillStyle = '#2b2f33'; g.fillRect(5, 5, 11, 8);
+      g.fillStyle = '#4a6a7a'; g.fillRect(6, 6, 9, 6);
+      g.fillStyle = '#22262a'; g.fillRect(5, 15, 12, 4);
+      g.fillStyle = '#d8d2c0';
+      g.fillRect(19, 7, 7, 5);
+      g.fillRect(18, 14, 8, 5);
+      g.fillStyle = '#00000022'; g.fillRect(19, 8, 7, 1); g.fillRect(19, 10, 5, 1);
+    } else if (kind === 'filing') {
+      body('#3f4449', '#6a7178');
+      g.strokeStyle = '#2b2f33';
+      g.lineWidth = 1;
+      for (let i = 1; i <= 3; i++) {
+        const y = 3 + i * 5.5;
+        g.beginPath(); g.moveTo(4, y); g.lineTo(S - 4, y); g.stroke();
+      }
+      g.fillStyle = '#aeb5bb';
+      for (let i = 0; i < 4; i++) g.fillRect(S / 2 - 4, 5 + i * 5.5, 8, 1.8);
+      g.fillStyle = '#d8d2c0'; g.fillRect(6, 4, 5, 2);
+    } else if (kind === 'fridge') {
+      body('#8d949b', '#cdd3d8');
+      g.strokeStyle = '#8d949b';
+      g.lineWidth = 1.5;
+      g.beginPath(); g.moveTo(4, 12); g.lineTo(S - 4, 12); g.stroke();
+      g.fillStyle = '#6b7178';
+      g.fillRect(S - 9, 6, 2.5, 5);
+      g.fillRect(S - 9, 15, 2.5, 8);
+      // Magnets and a note.
+      g.fillStyle = '#d94f4f'; g.fillRect(7, 16, 3, 3);
+      g.fillStyle = '#d8c86a'; g.fillRect(12, 18, 3, 3);
+      g.fillStyle = '#eee8d8'; g.fillRect(7, 6, 6, 4);
+    } else if (kind === 'nightstand') {
+      roundRect(g, 6, 7, 18, 16, 2, WOOD_D);
+      g.fillStyle = WOOD_L; g.fillRect(7.5, 8.5, 15, 13);
+      g.strokeStyle = '#3a2c1c'; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(8, 16); g.lineTo(22, 16); g.stroke();
+      g.fillStyle = '#c9a227'; g.fillRect(13, 12, 4, 1.6);
+      // Lamp seen from above.
+      g.fillStyle = '#3a3f44';
+      g.beginPath(); g.arc(15, 11, 4, 0, TAU); g.fill();
+      g.fillStyle = '#e8d89a';
+      g.beginPath(); g.arc(15, 11, 2.6, 0, TAU); g.fill();
+    } else if (kind === 'vanity') {
+      body('#b9bec0', '#e2e6e8');
+      // Basin.
+      g.fillStyle = '#9aa2a8';
+      g.beginPath(); g.ellipse(S / 2, S / 2 + 1, 8, 6.5, 0, 0, TAU); g.fill();
+      g.fillStyle = '#cfd6da';
+      g.beginPath(); g.ellipse(S / 2, S / 2 + 1, 6.5, 5, 0, 0, TAU); g.fill();
+      g.fillStyle = '#2b2f33';
+      g.beginPath(); g.arc(S / 2, S / 2 + 1, 1.6, 0, TAU); g.fill();
+      g.fillStyle = '#8d949b'; g.fillRect(S / 2 - 1.5, 6, 3, 5);
+    } else if (kind === 'footlocker') {
+      body('#3a4128', '#5c6640');
+      g.strokeStyle = '#2b3320';
+      g.lineWidth = 2;
+      g.beginPath(); g.moveTo(3, 11); g.lineTo(S - 3, 11); g.stroke();
+      g.fillStyle = '#8d949b';
+      g.fillRect(6, 9, 5, 4);
+      g.fillRect(S - 11, 9, 5, 4);
+      g.fillStyle = '#c7c07a';
+      g.font = 'bold 7px monospace';
+      g.fillText('US', 12, 22);
+    } else if (kind === 'vending') {
+      body('#5a2a2a', '#8a3a3a');
+      // Glass front with product rows.
+      g.fillStyle = '#1e2428'; g.fillRect(5, 5, 14, S - 12);
+      for (let r = 0; r < 4; r++) {
+        for (let c = 0; c < 3; c++) {
+          g.fillStyle = ['#d8c86a', '#6ac4a8', '#d97a5a', '#8ab0d8'][(r + c) % 4];
+          g.fillRect(6.5 + c * 4.2, 6.5 + r * 4.4, 3, 3.4);
+        }
+      }
+      g.fillStyle = '#2b2f33'; g.fillRect(21, 6, 5, 10);
+      g.fillStyle = '#d8d2c0'; g.fillRect(21, 18, 5, 4);
+    } else if (kind === 'toolrack') {
+      g.fillStyle = '#6b5233'; g.fillRect(2, 4, S - 4, S - 9);
+      g.fillStyle = '#7d6039'; g.fillRect(3, 5, S - 6, S - 11);
+      // Pegboard holes.
+      g.fillStyle = '#3a2c1c';
+      for (let y = 7; y < S - 8; y += 4) for (let x = 5; x < S - 5; x += 4) g.fillRect(x, y, 1, 1);
+      // Hanging tools.
+      g.fillStyle = '#9aa2ab'; g.fillRect(6, 7, 2, 11);
+      g.fillStyle = '#5a4a2a'; g.fillRect(5, 17, 4, 3);
+      g.fillStyle = '#8d949b'; g.fillRect(13, 8, 9, 2);
+      g.fillStyle = '#c9a227'; g.fillRect(12, 14, 3, 8);
+      g.fillStyle = '#9aa2ab';
+      g.beginPath(); g.moveTo(20, 14); g.lineTo(24, 20); g.lineTo(18, 20); g.closePath(); g.fill();
+    } else if (kind === 'displaycase') {
+      body('#3a3f44', '#59606a');
+      // Glass with a sheen.
+      g.fillStyle = '#8fb3c255'; g.fillRect(4, 5, S - 8, S - 12);
+      g.fillStyle = '#b8d8e855';
+      g.beginPath(); g.moveTo(5, S - 8); g.lineTo(S - 9, 5); g.lineTo(S - 5, 5); g.lineTo(9, S - 8); g.closePath(); g.fill();
+      // Goods inside.
+      g.fillStyle = '#c9a227'; g.fillRect(7, 9, 7, 3);
+      g.fillStyle = '#59b8c4'; g.fillRect(16, 8, 6, 5);
+      g.fillStyle = '#9aa2ab'; g.fillRect(8, 16, 12, 3);
+    } else {
+      body(WOOD_D, WOOD_M);
+    }
+
+    speckle(g, w, h, 26, ['#00000033', '#ffffff14'], kind.length * 17, 0.5);
   });
 }
 
@@ -614,8 +823,14 @@ export function buildSprites() {
   ];
   Sprites.wrecks = [carSprite('#5a4a42', '#372d28', true), carSprite('#4a4f55', '#2d3135', true)];
 
-  for (const k of ['cabinet', 'toolbox', 'shelf', 'medcab', 'crate', 'trunk', 'locker', 'safe', 'milcrate', 'pump']) {
-    Sprites[`c_${k}`] = containerSprite(k);
+  const FURNITURE = [
+    'bookshelf', 'dresser', 'wardrobe', 'desk', 'filing', 'fridge',
+    'nightstand', 'vanity', 'footlocker', 'vending', 'toolrack', 'displaycase',
+  ];
+  const FIXTURES = ['cabinet', 'toolbox', 'shelf', 'medcab', 'crate', 'trunk', 'locker', 'safe', 'milcrate', 'pump'];
+
+  for (const k of [...FIXTURES, ...FURNITURE]) {
+    Sprites[`c_${k}`] = FURNITURE.includes(k) ? furnitureSprite(k) : containerSprite(k);
     Sprites[`c_${k}_empty`] = mk(30, 30, (g, w, h) => {
       g.globalAlpha = 0.55;
       g.drawImage(Sprites[`c_${k}`], 0, 0);
@@ -636,6 +851,8 @@ export function buildSprites() {
   Sprites.s_workbench2 = workbenchSprite(true);
   Sprites.s_stash = stashSprite();
   Sprites.s_bedroll = bedrollSprite();
+  Sprites.s_bunk = bunkSprite();
+  Sprites.s_watchtower = watchtowerSprite();
   Sprites.s_generator = generatorSprite();
   Sprites.s_turret = turretBaseSprite();
   Sprites.s_floodlight = floodlightSprite();

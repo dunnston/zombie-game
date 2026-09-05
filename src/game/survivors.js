@@ -7,10 +7,12 @@
 
 import { TILE, RES } from './config.js';
 import {
-  G, moveCircle, notify, unstick, hasTerrainLineOfSight, takeRes, countRes, shake,
+  G, moveCircle, notify, unstick, hasTerrainLineOfSight,
+  takeRes, addRes, countRes, shake,
 } from './state.js';
 import { spawnBullet } from './combat.js';
 import { baseCenter } from './building.js';
+import { rollContainer } from './loot.js';
 import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
 import { addXp } from './progression.js';
@@ -42,11 +44,78 @@ const NAMES = [
   'Wes', 'Nel', 'Bram', 'Ivy', 'Otto', 'Sona', 'Rhett', 'Pim',
 ];
 
-export function survivorCap() {
-  return Math.max(0, Math.round(G.player.survivorCap));
+// ---------------------------------------------------------------- the jobs --
+
+export const JOBS = {
+  guard: {
+    id: 'guard', name: 'Guard', short: 'GRD', color: '#d9765a',
+    desc: 'Holds the base and shoots what comes at it.',
+  },
+  sniper: {
+    id: 'sniper', name: 'Sniper', short: 'SNP', color: '#6fb0c4',
+    desc: 'Posted on a Watchtower: far more range and damage, but tied to it.',
+    needs: 'watchtower',
+  },
+  scavenger: {
+    id: 'scavenger', name: 'Scavenger', short: 'SCV', color: '#e8c86a',
+    desc: 'Makes supply runs and brings materials back to the stash.',
+  },
+  builder: {
+    id: 'builder', name: 'Builder', short: 'BLD', color: '#8fd07a',
+    desc: 'Repairs damaged structures, during a raid and after it.',
+  },
+};
+
+export const JOB_IDS = Object.keys(JOBS);
+
+/**
+ * How many people you can keep. Two independent limits, and the UI reports
+ * whichever is actually binding: Charisma is how many will follow you, bunks
+ * are how many you can house.
+ */
+export function rosterLimits() {
+  const charisma = Math.max(0, Math.round(G.player ? G.player.survivorCap : 0));
+  let bunks = 0;
+  for (const s of G.structures) {
+    if (s.destroyed) continue;
+    if (s.def.houses) bunks += s.def.houses;
+  }
+  return { charisma, bunks, cap: Math.min(charisma, bunks) };
 }
 
+export const survivorCap = () => rosterLimits().cap;
+
 export const liveSurvivors = () => G.survivors.filter((s) => !s.dead);
+
+/** Watchtowers with nobody posted on them. */
+export function freeTowers() {
+  const taken = new Set(liveSurvivors().map((s) => s.tower).filter(Boolean));
+  return G.structures.filter((s) => !s.destroyed && s.def.post === 'sniper' && !taken.has(s));
+}
+
+export function assignJob(s, job) {
+  if (!JOBS[job] || s.dead) return false;
+  if (job === 'sniper') {
+    const tower = s.tower && !s.tower.destroyed ? s.tower : freeTowers()[0];
+    if (!tower) {
+      sfx('deny');
+      notify('No free Watchtower to post them on', '#c96a5a');
+      return false;
+    }
+    s.tower = tower;
+  } else {
+    s.tower = null;
+  }
+  s.job = job;
+  s.jobT = 0;
+  s.carrying = null;
+  // Jobs target different kinds of object, so a leftover target from the
+  // previous job is not just stale, it is the wrong shape entirely.
+  s.runTarget = null;
+  sfx('ui');
+  notify(`${s.name} is now on ${JOBS[job].name} duty`, JOBS[job].color);
+  return true;
+}
 
 export function makeSurvivor(x, y, opts = {}) {
   const name = opts.name || NAMES[Math.floor(rng() * NAMES.length)];
@@ -61,6 +130,11 @@ export function makeSurvivor(x, y, opts = {}) {
     cd: rng.range(0, 0.6),
     target: null,
     post: opts.post || null,
+    job: opts.job || 'guard',
+    tower: null,
+    jobT: 0,
+    carrying: null,          // scavenger's haul on the way home
+    runTarget: null,
     flash: 0, anim: rng.range(0, TAU),
     kills: 0,
     hungry: false,
@@ -114,15 +188,24 @@ export function seedRescues(world, count = 7) {
 }
 
 export function recruit(rescue) {
-  const cap = survivorCap();
+  const { charisma, bunks, cap } = rosterLimits();
   if (liveSurvivors().length >= cap) {
     sfx('deny');
-    notify(
-      cap === 0
+    // Say which of the two limits is actually in the way — being told "no room"
+    // without being told which kind of room is useless.
+    let why;
+    if (bunks <= liveSurvivors().length) {
+      why = bunks === 0
+        ? 'Nowhere for them to sleep — build a Bunk first'
+        : `Every Bunk is taken (${bunks}). Build another.`;
+    } else if (charisma <= liveSurvivors().length) {
+      why = charisma === 0
         ? 'Nobody will follow you yet — raise Charisma'
-        : `You can only look after ${cap} — no room`,
-      '#c96a5a', true,
-    );
+        : `Only ${charisma} will follow you. Raise Charisma.`;
+    } else {
+      why = 'No room';
+    }
+    notify(why, '#c96a5a', true);
     return null;
   }
   const s = makeSurvivor(rescue.x, rescue.y, {
@@ -273,28 +356,60 @@ export function updateSurvivors(dt) {
 
     unstick(s, SURVIVOR.r);
 
-    // Their post is the base if there is one, otherwise the player.
-    const postX = s.post ? s.post.x : (base.hasBase ? base.x : p.x);
-    const postY = s.post ? s.post.y : (base.hasBase ? base.y : p.y);
+    // A sniper whose tower has been destroyed falls back to guarding.
+    if (s.job === 'sniper' && (!s.tower || s.tower.destroyed)) {
+      s.tower = null;
+      s.job = 'guard';
+    }
+
+    // Where this person is meant to be, given their job.
+    let postX, postY;
+    if (s.job === 'sniper' && s.tower) { postX = s.tower.x; postY = s.tower.y; }
+    else if (s.post) { postX = s.post.x; postY = s.post.y; }
+    else if (base.hasBase) { postX = base.x; postY = base.y; }
+    else { postX = p.x; postY = p.y; }
+
+    // Snipers shoot much further and hit much harder; everyone else is a rifle
+    // at the wall.
+    const range = s.job === 'sniper' && s.tower
+      ? s.tower.def.sniperRange
+      : SURVIVOR.range;
+    const dmgMul = s.job === 'sniper' && s.tower ? s.tower.def.sniperDmg : 1;
 
     // ------------------------------------------------------------ target --
-    let best = null, bestD = SURVIVOR.range * SURVIVOR.range;
-    G.spatial.query(s.x, s.y, SURVIVOR.range, scratch);
+    let best = null, bestD = range * range;
+    G.spatial.query(s.x, s.y, range, scratch);
     for (const e of scratch) {
       if (e.dead) continue;
       const d = dist2(s.x, s.y, e.x, e.y);
       if (d < bestD && hasTerrainLineOfSight(s.x, s.y, e.x, e.y)) { bestD = d; best = e; }
     }
     s.target = best;
+    s.shotRange = range;
+    s.shotDmgMul = dmgMul;
+
+    // --------------------------------------------------------- job work --
+    // Non-combat jobs only get on with it when nothing is shooting at them.
+    const underThreat = !!best && bestD < (SURVIVOR.range * 0.8) ** 2;
+    let jobX = null, jobY = null;
+    if (!underThreat) {
+      if (s.job === 'scavenger') ({ x: jobX, y: jobY } = scavengerStep(s, dt, base));
+      else if (s.job === 'builder') ({ x: jobX, y: jobY } = builderStep(s, dt, base));
+    }
 
     // ------------------------------------------------------------- move --
     let wantX = postX, wantY = postY;
-    if (best) {
+    if (best && (s.job === 'guard' || s.job === 'sniper' || underThreat)) {
       // Hold position and shoot; close only if the target is drifting away.
       const d = Math.sqrt(bestD);
-      if (d > SURVIVOR.range * 0.8) { wantX = best.x; wantY = best.y; }
+      // Snipers never leave their tower.
+      if (s.job !== 'sniper' && d > SURVIVOR.range * 0.8) { wantX = best.x; wantY = best.y; }
       else { wantX = s.x; wantY = s.y; }
       s.angle += clamp(angleDelta(s.angle, Math.atan2(best.y - s.y, best.x - s.x)), -8 * dt, 8 * dt);
+    } else if (jobX !== null) {
+      wantX = jobX; wantY = jobY;
+      const d = Math.hypot(wantX - s.x, wantY - s.y);
+      if (d > 20) s.angle += clamp(angleDelta(s.angle, Math.atan2(wantY - s.y, wantX - s.x)), -6 * dt, 6 * dt);
     } else {
       const dp = Math.hypot(postX - s.x, postY - s.y);
       if (dp > SURVIVOR.guardRadius) { wantX = postX; wantY = postY; }
@@ -330,18 +445,25 @@ export function updateSurvivors(dt) {
 
     // ------------------------------------------------------------- fire --
     if (best && s.cd <= 0) {
-      const aimErr = 0.10 - Math.min(0.06, s.level * 0.007);
+      const sniping = s.job === 'sniper' && s.tower;
+      const aimErr = (sniping ? 0.04 : 0.10) - Math.min(0.03, s.level * 0.004);
       const a = s.angle + (Math.random() - 0.5) * aimErr * 2;
-      s.cd = SURVIVOR.fireCd * (s.hungry ? 1.35 : 1);
+      s.cd = SURVIVOR.fireCd * (sniping ? 1.7 : 1) * (s.hungry ? 1.35 : 1);
       // Survivors draw from the stash so arming them is a real decision.
       const paid = takeRes(G.stash, 'ammoP', 1);
       if (paid > 0) {
         spawnBullet(s.x + Math.cos(a) * 16, s.y + Math.sin(a) * 16, a, {
-          speed: 1150, dmg: s.dmg, life: 0.5, knock: 45,
-          color: '#cfe8b0', size: 2, owner: `survivor:${s.id}`,
+          speed: sniping ? 1700 : 1150,
+          dmg: s.dmg * s.shotDmgMul,
+          life: sniping ? 0.55 : 0.5,
+          knock: sniping ? 110 : 45,
+          pierce: sniping ? 1 : 0,
+          color: sniping ? '#e8f0c0' : '#cfe8b0',
+          size: sniping ? 2.8 : 2,
+          owner: `survivor:${s.id}`,
         });
-        FX.muzzle(s.x + Math.cos(a) * 18, s.y + Math.sin(a) * 18, a, 0.6);
-        sfx('smg');
+        FX.muzzle(s.x + Math.cos(a) * 18, s.y + Math.sin(a) * 18, a, sniping ? 1.1 : 0.6);
+        sfx(sniping ? 'rifle' : 'smg');
       } else {
         s.cd = 1.2;
         s.outOfAmmo = true;
@@ -354,6 +476,215 @@ export function updateSurvivors(dt) {
     }
   }
 }
+
+// ------------------------------------------------------------- job routines --
+
+export const SCAVENGE = {
+  radius: 900,          // how far from the base they will range
+  reach: 68,            // how close they must get to work one
+  searchTime: 6,        // seconds spent working a container
+  giveUpAfter: 2.5,     // seconds of no progress before trying something else
+};
+
+/**
+ * Scavengers walk to a nearby unlooted container, work it, and carry the haul
+ * back to the stash. They are slower and less thorough than you are, which is
+ * the point: they turn time into materials while you do something else.
+ */
+function scavengerStep(s, dt, base) {
+  const stash = nearestStash();
+
+  // Carrying a haul? Take it home.
+  if (s.carrying) {
+    if (!stash) { s.carrying = null; return { x: null, y: null }; }
+    if (dist2(s.x, s.y, stash.x, stash.y) < 52 * 52) {
+      for (const id in s.carrying) addRes(G.stash, id, s.carrying[id]);
+      const total = Object.values(s.carrying).reduce((a, b) => a + b, 0);
+      FX.text(s.x, s.y - 24, `+${total} to stash`, '#e8c86a', 11, -34, 1.0);
+      sfx('loot');
+      awardSurvivorXp(s, 8);
+      s.carrying = null;
+      s.runTarget = null;
+      return { x: null, y: null };
+    }
+    return { x: stash.x, y: stash.y };
+  }
+
+  // Pick a target container near the base. The `table` check makes sure we are
+  // looking at a container and not a structure left over from another job.
+  if (!s.runTarget || !s.runTarget.table || s.runTarget.looted) {
+    s.runTarget = null;
+    const originX = base.hasBase ? base.x : s.x;
+    const originY = base.hasBase ? base.y : s.y;
+    // Don't send two people to the same shelf, and skip anything this person
+    // has already failed to reach.
+    const claimed = new Set(liveSurvivors().map((o) => o.runTarget).filter(Boolean));
+
+    // There is no pathfinding, so prefer containers with a clear line from the
+    // base — those are the ones they can actually walk to. Anything behind a
+    // wall is only tried if nothing open is left, and the give-up timer below
+    // drops it quickly if it turns out to be sealed off.
+    let bestC = null, bestD = SCAVENGE.radius * SCAVENGE.radius;
+    let fallbackC = null, fallbackD = SCAVENGE.radius * SCAVENGE.radius;
+    for (const c of G.world.containers) {
+      if (c.looted || c.hidden || claimed.has(c)) continue;
+      if (s.unreachLoot && s.unreachLoot.has(c.id)) continue;
+      const d = dist2(originX, originY, c.x, c.y);
+      if (d >= fallbackD && d >= bestD) continue;
+      if (d < bestD && hasTerrainLineOfSight(originX, originY, c.x, c.y, 20)) {
+        bestD = d; bestC = c;
+      } else if (d < fallbackD) {
+        fallbackD = d; fallbackC = c;
+      }
+    }
+    if (!bestC) bestC = fallbackC;
+    // Everything in range has defeated them: forget the grudges and retry.
+    if (!bestC && s.unreachLoot && s.unreachLoot.size) { s.unreachLoot.clear(); }
+    s.runTarget = bestC;
+    s.jobT = 0;
+    s.reachT = 0;
+    s.lastReachD = Infinity;
+    if (!bestC) return { x: null, y: null };
+  }
+
+  const c = s.runTarget;
+  const away = dist2(s.x, s.y, c.x, c.y);
+  // The container's own tile is solid, so a survivor can never stand closer
+  // than about a tile away — the working radius has to allow for that.
+  if (away > SCAVENGE.reach * SCAVENGE.reach) {
+    // There is no pathfinding here, so a container behind a wall would hold a
+    // scavenger against it forever. If they stop closing, give this one up and
+    // let the next pick find something they can actually walk to.
+    s.reachT = (s.reachT || 0) + dt;
+    if (s.reachT > SCAVENGE.giveUpAfter) {
+      const closed = (s.lastReachD || Infinity) - away > 900;   // ~30px of progress
+      if (!closed) {
+        if (!s.unreachLoot) s.unreachLoot = new Set();
+        s.unreachLoot.add(c.id);
+        s.runTarget = null;
+        return { x: null, y: null };
+      }
+      s.lastReachD = away;
+      s.reachT = 0;
+    }
+    return { x: c.x, y: c.y };
+  }
+
+  // In reach: work it.
+  s.jobT += dt;
+  if (s.jobT >= SCAVENGE.searchTime) {
+    s.jobT = 0;
+    c.looted = true;
+    const entries = rollContainer(c, 1, {});
+    const haul = {};
+    for (const e of entries) {
+      // They bring back materials, not weapons — those are yours to find.
+      if (!RES[e.id]) continue;
+      haul[e.id] = (haul[e.id] || 0) + e.n;
+    }
+    if (Object.keys(haul).length === 0) haul.scrap = 3;
+    s.carrying = haul;
+    FX.ring(c.x, c.y, 4, 26, 0.4, '#e8c86a', 2);
+    s.runTarget = null;
+  }
+  return { x: s.x, y: s.y };
+}
+
+export const BUILDER = {
+  radius: 700,          // searched from the base, not from the builder
+  reach: 58,            // structures are solid, so allow for standing beside one
+  giveUpAfter: 2.5,
+  repairPerSec: 26,
+  costPer100: { wood: 2, scrap: 1 },
+};
+
+/**
+ * Builders walk to the most damaged structure in range and patch it up, taking
+ * materials from the stash as they go. During a raid this is the difference
+ * between a wall that holds and one that does not.
+ */
+function builderStep(s, dt, base) {
+  // The `def` check keeps a container from a previous job out of the repair
+  // path, where its undefined hp would poison the arithmetic.
+  let target = s.runTarget;
+  if (!target || !target.def || target.destroyed || target.hp >= target.maxHp) {
+    target = null;
+    // Search from the base, not from wherever this person happens to be
+    // standing. A builder who wandered should still know the wall is broken and
+    // walk back to it, rather than losing sight of the job.
+    const originX = base.hasBase ? base.x : s.x;
+    const originY = base.hasBase ? base.y : s.y;
+    let worst = 1;
+    for (const st of G.structures) {
+      if (st.destroyed || st.hp >= st.maxHp) continue;
+      if (s.unreachBuild && s.unreachBuild.has(st)) continue;
+      if (dist2(originX, originY, st.x, st.y) > BUILDER.radius * BUILDER.radius) continue;
+      const frac = st.hp / st.maxHp;
+      if (frac < worst) { worst = frac; target = st; }
+    }
+    // Nothing left they can get to: forget the grudges and look again.
+    if (!target && s.unreachBuild && s.unreachBuild.size) s.unreachBuild.clear();
+    s.runTarget = target;
+    s.reachT = 0;
+    s.lastReachD = Infinity;
+  }
+  if (!target) return { x: null, y: null };
+
+  const away = dist2(s.x, s.y, target.x, target.y);
+  if (away > BUILDER.reach * BUILDER.reach) {
+    // Same no-pathfinding caveat as scavenging: if they stop closing on a
+    // structure, drop it and pick another rather than leaning on a wall.
+    s.reachT = (s.reachT || 0) + dt;
+    if (s.reachT > BUILDER.giveUpAfter) {
+      if ((s.lastReachD || Infinity) - away > 900) {
+        s.lastReachD = away;
+        s.reachT = 0;
+      } else {
+        if (!s.unreachBuild) s.unreachBuild = new Set();
+        s.unreachBuild.add(target);
+        s.runTarget = null;
+        s.reachT = 0;
+        s.lastReachD = Infinity;
+        return { x: null, y: null };
+      }
+    }
+    return { x: target.x, y: target.y };
+  }
+  s.reachT = 0;
+  s.lastReachD = Infinity;
+
+  // In reach: repair, paying as we go so it is never free.
+  const heal = BUILDER.repairPerSec * dt;
+  s.jobT += heal;
+  if (s.jobT >= 100) {
+    s.jobT -= 100;
+    let paid = true;
+    for (const id in BUILDER.costPer100) {
+      if (takeRes(G.stash, id, BUILDER.costPer100[id]) < BUILDER.costPer100[id]) paid = false;
+    }
+    if (!paid) {
+      if (!G.repairWarned || G.time - G.repairWarned > 40) {
+        G.repairWarned = G.time;
+        notify('Your builders are out of materials', '#d9c46a');
+      }
+      return { x: s.x, y: s.y };
+    }
+    awardSurvivorXp(s, 3);
+  }
+  target.hp = Math.min(target.maxHp, target.hp + heal);
+  if (Math.random() < dt * 5) FX.sparks(target.x, target.y, 0, -1, 2, '#d8c88a');
+  return { x: s.x, y: s.y };
+}
+
+const nearestStash = () => {
+  let best = null, bd = Infinity;
+  for (const st of G.structures) {
+    if (st.destroyed || st.type !== 'stash') continue;
+    const d = dist2(st.x, st.y, 0, 0);
+    if (d < bd) { bd = d; best = st; }
+  }
+  return best;
+};
 
 /** Called when a bullet owned by a survivor lands a kill. */
 export function creditSurvivorKill(ownerTag, xp) {

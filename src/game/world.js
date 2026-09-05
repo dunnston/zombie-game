@@ -4,7 +4,9 @@
 // All static collision is tile-based: `blocked[i] === 1` stops players, enemies
 // and bullets. Player-built structures live in a separate, destructible map.
 
-import { TILE, WORLD_TILES, WORLD_SIZE, T, SOLID_TILES, CONTAINERS } from './config.js';
+import {
+  TILE, WORLD_TILES, WORLD_SIZE, T, SOLID_TILES, CONTAINERS, FURNISHING,
+} from './config.js';
 import { makeRng, clamp } from '../core/util.js';
 
 const W = WORLD_TILES;
@@ -152,8 +154,27 @@ export function createWorld(seed = 20240917) {
     return c;
   }
 
-  /** Scatters `n` containers on interior tiles, biased to spots beside a wall. */
+  /**
+   * Furnishes a building's interior. `kinds` is either a plain list or a
+   * FURNISHING key, in which case fittings are drawn from that building type's
+   * weighted table — so a house fills with wardrobes and a precinct with
+   * filing cabinets.
+   *
+   * Furniture goes against walls, because that is where furniture goes, and
+   * because it keeps the middle of a room walkable during a fight.
+   */
   function stock(interior, kinds, n) {
+    const table = typeof kinds === 'string' ? FURNISHING[kinds] : null;
+    const list = table ? null : kinds;
+    const pickKind = () => {
+      if (list) return rng.pick(list);
+      let total = 0;
+      for (const [, w] of table) total += w;
+      let r = rng() * total;
+      for (const [k, w] of table) { r -= w; if (r <= 0) return k; }
+      return table[0][0];
+    };
+
     const nearWall = interior.filter(([x, y]) =>
       world.blocked[idx(x - 1, y)] || world.blocked[idx(x + 1, y)] ||
       world.blocked[idx(x, y - 1)] || world.blocked[idx(x, y + 1)]);
@@ -165,7 +186,7 @@ export function createWorld(seed = 20240917) {
       const k = `${x},${y}`;
       if (used.has(k)) continue;
       used.add(k);
-      if (addContainer(x, y, rng.pick(kinds))) placed++;
+      if (addContainer(x, y, pickKind())) placed++;
     }
   }
 
@@ -173,11 +194,11 @@ export function createWorld(seed = 20240917) {
   // The starting crossroads: a couple of shacks, a wreck, and easy pickings.
   {
     const i1 = building(70, 70, 8, 7, { doors: 1 });
-    stock(i1, ['cabinet', 'kitchen'], 3);
+    stock(i1, 'house', 4);
     const i2 = building(84, 84, 7, 6, { doors: 1 });
-    stock(i2, ['cabinet', 'toolbox'], 3);
+    stock(i2, 'house', 4);
     const i3 = building(68, 86, 9, 6, { doors: 2 });
-    stock(i3, ['cabinet', 'kitchen', 'toolbox'], 4);
+    stock(i3, 'house', 5);
   }
 
   // ---------------------------------------------------- district: suburbs --
@@ -190,7 +211,7 @@ export function createWorld(seed = 20240917) {
     ];
     for (const [x, y, w, h] of lots) {
       const interior = building(x, y, w, h, { doors: rng.int(1, 2), rooms: true });
-      stock(interior, ['cabinet', 'cabinet', 'kitchen', 'toolbox'], rng.int(3, 5));
+      stock(interior, 'house', rng.int(5, 8));
       // Driveway + a parked car out front.
       fill(x + 2, y + h, 3, 3, T.GRAVEL);
       if (rng.chance(0.55)) addCar(x + 2, y + h + 1, 0);
@@ -206,7 +227,7 @@ export function createWorld(seed = 20240917) {
     ];
     for (const [x, y, w, h] of lots) {
       const interior = building(x, y, w, h, { doors: rng.int(1, 2), rooms: true });
-      stock(interior, ['cabinet', 'kitchen', 'toolbox', 'shelf'], rng.int(4, 6));
+      stock(interior, 'house', rng.int(6, 9));
       if (rng.chance(0.5)) addCar(x + 3, y + h + 1, 0);
     }
   }
@@ -215,18 +236,18 @@ export function createWorld(seed = 20240917) {
   {
     // Convenience store
     const conv = building(94, 58, 16, 12, { floor: T.FLOOR_TILE, doors: 2, doorSides: [0, 2] });
-    stock(conv, ['shelf', 'shelf', 'kitchen', 'pharmacy'], 8);
+    stock(conv, 'store', 11);
     fill(94, 71, 16, 4, T.LOT);
 
     // Hardware store — the wood/scrap jackpot for early base building.
     const hard = building(116, 56, 20, 14, { floor: T.FLOOR_TILE, doors: 2, doorSides: [0, 3], rooms: true });
-    stock(hard, ['toolbox', 'toolbox', 'shelf', 'crate'], 11);
+    stock(hard, 'hardware', 14);
     fill(116, 71, 20, 5, T.LOT);
     addCar(120, 72, 0); addCar(128, 72, 0);
 
     // Electronics / pawn shop
     const pawn = building(140, 58, 12, 11, { floor: T.FLOOR_TILE, doors: 1 });
-    stock(pawn, ['electronics', 'electronics', 'shelf'], 6);
+    stock(pawn, 'pawn', 8);
 
     // Strip-mall parking
     fill(92, 82, 60, 6, T.LOT);
@@ -236,7 +257,7 @@ export function createWorld(seed = 20240917) {
   // -------------------------------------------------- district: fuel stop --
   {
     const shop = building(30, 84, 11, 8, { floor: T.FLOOR_TILE, doors: 1, doorSides: [1] });
-    stock(shop, ['shelf', 'kitchen', 'pharmacy'], 5);
+    stock(shop, 'store', 7);
     fill(30, 93, 24, 8, T.LOT);
     // Canopy pumps
     for (let i = 0; i < 4; i++) addContainer(34 + i * 4, 96, 'fuelPump');
@@ -247,10 +268,10 @@ export function createWorld(seed = 20240917) {
   // ---------------------------------------------------- district: police --
   {
     const main = building(100, 98, 24, 18, { floor: T.FLOOR_TILE, doors: 2, doorSides: [0, 2], rooms: true });
-    stock(main, ['policeLocker', 'policeLocker', 'locker', 'shelf'], 10);
+    stock(main, 'police', 14);
     // Armoury annex — safes behind a second wall
     const arm = building(126, 100, 10, 9, { floor: T.FLOOR_TILE, doors: 1, doorSides: [2] });
-    stock(arm, ['gunSafe', 'gunSafe', 'policeLocker'], 5);
+    stock(arm, ['gunSafe', 'gunSafe', 'policeLocker', 'footlocker'], 6);
     // Motor pool
     fill(100, 118, 30, 6, T.LOT);
     for (let i = 0; i < 5; i++) addCar(102 + i * 6, 119, 0);
@@ -261,9 +282,9 @@ export function createWorld(seed = 20240917) {
   // -------------------------------------------------- district: hospital --
   {
     const main = building(14, 112, 30, 22, { floor: T.FLOOR_TILE, doors: 3, doorSides: [0, 2, 3], rooms: true });
-    stock(main, ['hospitalCrate', 'pharmacy', 'pharmacy', 'medcab', 'shelf'], 14);
+    stock(main, 'hospital', 18);
     const wing = building(16, 138, 20, 10, { floor: T.FLOOR_TILE, doors: 1 });
-    stock(wing, ['pharmacy', 'hospitalCrate', 'shelf'], 6);
+    stock(wing, 'hospital', 8);
     fill(46, 116, 10, 18, T.LOT);
     addWreck(48, 120); addCar(48, 128, 0);
   }
@@ -271,7 +292,7 @@ export function createWorld(seed = 20240917) {
   // ------------------------------------------------ district: industrial --
   {
     const warehouse = building(64, 120, 26, 20, { floor: T.FLOOR_TILE, doors: 2, doorSides: [0, 3] });
-    stock(warehouse, ['electronics', 'electronics', 'crate', 'crate', 'toolbox'], 12);
+    stock(warehouse, 'industrial', 15);
     // Interior storage rows made of rubble stacks
     for (let y = 126; y < 136; y += 4) for (let x = 68; x < 86; x++) if (x % 7 !== 0) set(x, y, T.RUBBLE);
     fill(64, 142, 26, 8, T.LOT);
@@ -290,10 +311,10 @@ export function createWorld(seed = 20240917) {
 
     // Command hut
     const hut = building(cx + 4, cy + 5, 10, 8, { floor: T.FLOOR_TILE, doors: 1, doorSides: [1] });
-    stock(hut, ['militaryCrate', 'gunSafe', 'electronics'], 5);
+    stock(hut, 'military', 7);
     // Barracks
     const bar = building(cx + 16, cy + 16, 10, 9, { floor: T.FLOOR_TILE, doors: 1, doorSides: [0] });
-    stock(bar, ['militaryCrate', 'policeLocker', 'hospitalCrate'], 5);
+    stock(bar, 'military', 7);
     // Open crate stacks + sandbags
     for (let i = 0; i < 7; i++) addContainer(cx + 4 + i * 3, cy + 21, 'militaryCrate');
     for (let i = 0; i < 4; i++) addContainer(cx + 18 + i * 2, cy + 4, 'militaryCrate');

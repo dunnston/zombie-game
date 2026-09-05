@@ -16,6 +16,7 @@ import {
 } from '../game/perks.js';
 import {
   liveSurvivors, survivorCap, rationsHeld, rationsCarried, SURVIVOR,
+  JOBS, JOB_IDS, rosterLimits, freeTowers, assignJob,
 } from '../game/survivors.js';
 import { clockString, darkness, phaseAt } from '../game/daynight.js';
 import { threatLabel, threatColor } from '../game/threat.js';
@@ -1002,14 +1003,22 @@ function drawPeopleTab(ctx, px, py, pw, ph) {
   const crew = liveSurvivors();
   const cap = survivorCap();
 
+  const limits = rosterLimits();
   ctx.font = 'bold 12px "Courier New", monospace';
   ctx.fillStyle = C.borderHi;
   ctx.fillText(`YOUR PEOPLE   ${crew.length} / ${cap}`, x, y);
+
+  // Two independent limits — say which one is actually in the way.
   ctx.font = '10px "Courier New", monospace';
+  const bindBunks = limits.bunks <= limits.charisma;
+  ctx.fillStyle = bindBunks ? C.gold : C.dim;
+  ctx.fillText(`${limits.bunks} bunk${limits.bunks === 1 ? '' : 's'} built`, x, y + 15);
+  ctx.fillStyle = bindBunks ? C.dim : C.gold;
+  ctx.fillText(`Charisma allows ${limits.charisma}`, x + 130, y + 15);
   ctx.fillStyle = C.dim;
   ctx.fillText(
-    'Charisma raises your capacity. They hold the base, shoot what comes, and eat Rations.',
-    x, y + 15,
+    bindBunks ? '← build more Bunks to make room' : '← raise Charisma to bring more in',
+    x + 270, y + 15,
   );
 
   // The stash is the pantry, exactly like the ammo they shoot. Food in your own
@@ -1042,16 +1051,18 @@ function drawPeopleTab(ctx, px, py, pw, ph) {
     ctx.font = '12px "Courier New", monospace';
     ctx.fillStyle = C.dim;
     ctx.fillText(
-      cap === 0
-        ? 'Nobody will follow you yet. Raise Charisma to open a slot.'
-        : 'Nobody yet. Survivors are marked with a green ring out in the town.',
+      limits.bunks === 0
+        ? 'Nowhere for anyone to sleep. Build a Bunk (B) before you go looking.'
+        : limits.charisma === 0
+          ? 'Nobody will follow you yet. Raise Charisma to open a slot.'
+          : 'Nobody yet. Survivors are marked with a green ring out in the town.',
       x, y,
     );
     return;
   }
 
   for (const s of crew) {
-    const rowH = 52;
+    const rowH = 74;
     ctx.fillStyle = 'rgba(24,30,20,0.75)';
     ctx.fillRect(x, y, pw - 40, rowH);
     ctx.strokeStyle = s.downed ? C.warn : s.hungry ? '#a06a5a' : C.border;
@@ -1060,30 +1071,70 @@ function drawPeopleTab(ctx, px, py, pw, ph) {
 
     ctx.font = 'bold 13px "Courier New", monospace';
     ctx.fillStyle = s.downed ? C.warn : C.text;
-    ctx.fillText(s.name, x + 12, y + 20);
+    ctx.fillText(s.name, x + 12, y + 19);
     ctx.font = '11px "Courier New", monospace';
     ctx.fillStyle = C.gold;
-    ctx.fillText(`LVL ${s.level}`, x + 110, y + 20);
+    ctx.fillText(`LVL ${s.level}`, x + 110, y + 19);
     ctx.fillStyle = C.dim;
-    ctx.fillText(`${s.kills} kills`, x + 180, y + 20);
-    if (s.hungry) { ctx.fillStyle = '#e0904a'; ctx.fillText('HUNGRY', x + 260, y + 20); }
-    if (s.downed) { ctx.fillStyle = C.warn; ctx.fillText('DOWN', x + 260, y + 20); }
+    ctx.fillText(`${s.kills} kills`, x + 180, y + 19);
+    ctx.fillText(`dmg ${Math.round(s.dmg)}`, x + 250, y + 19);
+    if (s.hungry) { ctx.fillStyle = '#e0904a'; ctx.fillText('HUNGRY', x + 330, y + 19); }
+    if (s.downed) { ctx.fillStyle = C.warn; ctx.fillText('DOWN', x + 330, y + 19); }
+    if (s.carrying) { ctx.fillStyle = '#e8c86a'; ctx.fillText('HAULING', x + 400, y + 19); }
 
     // Health + xp bars
-    bar(ctx, x + 12, y + 28, 180, 7, s.hp / s.maxHp,
+    bar(ctx, x + 12, y + 26, 170, 7, s.hp / s.maxHp,
       s.hp / s.maxHp > 0.5 ? '#7ec46a' : s.hp / s.maxHp > 0.25 ? '#d9c46a' : '#e05a4a');
     ctx.font = '9px "Courier New", monospace';
     ctx.fillStyle = C.dim;
-    ctx.fillText(`${Math.round(s.hp)}/${s.maxHp}`, x + 198, y + 35);
+    ctx.fillText(`${Math.round(s.hp)}/${s.maxHp}`, x + 188, y + 33);
 
     const need = SURVIVOR.xpPerLevel * s.level;
-    bar(ctx, x + 260, y + 28, 140, 7, s.level >= SURVIVOR.maxLevel ? 1 : s.xp / need, '#9a7ec4');
+    bar(ctx, x + 250, y + 26, 130, 7, s.level >= SURVIVOR.maxLevel ? 1 : s.xp / need, '#9a7ec4');
     ctx.fillStyle = C.dim;
-    ctx.fillText(s.level >= SURVIVOR.maxLevel ? 'veteran' : `${Math.floor(s.xp)}/${need} xp`, x + 406, y + 35);
+    ctx.fillText(s.level >= SURVIVOR.maxLevel ? 'veteran' : `${Math.floor(s.xp)}/${need} xp`, x + 386, y + 33);
 
+    // ------------------------------------------------------ job buttons --
     ctx.font = '10px "Courier New", monospace';
     ctx.fillStyle = C.dim;
-    ctx.fillText(`damage ${Math.round(s.dmg)}`, x + 12, y + 47);
+    ctx.fillText('JOB', x + 12, y + 55);
+
+    let bx = x + 44;
+    for (const id of JOB_IDS) {
+      const job = JOBS[id];
+      const bw = 74, bh = 18;
+      const active = (s.job || 'guard') === id;
+      const towerFree = id !== 'sniper' || active || freeTowers().length > 0;
+      const hot = inside(bx, y + 44, bw, bh);
+
+      ctx.fillStyle = active ? 'rgba(120,160,86,0.42)'
+        : !towerFree ? 'rgba(26,28,22,0.7)'
+          : hot ? 'rgba(90,120,66,0.34)' : 'rgba(20,26,16,0.7)';
+      ctx.fillRect(bx, y + 44, bw, bh);
+      ctx.strokeStyle = active ? job.color : towerFree ? C.border : '#333d2a';
+      ctx.lineWidth = active ? 2 : 1;
+      ctx.strokeRect(bx + 0.5, y + 44.5, bw - 1, bh - 1);
+      ctx.font = 'bold 10px "Courier New", monospace';
+      ctx.fillStyle = active ? job.color : towerFree ? C.text : '#4c5544';
+      ctx.textAlign = 'center';
+      ctx.fillText(job.name.toUpperCase(), bx + bw / 2, y + 56);
+      ctx.textAlign = 'left';
+
+      if (hot && clicked() && !active) assignJob(s, id);
+      bx += bw + 5;
+    }
+
+    // What the current job is doing right now.
+    ctx.font = '10px "Courier New", monospace';
+    ctx.fillStyle = C.dim;
+    const job = JOBS[s.job || 'guard'];
+    // Targets differ in shape between jobs, so read them defensively.
+    let doing = job.desc;
+    if (s.job === 'scavenger' && s.carrying) doing = 'Carrying a haul back to the stash.';
+    else if (s.job === 'scavenger' && s.runTarget?.label) doing = `Working a ${s.runTarget.label}.`;
+    else if (s.job === 'builder' && s.runTarget?.def) doing = `Repairing a ${s.runTarget.def.name}.`;
+    else if (s.job === 'sniper' && !s.tower) doing = 'No tower — falling back to guarding.';
+    ctx.fillText(doing, bx + 8, y + 56);
 
     y += rowH + 6;
     if (y + rowH > py + ph) break;

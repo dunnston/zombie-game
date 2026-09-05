@@ -1,7 +1,7 @@
 // LocalStorage save/load. The world is regenerated from its seed, so a save is
 // just the deltas: what's been looted, what's been built, and who you are.
 
-import { G, notify } from './state.js';
+import { G, notify, structAt } from './state.js';
 import { createWorld, removeProp } from './world.js';
 import { createPlayer, pickRandomSpawn } from './player.js';
 import { makeStructure } from './building.js';
@@ -56,6 +56,9 @@ export function saveGame() {
       survivors: G.survivors.filter((s) => !s.dead).map((s) => ({
         id: s.id, name: s.name, level: s.level, xp: s.xp, kills: s.kills,
         x: s.x, y: s.y, hp: s.hp, downed: s.downed, downT: s.downT,
+        job: s.job,
+        // Towers are stored by tile, since structure objects are rebuilt on load.
+        tower: s.tower && !s.tower.destroyed ? { tx: s.tower.tx, ty: s.tower.ty } : null,
       })),
       rescues: G.rescues.map((r) => ({ x: r.x, y: r.y, name: r.name, level: r.level })),
       discovered: G.world.locations.filter((l) => l.discovered).map((l) => l.id),
@@ -175,13 +178,15 @@ export function loadGame() {
     G.survivors.length = 0;
     for (const sv of data.survivors || []) {
       const s = makeSurvivor(sv.x, sv.y, {
-        id: sv.id, name: sv.name, level: sv.level, recruited: true,
+        id: sv.id, name: sv.name, level: sv.level, recruited: true, job: sv.job,
       });
       s.xp = sv.xp || 0;
       s.kills = sv.kills || 0;
       s.downed = !!sv.downed;
       s.downT = sv.downT || 0;
       s.hp = Math.min(sv.hp ?? s.maxHp, s.maxHp);
+      if (sv.tower) s.tower = structAt(sv.tower.tx, sv.tower.ty);
+      if (s.job === 'sniper' && !s.tower) s.job = 'guard';
       G.survivors.push(s);
     }
     refreshAllSurvivors();

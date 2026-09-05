@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  RES, WEAPONS, ENEMIES, STRUCTURES, RECIPES, LOOT, CONTAINERS,
+  RES, WEAPONS, ENEMIES, STRUCTURES, RECIPES, LOOT, CONTAINERS, FURNISHING,
   BUILD_ORDER, THREAT, RAIDS, PLAYER, TILE, WORLD_TILES,
   bagWeight, xpForLevel, raidSpec,
 } from '../src/game/config.js';
@@ -18,7 +18,9 @@ import {
   darkness, phaseAt, clockString, nightFactors, DAY_LENGTH, PHASES,
 } from '../src/game/daynight.js';
 import { pointsForLevel } from '../src/game/progression.js';
-import { SURVIVOR } from '../src/game/survivors.js';
+import {
+  SURVIVOR, JOBS, JOB_IDS, SCAVENGE, BUILDER,
+} from '../src/game/survivors.js';
 import { makeRng, weightedPick, clamp, angleDelta, hash2, pruneInPlace, circleRectOverlap } from '../src/core/util.js';
 
 // ------------------------------------------------------------------- util ---
@@ -381,6 +383,62 @@ test('Rations exist and are found where food would be', () => {
   assert.ok(has('militaryCrate'), 'ration packs belong in military crates');
   assert.ok(!has('toolbox'), 'a toolbox is not a pantry');
   assert.ok(!has('policeLocker'), 'a gun locker is not a pantry');
+});
+
+test('the town is furnished with plenty to search', () => {
+  const w = createWorld(20240917);
+  const kinds = new Map();
+  for (const c of w.containers) kinds.set(c.kind, (kinds.get(c.kind) || 0) + 1);
+  assert.ok(kinds.size >= 20, `only ${kinds.size} kinds of searchable thing`);
+  assert.ok(w.containers.length >= 250, `only ${w.containers.length} containers`);
+  for (const k of ['bookshelf', 'dresser', 'wardrobe', 'fridge', 'desk', 'nightstand', 'toolrack']) {
+    assert.ok((kinds.get(k) || 0) > 0, `no ${k} anywhere in town`);
+  }
+});
+
+test('furniture loot reads true to the furniture', () => {
+  const has = (table, id) => LOOT[table].some((e) => e.id === id);
+  assert.ok(has('fridge', 'rations'), 'fridges hold food');
+  assert.ok(!has('fridge', 'parts'), 'fridges do not hold weapon parts');
+  assert.ok(has('wardrobe', 'cloth'), 'wardrobes hold clothes');
+  assert.ok(has('toolrack', 'parts') && has('toolrack', 'scrap'), 'tool racks hold tools');
+  assert.ok(has('footlocker', 'mil'), 'footlockers hold military kit');
+  assert.ok(has('vanity', 'med'), 'bathrooms hold medicine');
+  assert.ok(has('vending', 'rations'), 'vending machines hold food');
+  // Every furnishing table must reference real content.
+  for (const [name, list] of Object.entries(FURNISHING)) {
+    assert.ok(list.length >= 4, `${name} has too few furnishing options`);
+    for (const [kind, weight] of list) {
+      assert.ok(CONTAINERS[kind], `${name} furnishes with unknown ${kind}`);
+      assert.ok(weight > 0, `${name}/${kind} has no weight`);
+    }
+  }
+});
+
+test('bunks and watchtowers are real, purposeful structures', () => {
+  assert.equal(STRUCTURES.bunk.houses, 1, 'a bunk sleeps one person');
+  assert.ok(STRUCTURES.bunk.cost.wood > 0);
+  assert.equal(STRUCTURES.watchtower.post, 'sniper');
+  assert.ok(STRUCTURES.watchtower.sniperRange > 400, 'a tower must actually extend reach');
+  assert.ok(STRUCTURES.watchtower.sniperDmg > 1.5, 'a posted sniper must hit harder');
+  assert.ok(BUILD_ORDER.includes('bunk') && BUILD_ORDER.includes('watchtower'));
+});
+
+test('the four survivor jobs are distinct and described', () => {
+  assert.deepEqual(JOB_IDS.sort(), ['builder', 'guard', 'scavenger', 'sniper']);
+  const shorts = new Set();
+  for (const id of JOB_IDS) {
+    const j = JOBS[id];
+    assert.equal(j.id, id);
+    assert.ok(j.name && j.desc && j.color, `${id} is missing copy`);
+    assert.ok(!shorts.has(j.short), `duplicate job tag ${j.short}`);
+    shorts.add(j.short);
+  }
+  assert.equal(JOBS.sniper.needs, 'watchtower', 'only the sniper needs a structure');
+  // Non-combat jobs need a give-up path, since there is no pathfinding.
+  assert.ok(SCAVENGE.giveUpAfter > 0 && SCAVENGE.radius > 0);
+  assert.ok(BUILDER.giveUpAfter > 0 && BUILDER.repairPerSec > 0);
+  assert.ok(Object.keys(BUILDER.costPer100).length > 0, 'repairs must cost materials');
 });
 
 test('the floodlight is a real, power-gated structure', () => {
