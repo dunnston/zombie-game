@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.vite/
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+test-results/
+screenshots/

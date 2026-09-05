@@ -1,0 +1,16 @@
+{
+  "name": "deadline",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "DEADLINE - a top-down survival, scavenging and base-defence game that runs in the browser.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test tests/"
+  },
+  "devDependencies": {
+    "vite": "^5.4.11"
+  }
+}
