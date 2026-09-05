@@ -5,11 +5,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  RES, WEAPONS, ENEMIES, STRUCTURES, RECIPES, UPGRADES, LOOT, CONTAINERS,
+  RES, WEAPONS, ENEMIES, STRUCTURES, RECIPES, LOOT, CONTAINERS,
   BUILD_ORDER, THREAT, RAIDS, PLAYER, TILE, WORLD_TILES,
   bagWeight, xpForLevel, raidSpec,
 } from '../src/game/config.js';
 import { createWorld, isBlockedTile, dangerAtPx, locationAtPx, propAtTile, removeProp } from '../src/game/world.js';
+import {
+  ATTRS, ATTR_IDS, ATTR_MAX, ATTR_START, PERKS, perksFor, perkStatus,
+  canRaiseAttr, recomputeStats, startingAttrs,
+} from '../src/game/perks.js';
+import {
+  darkness, phaseAt, clockString, nightFactors, DAY_LENGTH, PHASES,
+} from '../src/game/daynight.js';
+import { pointsForLevel } from '../src/game/progression.js';
+import { SURVIVOR } from '../src/game/survivors.js';
 import { makeRng, weightedPick, clamp, angleDelta, hash2, pruneInPlace, circleRectOverlap } from '../src/core/util.js';
 
 // ------------------------------------------------------------------- util ---
@@ -170,32 +179,218 @@ test('loot themes match their locations', () => {
   }
 });
 
-test('upgrades are well formed and actually change a stat', () => {
-  const ids = new Set();
-  for (const u of UPGRADES) {
-    assert.ok(!ids.has(u.id), `duplicate upgrade ${u.id}`);
-    ids.add(u.id);
-    assert.ok(u.max >= 1 && u.name && u.desc && u.cat);
+// ------------------------------------------------- attributes and perks ---
 
-    const before = fakePlayer();
-    const after = fakePlayer();
-    u.apply(after);
-    assert.notDeepEqual(after, before, `${u.id} changed nothing`);
+test('every attribute is described and distinct', () => {
+  assert.equal(ATTR_IDS.length, 6);
+  const abbrs = new Set();
+  for (const id of ATTR_IDS) {
+    const a = ATTRS[id];
+    assert.equal(a.id, id);
+    assert.ok(a.name && a.abbr && a.blurb && a.perRank, `${id} is missing copy`);
+    assert.ok(!abbrs.has(a.abbr), `duplicate abbreviation ${a.abbr}`);
+    abbrs.add(a.abbr);
   }
-  assert.ok(UPGRADES.length >= 12, 'the MVP wants at least 12 meaningful upgrades');
-  const cats = new Set(UPGRADES.map((u) => u.cat));
-  assert.deepEqual([...cats].sort(), ['BUILDING', 'COMBAT', 'SCAVENGING', 'SURVIVAL']);
+  assert.deepEqual([...ATTR_IDS].sort(), ['cha', 'con', 'int', 'lck', 'per', 'str']);
+});
+
+test('raising an attribute changes at least one derived stat', () => {
+  for (const id of ATTR_IDS) {
+    const base = recomputeStats(fakePlayer());
+    const bumped = fakePlayer();
+    bumped.attrs[id] = ATTR_START + 1;
+    recomputeStats(bumped);
+    assert.notDeepEqual(stripAttrs(bumped), stripAttrs(base), `${id} does nothing`);
+  }
+});
+
+test('every perk is well formed and actually changes a stat', () => {
+  const ids = new Set();
+  for (const perk of PERKS) {
+    assert.ok(!ids.has(perk.id), `duplicate perk ${perk.id}`);
+    ids.add(perk.id);
+    assert.ok(ATTRS[perk.attr], `${perk.id} hangs off unknown attribute ${perk.attr}`);
+    assert.ok(perk.max >= 1 && perk.name && perk.desc, `${perk.id} is missing copy`);
+    assert.ok(perk.req >= 1 && perk.req <= ATTR_MAX, `${perk.id} has an unreachable requirement`);
+
+    const before = recomputeStats(fakePlayer());
+    const after = fakePlayer();
+    after.perks[perk.id] = 1;
+    recomputeStats(after);
+    assert.notDeepEqual(stripAttrs(after), stripAttrs(before), `${perk.id} changed nothing`);
+  }
+});
+
+test('every attribute tree has perks across a spread of requirements', () => {
+  for (const id of ATTR_IDS) {
+    const tree = perksFor(id);
+    assert.ok(tree.length >= 4, `${id} only has ${tree.length} perks`);
+    const reqs = tree.map((k) => k.req);
+    assert.ok(Math.min(...reqs) <= 2, `${id} has nothing available early`);
+    assert.ok(Math.max(...reqs) >= 5, `${id} has nothing worth climbing for`);
+  }
+  assert.ok(PERKS.length >= 24, `only ${PERKS.length} perks`);
+});
+
+test('recomputing stats is idempotent', () => {
+  const p = fakePlayer();
+  p.attrs.str = 6;
+  p.attrs.con = 5;
+  p.perks.heavyHitter = 2;
+  p.perks.thickSkin = 3;
+  recomputeStats(p);
+  const once = JSON.stringify(p);
+  recomputeStats(p);
+  recomputeStats(p);
+  assert.equal(JSON.stringify(p), once, 'stats drifted when recomputed twice');
+});
+
+test('perk ranks stack', () => {
+  const one = fakePlayer();
+  one.attrs.str = 5;
+  one.perks.heavyHitter = 1;
+  recomputeStats(one);
+  const three = fakePlayer();
+  three.attrs.str = 5;
+  three.perks.heavyHitter = 3;
+  recomputeStats(three);
+  assert.ok(three.meleeMul > one.meleeMul, 'rank 3 should beat rank 1');
+});
+
+test('perk purchase gating respects rank, cost and maximum', () => {
+  const p = recomputeStats(fakePlayer());
+  p.skillPoints = 0;
+  const perk = PERKS.find((k) => k.attr === 'str' && k.req === 3) || PERKS[0];
+
+  assert.equal(perkStatus(p, perk).ok, false, 'no points should block a purchase');
+  p.skillPoints = 5;
+  p.attrs[perk.attr] = 1;
+  assert.equal(perkStatus(p, perk).ok, false, 'too low a rank should block a purchase');
+  assert.equal(perkStatus(p, perk).locked, true);
+
+  p.attrs[perk.attr] = perk.req;
+  assert.equal(perkStatus(p, perk).ok, true, 'meeting the requirement should unlock it');
+
+  p.perks[perk.id] = perk.max;
+  assert.equal(perkStatus(p, perk).ok, false, 'a mastered perk cannot be bought again');
+});
+
+test('attributes cannot be raised past their ceiling', () => {
+  const p = recomputeStats(fakePlayer());
+  p.skillPoints = 50;
+  p.attrs.str = ATTR_MAX;
+  assert.equal(canRaiseAttr(p, 'str').ok, false);
+  p.attrs.str = ATTR_MAX - 1;
+  assert.equal(canRaiseAttr(p, 'str').ok, true);
+  p.skillPoints = 0;
+  assert.equal(canRaiseAttr(p, 'str').ok, false, 'no points, no rank');
+});
+
+test('Charisma is what gates the survivor roster', () => {
+  const lonely = fakePlayer();
+  lonely.attrs.cha = 1;
+  recomputeStats(lonely);
+  const popular = fakePlayer();
+  popular.attrs.cha = ATTR_MAX;
+  popular.perks.recruiter = 3;
+  recomputeStats(popular);
+  assert.ok(popular.survivorCap > lonely.survivorCap, 'Charisma must raise the cap');
+  assert.ok(popular.survivorCap >= 5, `cap only reached ${popular.survivorCap}`);
+});
+
+test('levels pay out skill points, with a bonus every fifth', () => {
+  assert.equal(pointsForLevel(2), 1);
+  assert.equal(pointsForLevel(4), 1);
+  assert.equal(pointsForLevel(5), 2);
+  assert.equal(pointsForLevel(10), 2);
+  let total = 0;
+  for (let l = 2; l <= 20; l++) total += pointsForLevel(l);
+  assert.ok(total >= 19 && total <= 30, `level 20 should feel earned, got ${total} points`);
 });
 
 function fakePlayer() {
-  return {
-    maxHp: 100, hp: 100, maxStam: 100, stam: 100, stamRegen: 20,
-    meleeMul: 1, gunMul: 1, reloadMul: 1, fireRateMul: 1, spreadMul: 1,
-    lootMul: 1, carryCap: 200, searchMul: 1, pickupRange: 46,
-    buildCostMul: 1, structHpMul: 1, turretMul: 1,
-    healMul: 1, healSpeedMul: 1, speedMul: 1, threatMul: 1, noiseMul: 1,
-  };
+  return { hp: 100, stam: 100, attrs: startingAttrs(), perks: {}, skillPoints: 0 };
 }
+
+/** Compare derived stats only — attrs/perks obviously differ between cases. */
+function stripAttrs(p) {
+  const { attrs, perks, skillPoints, hp, stam, ...rest } = p;
+  void attrs; void perks; void skillPoints; void hp; void stam;
+  return rest;
+}
+
+// ------------------------------------------------------------ day / night ---
+
+test('the day curve is dark at night and clear at noon', () => {
+  assert.ok(darkness(0.30).alpha < 0.02, 'noon should be fully lit');
+  assert.ok(darkness(0.85).alpha > 0.6, 'the small hours should be dark');
+  assert.ok(darkness(0.65).alpha > 0.05 && darkness(0.65).alpha < darkness(0.85).alpha,
+    'dusk should be a ramp, not a step');
+  for (let t = 0; t <= 1.0001; t += 0.02) {
+    const a = darkness(t).alpha;
+    assert.ok(a >= 0 && a <= 1, `alpha out of range at t=${t.toFixed(2)}: ${a}`);
+  }
+});
+
+test('night makes the town measurably worse', () => {
+  const noon = nightFactors(0.30);
+  const midnight = nightFactors(0.85);
+  assert.ok(midnight.density > noon.density, 'more of them are out at night');
+  assert.ok(midnight.sense > noon.sense, 'they notice you sooner at night');
+  assert.ok(midnight.threat > noon.threat, 'noise carries further at night');
+  assert.ok(noon.density <= 1.05 && noon.sense <= 1.05, 'daytime must be the baseline');
+});
+
+test('the clock reads sensibly across the day', () => {
+  assert.equal(clockString(0), '06:00');
+  assert.equal(clockString(0.25), '12:00');
+  assert.equal(clockString(0.5), '18:00');
+  assert.equal(clockString(0.75), '00:00');
+  for (let t = 0; t < 1; t += 0.01) {
+    assert.match(clockString(t), /^([01]\d|2[0-3]):[0-5]\d$/, `bad clock at ${t}`);
+  }
+});
+
+test('phases cover the whole day with no gaps', () => {
+  for (let t = 0; t < 1; t += 0.005) {
+    const p = phaseAt(t);
+    assert.ok(p && p.id, `no phase at ${t.toFixed(3)}`);
+  }
+  assert.equal(phaseAt(0.30).id, 'day');
+  assert.equal(phaseAt(0.85).id, 'night');
+  assert.ok(DAY_LENGTH > 120, 'a day should be long enough to plan around');
+});
+
+// -------------------------------------------------------------- survivors ---
+
+test('survivors get meaningfully stronger with each level', () => {
+  const hp = (lvl) => SURVIVOR.baseHp + SURVIVOR.hpPerLevel * (lvl - 1);
+  const dmg = (lvl) => SURVIVOR.baseDmg + SURVIVOR.dmgPerLevel * (lvl - 1);
+  assert.ok(hp(SURVIVOR.maxLevel) > hp(1) * 2, 'a veteran should be far tougher');
+  assert.ok(dmg(SURVIVOR.maxLevel) > dmg(1) * 2, 'a veteran should hit far harder');
+  assert.ok(SURVIVOR.range > 200 && SURVIVOR.range < 400, 'they should cover a base, not the map');
+  assert.ok(SURVIVOR.reviveTime >= 5, 'you need time to reach someone who goes down');
+  assert.ok(SURVIVOR.upkeepPerMin > 0, 'people have to eat for Quartermaster to matter');
+});
+
+test('Rations exist and are found where food would be', () => {
+  assert.ok(RES.rations, 'Rations must be a real resource');
+  const has = (table) => LOOT[table].some((e) => e.id === 'rations');
+  assert.ok(has('kitchen'), 'kitchens should have food');
+  assert.ok(has('shelf'), 'shops should have food');
+  assert.ok(has('militaryCrate'), 'ration packs belong in military crates');
+  assert.ok(!has('toolbox'), 'a toolbox is not a pantry');
+  assert.ok(!has('policeLocker'), 'a gun locker is not a pantry');
+});
+
+test('the floodlight is a real, power-gated structure', () => {
+  const f = STRUCTURES.floodlight;
+  assert.ok(f, 'floodlight must exist');
+  assert.equal(f.powered, true, 'it should need power');
+  assert.ok(f.lightRadius > 100, 'it should actually light something');
+  assert.equal(f.solid, false, 'you should be able to walk past your own lamp');
+  assert.ok(BUILD_ORDER.includes('floodlight'));
+});
 
 test('xp curve rises and never stalls', () => {
   let last = 0;

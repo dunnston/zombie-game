@@ -8,13 +8,20 @@ import { clamp } from '../core/util.js';
 import { Input } from '../core/input.js';
 
 export const G = {
-  version: 3,
+  version: 4,
   world: null,
   player: null,
   enemies: [],
   bullets: [],
   corpses: [],
   pickups: [],
+  survivors: [],           // recruited NPCs garrisoning the base
+  rescues: [],             // people still out there waiting to be found
+  survivorSeq: 0,
+  day: 1,
+  dayTime: 0.16,
+  phase: 'day',
+  rationDebt: 0,
   structures: [],
   structGrid: new Map(),   // "tx,ty" -> structure
   backpacks: [],           // death drops

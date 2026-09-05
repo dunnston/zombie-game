@@ -8,6 +8,7 @@ import { FX } from '../core/particles.js';
 import { hash2, clamp, TAU } from '../core/util.js';
 import { currentWeapon } from '../game/player.js';
 import { buildMenu } from '../game/building.js';
+import { darkness } from '../game/daynight.js';
 
 const drawList = [];
 
@@ -60,6 +61,14 @@ export function render(ctx, W, H) {
     drawList.push({ y: e.y, kind: 'enemy', ref: e });
   }
   for (const b of G.backpacks) drawList.push({ y: b.y, kind: 'backpack', ref: b });
+  for (const s of G.survivors) {
+    if (s.dead) continue;
+    drawList.push({ y: s.y, kind: 'survivor', ref: s });
+  }
+  for (const r of G.rescues) {
+    if (r.x < view.x0 - 60 || r.x > view.x1 + 60 || r.y < view.y0 - 60 || r.y > view.y1 + 60) continue;
+    drawList.push({ y: r.y, kind: 'rescue', ref: r });
+  }
   if (!G.player.dead) drawList.push({ y: G.player.y, kind: 'player', ref: G.player });
 
   drawList.sort((a, b) => a.y - b.y);
@@ -70,6 +79,8 @@ export function render(ctx, W, H) {
       case 'structure': drawStructure(ctx, d.ref); break;
       case 'enemy': drawEnemy(ctx, d.ref); break;
       case 'backpack': drawBackpack(ctx, d.ref); break;
+      case 'survivor': drawSurvivor(ctx, d.ref); break;
+      case 'rescue': drawRescue(ctx, d.ref); break;
       case 'player': drawPlayer(ctx, d.ref); break;
       default: break;
     }
@@ -83,7 +94,84 @@ export function render(ctx, W, H) {
 
   ctx.restore();
 
+  drawNight(ctx, W, H);
   drawPostEffects(ctx, W, H);
+}
+
+// ------------------------------------------------------------------- night --
+
+let lightCanvas = null;
+
+/**
+ * Darkness is a full-screen wash with holes punched in it by light sources,
+ * composited on an offscreen buffer. Anything with a light gets a soft radial
+ * hole, so a powered base reads as an island of safety in the dark.
+ */
+function drawNight(ctx, W, H) {
+  const { alpha, color } = darkness();
+  if (alpha <= 0.01) return;
+
+  if (!lightCanvas) lightCanvas = document.createElement('canvas');
+  if (lightCanvas.width !== W || lightCanvas.height !== H) {
+    lightCanvas.width = W;
+    lightCanvas.height = H;
+  }
+  const lg = lightCanvas.getContext('2d');
+  lg.setTransform(1, 0, 0, 1, 0, 0);
+  lg.globalCompositeOperation = 'source-over';
+  lg.clearRect(0, 0, W, H);
+  lg.fillStyle = color;
+  lg.globalAlpha = alpha;
+  lg.fillRect(0, 0, W, H);
+  lg.globalAlpha = 1;
+
+  const cam = G.camera;
+  const z = cam.zoom;
+  const toScreenX = (wx) => (wx - (cam.x + cam.shakeX)) * z + W / 2;
+  const toScreenY = (wy) => (wy - (cam.y + cam.shakeY)) * z + H / 2;
+
+  lg.globalCompositeOperation = 'destination-out';
+
+  const hole = (wx, wy, radius, strength = 1) => {
+    const sx = toScreenX(wx), sy = toScreenY(wy);
+    const r = radius * z;
+    if (sx < -r || sy < -r || sx > W + r || sy > H + r) return;
+    const grd = lg.createRadialGradient(sx, sy, 0, sx, sy, r);
+    grd.addColorStop(0, `rgba(0,0,0,${strength})`);
+    grd.addColorStop(0.55, `rgba(0,0,0,${strength * 0.75})`);
+    grd.addColorStop(1, 'rgba(0,0,0,0)');
+    lg.fillStyle = grd;
+    lg.beginPath();
+    lg.arc(sx, sy, r, 0, TAU);
+    lg.fill();
+  };
+
+  // No light source clears the dark completely — even a floodlit yard should
+  // still read as night, or the whole cycle stops mattering.
+  const p = G.player;
+  if (!p.dead) hole(p.x, p.y, 175, 0.72);
+
+  for (const s of G.structures) {
+    if (s.destroyed) continue;
+    if (s.type === 'floodlight' && s.powered) hole(s.x, s.y, s.def.lightRadius, 0.92);
+    else if (s.type === 'generator' && s.running) hole(s.x, s.y, 130, 0.66);
+    else if (s.type === 'turret' && s.powered) hole(s.x, s.y, 95, 0.5);
+    else if (s.type === 'workbench') hole(s.x, s.y, 70, 0.38);
+  }
+
+  // Your people carry torches too.
+  for (const s of G.survivors) {
+    if (!s.dead && !s.downed) hole(s.x, s.y, 110, 0.5);
+  }
+
+  // Muzzle flashes briefly light the world around them.
+  for (const f of FX.parts) {
+    if (f.kind === 'muzzle') hole(f.x, f.y, 190, 0.7);
+  }
+
+  lg.globalCompositeOperation = 'source-over';
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(lightCanvas, 0, 0);
 }
 
 // ------------------------------------------------------------------ ground --
@@ -299,6 +387,22 @@ function drawStructure(ctx, s) {
     ctx.fillRect(-9, 11, 18, 3);
     ctx.fillStyle = f > 0.3 ? '#d2762c' : '#c94a3a';
     ctx.fillRect(-9, 11, 18 * f, 3);
+  }
+  if (s.type === 'floodlight') {
+    if (s.powered) {
+      ctx.fillStyle = 'rgba(255,242,190,0.9)';
+      ctx.fillRect(-7, -11, 14, 8);
+      ctx.globalAlpha = 0.10;
+      ctx.fillStyle = '#fff2be';
+      ctx.beginPath();
+      ctx.arc(0, 0, 40, 0, TAU);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    } else {
+      ctx.fillStyle = '#e05a4a';
+      ctx.font = 'bold 9px monospace';
+      ctx.fillText('NO PWR', -18, -18);
+    }
   }
   if (s.type === 'bedroll' && G.player.spawnStructure === s) {
     ctx.strokeStyle = `rgba(160,220,140,${0.35 + Math.sin(G.time * 2) * 0.2})`;
@@ -541,6 +645,98 @@ function drawWeapon(ctx, w, p) {
     }
   }
   ctx.restore();
+}
+
+function drawSurvivor(ctx, s) {
+  const idx = (s.id || 0) % Sprites.survivors.length;
+  const spr = s.flash > 0 ? Sprites.survivorFlash[idx] : Sprites.survivors[idx];
+
+  ctx.save();
+  ctx.translate(s.x, s.y);
+  ctx.globalAlpha = 0.42;
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.ellipse(2, 5, 11, 7, 0, 0, TAU);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  if (s.downed) {
+    // Flat on their back, waiting for you.
+    ctx.rotate(s.angle + Math.PI / 2);
+    ctx.globalAlpha = 0.75;
+    ctx.drawImage(spr, -spr.width / 2, -spr.height / 2);
+    ctx.restore();
+    const frac = clamp(s.downT / 8, 0, 1);
+    ctx.fillStyle = '#00000099';
+    ctx.fillRect(s.x - 18, s.y - 26, 36, 5);
+    ctx.fillStyle = '#e05a4a';
+    ctx.fillRect(s.x - 17, s.y - 25, 34 * frac, 3);
+    ctx.font = 'bold 10px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#e05a4a';
+    ctx.fillText(`${s.name} DOWN`, s.x, s.y - 30);
+    ctx.textAlign = 'left';
+    return;
+  }
+
+  ctx.rotate(s.angle);
+  ctx.drawImage(spr, -spr.width / 2, -spr.height / 2);
+  ctx.restore();
+
+  // Friendly marker so you never mistake one for something to shoot.
+  ctx.save();
+  ctx.globalAlpha = 0.5;
+  ctx.strokeStyle = '#9fe0b0';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.ellipse(s.x, s.y + 3, 15, 9, 0, 0, TAU);
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.font = 'bold 9px "Courier New", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = s.hungry ? '#e0904a' : '#b8d8a8';
+  ctx.fillText(`${s.name} ${s.level}`, s.x, s.y - 20);
+  if (s.outOfAmmo) {
+    ctx.fillStyle = '#d9c46a';
+    ctx.fillText('NO AMMO', s.x, s.y - 30);
+  }
+  ctx.textAlign = 'left';
+
+  if (s.hp < s.maxHp) {
+    const frac = clamp(s.hp / s.maxHp, 0, 1);
+    ctx.fillStyle = '#00000099';
+    ctx.fillRect(s.x - 15, s.y - 17, 30, 4);
+    ctx.fillStyle = frac > 0.5 ? '#7ec46a' : frac > 0.25 ? '#d9c46a' : '#e05a4a';
+    ctx.fillRect(s.x - 14, s.y - 16, 28 * frac, 2);
+  }
+}
+
+function drawRescue(ctx, r) {
+  const bob = Math.sin(G.time * 2.4 + r.x) * 2;
+  ctx.save();
+  ctx.translate(r.x, r.y + bob);
+  ctx.globalAlpha = 0.4;
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.ellipse(0, 9 - bob, 10, 6, 0, 0, TAU);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  // Huddled, hood up.
+  ctx.fillStyle = '#2a2f26';
+  ctx.beginPath(); ctx.ellipse(0, 0, 9, 8, 0, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#4d5744';
+  ctx.beginPath(); ctx.ellipse(0, -1, 7, 6, 0, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#d8bb92';
+  ctx.beginPath(); ctx.arc(0, -2, 3.4, 0, TAU); ctx.fill();
+  ctx.restore();
+
+  const pulse = 0.4 + Math.sin(G.time * 2.6) * 0.25;
+  ctx.strokeStyle = `rgba(160,224,180,${pulse})`;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(r.x, r.y, 24, 0, TAU);
+  ctx.stroke();
 }
 
 function drawBackpack(ctx, b) {

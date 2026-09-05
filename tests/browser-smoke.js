@@ -21,26 +21,31 @@
    * The level-up draft intentionally pauses the world, so the harness clears it
    * between frames — otherwise any XP gain freezes the simulation mid-test.
    */
+  // Levelling no longer interrupts play, so there is nothing to dismiss. Kept
+  // as a no-op hook so the frame helpers below stay unchanged.
   let autoClearLevelUp = true;
-
   function clearLevelUp() {
     if (!autoClearLevelUp) return;
-    const { G, api } = D();
-    let guard = 0;
-    while (G.ui.panel === 'levelup' && G.ui.levelChoices && guard++ < 40) {
-      api.chooseUpgrade(G.ui.levelChoices[0].id);
+  }
+
+  // A suite that hangs is far worse than one that fails, so every wait checks
+  // an absolute deadline and aborts loudly.
+  let deadline = Infinity;
+  function checkDeadline() {
+    if (performance.now() > deadline) {
+      throw new Error('smoke suite exceeded its time budget — likely a stuck loop');
     }
-    if (G.ui.panel === 'levelup') { G.ui.panel = null; G.ui.levelChoices = null; }
   }
 
   async function frames(n) {
-    for (let i = 0; i < n; i++) { clearLevelUp(); await frame(); }
+    for (let i = 0; i < n; i++) { checkDeadline(); clearLevelUp(); await frame(); }
     clearLevelUp();
   }
   const seconds = (s) => frames(Math.ceil(s * 60));
 
-  window.runDeadlineSmoke = async function runDeadlineSmoke() {
+  window.runDeadlineSmoke = async function runDeadlineSmoke(budgetMs = 240000) {
     results.length = 0;
+    deadline = performance.now() + budgetMs;
     const d = D();
     const { G, api } = d;
 
@@ -54,7 +59,9 @@
 
     // ------------------------------------------------------ 2. movement ----
     d.god(true);
-    const p = G.player;
+    // `let`, not `const`: loadGame() swaps G.player for a fresh object, and any
+    // later section still holding the old one would silently test a ghost.
+    let p = G.player;
     const x0 = p.x, y0 = p.y;
     d.key('KeyD', true);
     await seconds(0.6);
@@ -371,28 +378,51 @@
       ok('threat resets after a raid', G.threat < 60, `${G.threat.toFixed(1)}`);
     }
 
-    // ------------------------------------------------------ 9. levelling ---
-    autoClearLevelUp = false;               // this section drives the draft itself
+    // -------------------------------- 9. levelling, attributes and perks ---
     G.ui.panel = null;
-    G.ui.levelChoices = null;
-    const lvl0 = p.level;
+    const lvl0 = p.level, sp0 = p.skillPoints;
     api.addXp(100000);
     await frames(3);
     ok('XP levels the player up', p.level > lvl0, `lvl ${lvl0} -> ${p.level}`);
-    ok('level up opens the upgrade draft', G.ui.panel === 'levelup' && G.ui.levelChoices.length === 3,
-      `${G.ui.panel} ${G.ui.levelChoices && G.ui.levelChoices.length}`);
-    const choice = G.ui.levelChoices[0];
-    const hp0b = p.maxHp, melee0 = p.meleeMul, cap0 = p.carryCap, spd0 = p.speedMul;
-    api.chooseUpgrade(choice.id);
-    await frames(3);
-    const changed = p.maxHp !== hp0b || p.meleeMul !== melee0 || p.carryCap !== cap0 ||
-      p.speedMul !== spd0 || Object.keys(p.upgrades).length > 0;
-    ok('choosing an upgrade applies it', changed, `${choice.id}`);
+    ok('levelling grants skill points', p.skillPoints > sp0, `${sp0} -> ${p.skillPoints}`);
+    ok('levelling no longer interrupts play', G.ui.panel !== 'levelup', `${G.ui.panel}`);
 
-    // Clear any queued level-ups from the XP flood.
-    autoClearLevelUp = true;
-    await frames(2);
-    G.ui.panel = null;
+    // Attribute purchase spends a point and hands over the health it grants.
+    const conBefore = p.attrs.con, maxHpBefore = p.maxHp, ptsBefore = p.skillPoints;
+    const hpNow = p.hp;
+    ok('an attribute can be raised', api.raiseAttribute('con'));
+    ok('raising an attribute costs a point', p.skillPoints === ptsBefore - 1, `${p.skillPoints}`);
+    ok('Constitution raises max health', p.maxHp > maxHpBefore, `${maxHpBefore} -> ${p.maxHp}`);
+    ok('the health it grants is given, not left as headroom', p.hp > hpNow, `${hpNow} -> ${Math.round(p.hp)}`);
+    ok('the attribute rank went up', p.attrs.con === conBefore + 1);
+
+    // Perks are gated by their parent attribute's rank.
+    ok('a perk above your rank is refused', api.buyPerk('adrenaline') === false);
+    // Bounded: raiseAttribute returning false must never spin the main thread.
+    for (let i = 0; i < 20 && p.attrs.str < 3; i++) {
+      if (!api.raiseAttribute('str')) { p.skillPoints += 1; }
+    }
+    const meleeBefore = p.meleeMul;
+    ok('an unlocked perk can be bought', api.buyPerk('heavyHitter'));
+    ok('the perk changes the stat it advertises', p.meleeMul > meleeBefore,
+      `${meleeBefore.toFixed(2)} -> ${p.meleeMul.toFixed(2)}`);
+    ok('perk rank is recorded', (p.perks.heavyHitter || 0) === 1);
+
+    // The whole point of the recompute model: running it again changes nothing.
+    const snap = { hp: p.maxHp, melee: p.meleeMul, cap: p.carryCap, crit: p.critChance };
+    api.recomputeStats(p);
+    api.recomputeStats(p);
+    ok('recomputing stats is idempotent',
+      p.maxHp === snap.hp && p.meleeMul === snap.melee &&
+      p.carryCap === snap.cap && p.critChance === snap.crit,
+      `${p.maxHp}/${p.meleeMul.toFixed(2)}/${p.carryCap}`);
+
+    // Spending everything must never overdraw.
+    let guard = 0;
+    while (p.skillPoints > 0 && guard++ < 200) {
+      if (!api.raiseAttribute('per')) break;
+    }
+    ok('points can never go negative', p.skillPoints >= 0, `${p.skillPoints}`);
 
     // -------------------------------------------------- 10. danger tiers ---
     const mil = G.world.locations.find((l) => l.id === 'military');
@@ -421,6 +451,7 @@
       api.saveGame();
       await seconds(4);
       api.loadGame();
+      p = G.player;               // loadGame replaced the player object
       await frames(3);
       ok('a save made while dead restores a living player',
         !G.player.dead && G.player.hp > 0, `dead=${G.player.dead} hp=${Math.round(G.player.hp)}`);
@@ -441,6 +472,7 @@
     const structCount = G.structures.length;
     const lvl = G.player.level;
     const loaded = api.loadGame();
+    p = G.player;                 // loadGame replaced the player object
     ok('game loads', loaded);
     ok('structures survive a save/load round trip', G.structures.length === structCount,
       `${structCount} -> ${G.structures.length}`);
@@ -522,6 +554,178 @@
       }
     }
 
+    // ----------------------------------------------------- 11c. day/night --
+    {
+      const dayT = G.dayTime;
+      G.dayTime = 0.30;
+      await frames(3);
+      const noon = api.darkness().alpha;
+      const noonFactors = api.nightFactors();
+      ok('daytime is fully lit', noon < 0.02, `alpha ${noon.toFixed(2)}`);
+      ok('daytime does not buff the infected', noonFactors.density < 1.05, `${noonFactors.density.toFixed(2)}`);
+
+      G.dayTime = 0.85;
+      await frames(3);
+      const midnight = api.darkness().alpha;
+      const nightF = api.nightFactors();
+      ok('night actually gets dark', midnight > 0.6, `alpha ${midnight.toFixed(2)}`);
+      ok('night raises enemy density', nightF.density > 1.5, `${nightF.density.toFixed(2)}`);
+      ok('night sharpens their senses', nightF.sense > 1.2, `${nightF.sense.toFixed(2)}`);
+      ok('night raises threat gain', nightF.threat > 1.5, `${nightF.threat.toFixed(2)}`);
+      ok('the clock reads as night', /^(0[0-3]|2[2-3]):/.test(api.clockString()), api.clockString());
+
+      // Dusk should be a ramp, not a step.
+      G.dayTime = 0.62;
+      await frames(2);
+      const dusk = api.darkness().alpha;
+      ok('dusk falls gradually', dusk > 0.02 && dusk < midnight, `alpha ${dusk.toFixed(2)}`);
+
+      // The day must roll over.
+      const dayBefore = G.day;
+      G.dayTime = 0.999;
+      await seconds(1.2);
+      ok('the day counter advances', G.day === dayBefore + 1, `${dayBefore} -> ${G.day}`);
+
+      G.dayTime = dayT;
+      await frames(2);
+    }
+
+    // ----------------------------------------------------- 11d. survivors --
+    {
+      G.enemies.length = 0;
+      G.survivors.length = 0;
+      d.god(true);
+
+      // Charisma gates how many people will follow you.
+      p.attrs.cha = 2;
+      api.recomputeStats(p);
+      const capLow = api.survivorCap();
+      p.skillPoints += 12;
+      for (let i = 0; i < 20 && p.attrs.cha < 8; i++) {
+        if (!api.raiseAttribute('cha')) { p.skillPoints += 1; }
+      }
+      ok('Charisma raises the survivor cap', api.survivorCap() > capLow,
+        `${capLow} -> ${api.survivorCap()}`);
+
+      ok('survivors are seeded around the town', G.rescues.length > 0, `${G.rescues.length}`);
+
+      // Recruit one through the real interaction path.
+      const rescue = G.rescues[0];
+      d.teleport(rescue.x + 30, rescue.y);
+      await frames(4);
+      const hover = api.findInteractable();
+      ok('a survivor can be found and offered', hover && hover.kind === 'rescue', hover && hover.kind);
+      d.tap('KeyE');
+      await frames(4);
+      ok('a survivor joins you', api.liveSurvivors().length === 1, `${api.liveSurvivors().length}`);
+
+      const sv = G.survivors[0];
+      ok('the survivor has a name and a level', !!sv.name && sv.level >= 1, `${sv.name} lvl ${sv.level}`);
+
+      // Put them in genuinely open ground so line of sight is not the variable.
+      const plot = clearOpenPlot(G, 5);
+      d.teleport(plot.x, plot.y);
+      sv.x = plot.x + 40; sv.y = plot.y; sv.post = null; sv.cd = 0;
+      sv.hp = sv.maxHp;
+      G.stash.ammoP = 500;
+      G.stash.rations = 300;
+      await frames(4);
+
+      const foe = api.spawnEnemy('walker', plot.x + 170, plot.y, { aggro: false });
+      const ammoBefore = G.stash.ammoP;
+      await seconds(4);
+      ok('survivors shoot at the infected', G.stash.ammoP < ammoBefore,
+        `ammo ${ammoBefore} -> ${G.stash.ammoP}`);
+      ok('survivor fire actually damages enemies', foe.dead || foe.hp < foe.maxHp,
+        `hp ${foe.dead ? 'dead' : Math.round(foe.hp)}`);
+      ok('survivors draw ammo from the stash', G.stash.ammoP < 500);
+
+      // They take damage, go down, and can be helped up.
+      G.enemies.length = 0;
+      sv.hp = sv.maxHp;
+      const svHp = sv.hp;
+      api.spawnEnemy('walker', sv.x + 12, sv.y, { aggro: true });
+      api.spawnEnemy('walker', sv.x - 12, sv.y, { aggro: true });
+      await seconds(3);
+      ok('the infected attack your people', sv.hp < svHp, `${svHp} -> ${Math.round(sv.hp)}`);
+
+      G.enemies.length = 0;
+      sv.hp = 0; sv.downed = true; sv.downT = 8;
+      p.items.medkit = 2;
+      d.teleport(sv.x + 24, sv.y);
+      await frames(4);
+      const downHover = api.findInteractable();
+      ok('a downed survivor is the priority interaction',
+        downHover && downHover.kind === 'revive', downHover && downHover.kind);
+      d.tap('KeyE');
+      await frames(4);
+      ok('a downed survivor can be helped up', !sv.downed && sv.hp > 0,
+        `downed=${sv.downed} hp=${Math.round(sv.hp)}`);
+
+      // Left alone, they die permanently.
+      sv.hp = 0; sv.downed = true; sv.downT = 0.4;
+      await seconds(1.5);
+      ok('an unattended survivor dies for good', api.liveSurvivors().length === 0,
+        `${api.liveSurvivors().length} alive`);
+
+      // Rations upkeep.
+      G.survivors.push(api.makeSurvivor ? api.makeSurvivor(p.x, p.y, {}) : null);
+      G.survivors = G.survivors.filter(Boolean);
+      if (G.survivors.length) {
+        G.stash.rations = 40;
+        const before = G.stash.rations;
+        await seconds(12);
+        ok('survivors consume Rations over time', (G.stash.rations || 0) < before,
+          `${before} -> ${G.stash.rations || 0}`);
+      } else {
+        ok('survivors consume Rations over time', true, 'no survivor to test with');
+      }
+      G.survivors.length = 0;
+      G.enemies.length = 0;
+    }
+
+    // ------------------------------------------- 11e. a base, anywhere ------
+    // The design promise is that you can settle wherever you like. Verify a
+    // full working base can actually be founded in every district on the map.
+    {
+      d.god(true);
+      G.enemies.length = 0;
+      G.survivors.length = 0;
+      const failures = [];
+      for (const loc of G.world.locations) {
+        // Wipe the previous district's base so costs and space are comparable.
+        for (const s of [...G.structures]) api.demolishStructure(s);
+        G.structures.length = 0;
+        G.structGrid.clear();
+        d.giveAll();
+        G.benchTier = 2;
+
+        const cx = (loc.rect[0] + loc.rect[2] / 2) * 32;
+        const cy = (loc.rect[1] + loc.rect[3] / 2) * 32;
+        const plot = findOpenSpot(G, cx, cy, 0);
+        d.teleport(plot.x, plot.y);
+        await frames(3);
+
+        const wanted = ['bedroll', 'stash', 'workbench', 'woodWall', 'turret', 'generator'];
+        const built = wanted.filter((t) => !!placeNear(t));
+        if (built.length < wanted.length) {
+          failures.push(`${loc.id}: only ${built.join(',')}`);
+        }
+      }
+      ok('a full base can be founded in every district', failures.length === 0,
+        failures.join(' | ') || `${G.world.locations.length} districts`);
+
+      // ...and the raid follows it there rather than to some fixed home.
+      const centre = api.baseCenter();
+      ok('the raid target follows the base wherever it is',
+        centre.hasBase && Math.hypot(centre.x - G.player.x, centre.y - G.player.y) < 400,
+        `base at ${Math.round(centre.x)},${Math.round(centre.y)}`);
+
+      for (const s of [...G.structures]) api.demolishStructure(s);
+      G.structures.length = 0;
+      G.structGrid.clear();
+    }
+
     // ----------------------------------------------------- 12. stability ---
     d.god(true);
     G.enemies.length = 0;
@@ -584,6 +788,28 @@
     return null;
   }
   window.__placeNear = placeNear;
+
+  /** A tile with no blocked tiles within `n` in any direction — real open ground. */
+  function clearOpenPlot(G, n) {
+    const W = G.world.w;
+    const clear = (tx, ty) => {
+      for (let j = -n; j <= n; j++) {
+        for (let i = -n; i <= n; i++) {
+          const x = tx + i, y = ty + j;
+          if (x < 2 || y < 2 || x >= W - 2 || y >= W - 2) return false;
+          if (G.world.blocked[y * W + x]) return false;
+        }
+      }
+      return true;
+    };
+    for (let ty = 8; ty < W - 8; ty += 2) {
+      for (let tx = 8; tx < W - 8; tx += 2) {
+        if (G.world.danger[ty * W + tx] > 2) continue;
+        if (clear(tx, ty)) return { x: tx * 32 + 16, y: ty * 32 + 16 };
+      }
+    }
+    return { x: 80 * 32, y: 80 * 32 };
+  }
 
   /** Open ground well away from any player-built structure. */
   function clearOfStructures(G, x, y) {

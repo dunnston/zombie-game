@@ -5,12 +5,13 @@ import { G, notify } from './state.js';
 import { createWorld, removeProp } from './world.js';
 import { createPlayer, pickRandomSpawn } from './player.js';
 import { makeStructure } from './building.js';
-import { reapplyUpgrades } from './progression.js';
+import { recomputeStats, startingAttrs } from './perks.js';
+import { makeSurvivor, refreshAllSurvivors } from './survivors.js';
 import { bestArmor } from './loot.js';
 import { clamp } from '../core/util.js';
 import { xpForLevel, TILE } from './config.js';
 
-const KEY = 'deadline.save.v3';
+const KEY = 'deadline.save.v4';
 
 /** Where a dead player would come back, and at what health. */
 function resolveRespawn(p) {
@@ -48,6 +49,15 @@ export function saveGame() {
       tutorial: { step: G.tutorial.step, done: G.tutorial.done },
       looted: G.world.containers.filter((c) => c.looted).map((c) => c.id),
       chopped: G.world.chopped,
+      day: G.day,
+      dayTime: G.dayTime,
+      rationDebt: G.rationDebt,
+      survivorSeq: G.survivorSeq,
+      survivors: G.survivors.filter((s) => !s.dead).map((s) => ({
+        id: s.id, name: s.name, level: s.level, xp: s.xp, kills: s.kills,
+        x: s.x, y: s.y, hp: s.hp, downed: s.downed, downT: s.downT,
+      })),
+      rescues: G.rescues.map((r) => ({ x: r.x, y: r.y, name: r.name, level: r.level })),
       discovered: G.world.locations.filter((l) => l.discovered).map((l) => l.id),
       structures: G.structures.map((s) => ({
         t: s.type, tx: s.tx, ty: s.ty, hp: s.hp, maxHp: s.maxHp,
@@ -58,7 +68,8 @@ export function saveGame() {
         x: resolved.x, y: resolved.y, hp: resolved.hp, stam: p.stam,
         weapons: p.weapons, slot: p.slot, mag: p.mag,
         bag: p.bag, items: p.items, armors: p.armors,
-        level: p.level, xp: p.xp, pendingLevels: p.pendingLevels, upgrades: p.upgrades,
+        level: p.level, xp: p.xp, skillPoints: p.skillPoints,
+        attrs: p.attrs, perks: p.perks, secondWindCd: p.secondWindCd,
         spawn: p.spawnStructure ? { tx: p.spawnStructure.tx, ty: p.spawnStructure.ty } : null,
       },
     };
@@ -123,9 +134,11 @@ export function loadGame() {
     p.level = pd.level || 1;
     p.xp = pd.xp || 0;
     p.xpNext = xpForLevel(p.level);
-    p.pendingLevels = pd.pendingLevels || 0;
-    p.upgrades = pd.upgrades || {};
-    reapplyUpgrades(p);
+    p.skillPoints = pd.skillPoints || 0;
+    p.attrs = { ...startingAttrs(), ...(pd.attrs || {}) };
+    p.perks = pd.perks || {};
+    p.secondWindCd = pd.secondWindCd || 0;
+    recomputeStats(p);
     p.armor = bestArmor(p);
     // Belt and braces: never restore a player who is alive on zero health,
     // whatever an older or hand-edited save claims.
@@ -154,6 +167,26 @@ export function loadGame() {
     for (const b of data.backpacks || []) {
       G.backpacks.push({ x: b.x, y: b.y, contents: b.c, t: 0, id: Math.random() });
     }
+
+    G.day = data.day || 1;
+    G.dayTime = data.dayTime ?? 0.16;
+    G.rationDebt = data.rationDebt || 0;
+    G.survivorSeq = data.survivorSeq || 0;
+    G.survivors.length = 0;
+    for (const sv of data.survivors || []) {
+      const s = makeSurvivor(sv.x, sv.y, {
+        id: sv.id, name: sv.name, level: sv.level, recruited: true,
+      });
+      s.xp = sv.xp || 0;
+      s.kills = sv.kills || 0;
+      s.downed = !!sv.downed;
+      s.downT = sv.downT || 0;
+      s.hp = Math.min(sv.hp ?? s.maxHp, s.maxHp);
+      G.survivors.push(s);
+    }
+    refreshAllSurvivors();
+    G.rescues.length = 0;
+    for (const r of data.rescues || []) G.rescues.push({ ...r, found: false });
 
     G.camera.x = p.x;
     G.camera.y = p.y;

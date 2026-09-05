@@ -95,7 +95,7 @@ export function meleeAttack(p, w) {
   const reach = w.range + p.r;
   const halfArc = w.arc / 2;
   const maxTargets = w.arc > 1.4 ? 6 : 3;
-  const dmg = w.dmg * p.meleeMul;
+  const dmg = w.dmg * p.meleeMul * (p.adrenalineActive ? 1.45 : 1);
 
   p.swing = { t: 0, dur: Math.min(0.26, w.cd * 0.75), angle: p.angle, arc: w.arc, range: reach };
   sfx('swing');
@@ -111,7 +111,7 @@ export function meleeAttack(p, w) {
     sfx('meleeHit');
     shake(w.shake || 1.6);
     for (const e of hits) {
-      const crit = Math.random() < 0.12;
+      const crit = Math.random() < p.critChance + 0.06;
       damageEnemy(e, dmg * (crit ? 1.9 : 1), {
         fromX: p.x, fromY: p.y, knock: w.knock, crit,
       });
@@ -143,7 +143,7 @@ function chopProp(p, w, dmg) {
   }
 
   // Axes are not a thing here; heavy blunt weapons are simply better at it.
-  const chopMul = w.id === 'sledge' ? 1.6 : w.id === 'machete' ? 1.3 : 1;
+  const chopMul = (w.id === 'sledge' ? 1.6 : w.id === 'machete' ? 1.3 : 1) * p.chopMul;
   prop.hp -= dmg * chopMul;
   prop.hitAt = G.time;          // renderer reads this; avoids a per-frame prop loop
   FX.debris(prop.x, prop.y, 5, '#4a3a22');
@@ -173,7 +173,9 @@ export function fireGun(p, w) {
     startReload(p, w);
     return false;
   }
-  p.mag[w.id] = mag - 1;
+  // Ammo Cache (Luck perk) sometimes gives the round back.
+  const freeShot = p.freeShotChance > 0 && Math.random() < p.freeShotChance;
+  if (!freeShot) p.mag[w.id] = mag - 1;
 
   const spread = w.spread * p.spreadMul;
   const muzzleDist = p.r + 12;
@@ -182,11 +184,11 @@ export function fireGun(p, w) {
 
   for (let i = 0; i < (w.pellets || 1); i++) {
     const a = p.angle + (Math.random() - 0.5) * spread * 2;
-    const crit = Math.random() < 0.08;
+    const crit = Math.random() < p.critChance;
     spawnBullet(mx, my, a, {
       speed: w.speed * (0.92 + Math.random() * 0.16),
       dmg: w.dmg * p.gunMul * (crit ? 1.8 : 1),
-      life: w.life,
+      life: w.life * p.rangeMul,
       knock: w.knock,
       pierce: w.pierce || 0,
       color: w.id === 'shotgun' ? '#ffd08a' : '#ffe6a8',

@@ -1,5 +1,39 @@
 # DEADLINE — Survival / Base-Building MVP
 
+## Round 2 — attributes, day/night, survivors
+
+### Phase A — Day/night cycle
+- [ ] Day clock, phases (dawn / day / dusk / night), day counter
+- [ ] Screen-space darkness with light holes punched by the player,
+      powered structures, generators and floodlights
+- [ ] Night raises enemy density, sense range and Threat gain
+- [ ] New structure: Floodlight (needs power)
+- [ ] HUD clock + day number
+
+### Phase B — SPECIAL attributes and perk trees
+- [ ] Six attributes: STR / PER / CON / CHA / INT / LCK, ranks 1-10
+- [ ] Levels grant skill points; spend on ranks or on perks
+- [ ] ~26 perks across the six trees, gated by attribute rank
+- [ ] Replace the 1-of-3 draft (no more forced pause on level up)
+- [ ] Rebuild stats with a pure recompute pass instead of mutation
+- [ ] New character panel with tree navigation
+
+### Phase C — Survivor NPCs
+- [ ] Rescuable survivors placed in the world
+- [ ] They garrison the base, fight, take cover behind walls
+- [ ] They level up from kills and get stronger
+- [ ] Permanent death — losing the base loses the people in it
+- [ ] Rations upkeep, capacity gated by Charisma
+- [ ] Roster UI
+
+### Phase D — Reaffirm "base anywhere"
+- [ ] Survivors and raids follow the base wherever it is
+- [ ] Test asserting a base can be built in every district
+
+### Phase E — Verify
+- [ ] Node + browser suites green, raid balance re-checked
+- [ ] PR, address review, merge
+
 ## Plan
 
 ### Phase 0 — Scaffolding

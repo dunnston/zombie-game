@@ -39,6 +39,7 @@ export const RES = {
   parts:  { name: 'Weapon Parts',short: 'PART', color: '#c9a227', wt: 1 },
   mil:    { name: 'Military',    short: 'MIL',  color: '#7fa14a', wt: 1 },
   fuel:   { name: 'Fuel',        short: 'FUEL', color: '#d2762c', wt: 1 },
+  rations:{ name: 'Rations',     short: 'FOOD', color: '#c4a86a', wt: 1 },
   ammoP:  { name: '9mm Rounds',  short: '9MM',  color: '#d8c98a', wt: 0.2 },
   ammoS:  { name: 'Shells',      short: 'SHEL', color: '#c9584e', wt: 0.3 },
   ammoR:  { name: 'Rifle Rounds',short: 'RIFL', color: '#b8a05a', wt: 0.25 },
@@ -197,6 +198,11 @@ export const STRUCTURES = {
     range: 330, dmg: 22, fireCd: 0.28, turretMag: 40, turretReload: 2.2,
     desc: 'Needs a powered Generator within 260px. Eats 9mm from your stash.',
   },
+  floodlight: {
+    id: 'floodlight', name: 'Floodlight', cost: { scrap: 22, elec: 12 }, hp: 200,
+    solid: false, tier: 2, threat: 2, powered: true, lightRadius: 260,
+    desc: 'Pushes back the dark. Needs a powered Generator within 260px.',
+  },
   generator: {
     id: 'generator', name: 'Generator', cost: { scrap: 38, elec: 16 }, hp: 380,
     solid: true, tier: 2, threat: 4, protect: true, powerRadius: 260,
@@ -207,7 +213,7 @@ export const STRUCTURES = {
 
 export const BUILD_ORDER = [
   'woodWall', 'barricade', 'reinforcedWall', 'metalWall', 'gate', 'spike',
-  'workbench', 'stash', 'bedroll', 'generator', 'turret',
+  'workbench', 'stash', 'bedroll', 'generator', 'turret', 'floodlight',
 ];
 
 // --------------------------------------------------------------- crafting ---
@@ -222,6 +228,7 @@ export const RECIPES = [
   { id: 'pistol', name: 'M9 Pistol', bench: 1, cost: { scrap: 28, parts: 4 }, give: { weapon: 'pistol' }, xp: 35 },
   { id: 'lightVest', name: 'Padded Vest', bench: 1, cost: { cloth: 22, scrap: 12 }, give: { armor: 'lightVest' }, xp: 25 },
   { id: 'ammoS', name: 'Shells x14', bench: 1, cost: { scrap: 12, parts: 1 }, give: { res: { ammoS: 14 } }, xp: 7 },
+  { id: 'rationPack', name: 'Ration Pack x8', bench: 1, cost: { med: 2, cloth: 3 }, give: { res: { rations: 8 } }, xp: 5 },
   { id: 'fuel', name: 'Fuel x25', bench: 1, cost: { scrap: 10, elec: 4 }, give: { res: { fuel: 25 } }, xp: 6 },
 
   { id: 'sledge', name: 'Sledgehammer', bench: 2, cost: { wood: 18, scrap: 38, parts: 2 }, give: { weapon: 'sledge' }, xp: 45 },
@@ -242,11 +249,13 @@ export const BENCH_UPGRADE_COST = { scrap: 55, elec: 20, parts: 5 };
 
 export const LOOT = {
   cabinet: [
+    { id: 'rations', min: 2, max: 5, w: 18 },
     { id: 'cloth', min: 3, max: 8, w: 30 }, { id: 'wood', min: 4, max: 10, w: 28 },
     { id: 'scrap', min: 2, max: 6, w: 24 }, { id: 'med', min: 1, max: 2, w: 10 },
     { id: 'item:bandage', min: 1, max: 2, w: 8 },
   ],
   kitchen: [
+    { id: 'rations', min: 3, max: 8, w: 34 },
     { id: 'cloth', min: 2, max: 6, w: 26 }, { id: 'scrap', min: 3, max: 8, w: 30 },
     { id: 'med', min: 1, max: 3, w: 14 }, { id: 'elec', min: 1, max: 2, w: 10 },
     { id: 'item:bandage', min: 1, max: 1, w: 10 },
@@ -257,6 +266,7 @@ export const LOOT = {
     { id: 'weapon:pipe', min: 1, max: 1, w: 6 },
   ],
   shelf: [
+    { id: 'rations', min: 4, max: 10, w: 32 },
     { id: 'cloth', min: 4, max: 10, w: 28 }, { id: 'med', min: 2, max: 5, w: 24 },
     { id: 'scrap', min: 3, max: 7, w: 22 }, { id: 'item:bandage', min: 1, max: 3, w: 16 },
     { id: 'elec', min: 1, max: 3, w: 10 },
@@ -285,12 +295,14 @@ export const LOOT = {
     { id: 'ammoS', min: 10, max: 20, w: 18 }, { id: 'parts', min: 3, max: 6, w: 14 },
   ],
   militaryCrate: [
+    { id: 'rations', min: 6, max: 14, w: 14 },
     { id: 'mil', min: 4, max: 10, w: 32 }, { id: 'ammoR', min: 12, max: 26, w: 24 },
     { id: 'parts', min: 3, max: 7, w: 18 }, { id: 'elec', min: 5, max: 12, w: 12 },
     { id: 'weapon:carbine', min: 1, max: 1, w: 4 }, { id: 'armor:milVest', min: 1, max: 1, w: 5 },
     { id: 'item:medkit', min: 1, max: 2, w: 5 },
   ],
   hospitalCrate: [
+    { id: 'rations', min: 3, max: 8, w: 12 },
     { id: 'med', min: 8, max: 16, w: 36 }, { id: 'item:medkit', min: 1, max: 3, w: 26 },
     { id: 'elec', min: 3, max: 8, w: 16 }, { id: 'parts', min: 1, max: 3, w: 12 },
     { id: 'mil', min: 1, max: 3, w: 10 },

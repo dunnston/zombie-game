@@ -11,17 +11,28 @@ let lootRng = makeRng(0xC0FFEE);
 export function seedLoot(seed) { lootRng = makeRng(seed >>> 0); }
 
 /** Rolls a container's table. Returns [{ id, n }] where id may be 'weapon:x' etc. */
-export function rollContainer(container, lootMul = 1) {
+export function rollContainer(container, lootMul = 1, opts = {}) {
   const table = LOOT[container.table];
   if (!table) return [];
+  const { rareMul = 1, doubleChance = 0 } = opts;
+
+  // Luck re-weights the table toward its scarcer entries rather than simply
+  // handing out more of everything — that is Scrounger's job.
+  const weighted = rareMul === 1 ? table : table.map((e) => {
+    const rare = !RES[e.id] || e.id === 'mil' || e.id === 'parts';
+    return rare ? { ...e, w: e.w * rareMul } : e;
+  });
+
   const [lo, hi] = container.rolls;
-  const rolls = lootRng.int(lo, hi);
+  let rolls = lootRng.int(lo, hi);
+  if (doubleChance > 0 && lootRng() < doubleChance) rolls *= 2;
+
   const out = new Map();
   for (let i = 0; i < rolls; i++) {
-    const e = weightedPick(table, lootRng);
+    const e = weightedPick(weighted, lootRng);
     if (!e) continue;
     let n = lootRng.int(e.min, e.max);
-    // The Scavenger perk multiplies bulk resources, not unique equipment.
+    // Scrounger multiplies bulk resources, not unique equipment.
     if (RES[e.id]) n = Math.max(1, Math.round(n * lootMul));
     out.set(e.id, (out.get(e.id) || 0) + n);
   }
@@ -239,6 +250,13 @@ export function collectBackpack(p, pack) {
 
 /** Small drops from a dead enemy — keeps ammo flowing so guns stay usable. */
 export function enemyDrop(e) {
+  const p = G.player;
+  // Fortune Favours (Luck perk) can pay a body out twice.
+  if (p && p.doubleDropChance > 0 && lootRng() < p.doubleDropChance) rollEnemyDrop(e);
+  rollEnemyDrop(e);
+}
+
+function rollEnemyDrop(e) {
   const roll = lootRng();
   if (e.def.boss) {
     spawnPickup(e.x, e.y, 'res', 'mil', lootRng.int(4, 8));
