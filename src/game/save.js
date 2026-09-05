@@ -7,7 +7,7 @@ import { createPlayer, pickRandomSpawn } from './player.js';
 import { makeStructure } from './building.js';
 import { recomputeStats, startingAttrs } from './perks.js';
 import { makeSurvivor, refreshAllSurvivors } from './survivors.js';
-import { bestArmor } from './loot.js';
+import { bestArmor, spawnPickup } from './loot.js';
 import { clamp } from '../core/util.js';
 import { xpForLevel, TILE } from './config.js';
 
@@ -77,6 +77,13 @@ export function saveGame() {
         open: s.open, tier: s.tier, fuel: s.fuel, ammo: s.ammo, on: s.on, active: s.active,
       })),
       backpacks: G.backpacks.map((b) => ({ x: b.x, y: b.y, c: b.contents })),
+      // Loose items on the ground are real progress — a scavenger's delivered
+      // gear, loot that overflowed your pack, an enemy drop. Their source
+      // containers are already recorded as looted, so dropping them from the
+      // save would destroy them.
+      pickups: G.pickups.map((it) => ({
+        x: Math.round(it.x), y: Math.round(it.y), k: it.kind, i: it.id, n: it.n,
+      })),
       player: {
         x: resolved.x, y: resolved.y, hp: resolved.hp, stam: p.stam,
         weapons: p.weapons, slot: p.slot, mag: p.mag,
@@ -205,6 +212,11 @@ export function loadGame() {
     refreshAllSurvivors();
     G.rescues.length = 0;
     for (const r of data.rescues || []) G.rescues.push({ ...r, found: false });
+
+    G.pickups.length = 0;
+    for (const it of data.pickups || []) {
+      spawnPickup(it.x, it.y, it.k, it.i, it.n);
+    }
 
     G.camera.x = p.x;
     G.camera.y = p.y;

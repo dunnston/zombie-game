@@ -37,6 +37,9 @@ export const SURVIVOR = {
   upkeepPerMin: 1.0,      // Rations eaten per survivor per minute
 };
 
+/** How close a sniper must be to their tower to count as posted on it. */
+export const POST_RADIUS = 52;
+
 // Names are cosmetic but they matter: a numbered unit is a resource, a named
 // one is a person you would rather not lose.
 const NAMES = [
@@ -294,6 +297,9 @@ export function damageSurvivor(s, dmg, fromX, fromY) {
 }
 
 function killSurvivor(s) {
+  // Whatever they were carrying was taken out of a real container, so it falls
+  // where they do rather than disappearing with them.
+  dropCargo(s);
   s.dead = true;
   s.downed = false;
   FX.blood(s.x, s.y, 0, 0, 18, '#8f1f1f');
@@ -375,12 +381,14 @@ export function updateSurvivors(dt) {
     else if (base.hasBase) { postX = base.x; postY = base.y; }
     else { postX = p.x; postY = p.y; }
 
-    // Snipers shoot much further and hit much harder; everyone else is a rifle
-    // at the wall.
-    const range = s.job === 'sniper' && s.tower
-      ? s.tower.def.sniperRange
-      : SURVIVOR.range;
-    const dmgMul = s.job === 'sniper' && s.tower ? s.tower.def.sniperDmg : 1;
+    // A sniper only gets the tower's reach once they are actually standing on
+    // it. Holding a reference to a structure on the other side of the base is
+    // not the same as being up it.
+    const posted = s.job === 'sniper' && s.tower &&
+      dist2(s.x, s.y, s.tower.x, s.tower.y) < POST_RADIUS * POST_RADIUS;
+    s.posted = posted;
+    const range = posted ? s.tower.def.sniperRange : SURVIVOR.range;
+    const dmgMul = posted ? s.tower.def.sniperDmg : 1;
 
     // ------------------------------------------------------------ target --
     let best = null, bestD = range * range;
@@ -405,10 +413,17 @@ export function updateSurvivors(dt) {
 
     // ------------------------------------------------------------- move --
     let wantX = postX, wantY = postY;
-    if (best && (s.job === 'guard' || s.job === 'sniper' || underThreat)) {
+    const climbing = s.job === 'sniper' && s.tower && !posted;
+    if (climbing) {
+      // Get to the tower first. Stopping to shoot on the way is how a sniper
+      // ends up permanently "posted" from across the base.
+      wantX = s.tower.x; wantY = s.tower.y;
+      if (best) s.angle += clamp(angleDelta(s.angle, Math.atan2(best.y - s.y, best.x - s.x)), -8 * dt, 8 * dt);
+      else s.angle += clamp(angleDelta(s.angle, Math.atan2(wantY - s.y, wantX - s.x)), -6 * dt, 6 * dt);
+    } else if (best && (s.job === 'guard' || s.job === 'sniper' || underThreat)) {
       // Hold position and shoot; close only if the target is drifting away.
       const d = Math.sqrt(bestD);
-      // Snipers never leave their tower.
+      // A posted sniper never leaves their tower.
       if (s.job !== 'sniper' && d > SURVIVOR.range * 0.8) { wantX = best.x; wantY = best.y; }
       else { wantX = s.x; wantY = s.y; }
       s.angle += clamp(angleDelta(s.angle, Math.atan2(best.y - s.y, best.x - s.x)), -8 * dt, 8 * dt);
@@ -505,10 +520,29 @@ function scavengerStep(s, dt, base) {
     // The stash was destroyed while they were walking back. Put the haul on the
     // ground rather than deleting it — it was taken out of a real container.
     if (!stash) { dropCargo(s); return { x: null, y: null }; }
-    if (dist2(s.x, s.y, stash.x, stash.y) < 52 * 52) {
+    const home = dist2(s.x, s.y, stash.x, stash.y);
+    if (home < 52 * 52) {
       deliverCargo(s, stash);
       s.runTarget = null;
+      s.homeT = 0;
+      s.lastHomeD = Infinity;
       return { x: null, y: null };
+    }
+    // The return leg needs the same stuck recovery as the outbound one: a stash
+    // behind a closed gate would otherwise hold a loaded carrier against the
+    // wall forever, and every future haul with them.
+    s.homeT = (s.homeT || 0) + dt;
+    if (s.homeT > SCAVENGE.giveUpAfter) {
+      if ((s.lastHomeD || Infinity) - home > 900) {
+        s.lastHomeD = home;
+        s.homeT = 0;
+      } else {
+        notify(`${s.name} could not reach the stash and put the haul down`, '#d9c46a');
+        dropCargo(s);
+        s.homeT = 0;
+        s.lastHomeD = Infinity;
+        return { x: null, y: null };
+      }
     }
     return { x: stash.x, y: stash.y };
   }

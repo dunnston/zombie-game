@@ -915,6 +915,72 @@
           `${Math.round(brokeHp)} -> ${Math.round(wall3.hp)}`);
       }
 
+      // A sniper only gets the tower's reach once actually on the tower.
+      {
+        G.survivors.length = 0;
+        const tower2 = placeNear('watchtower');
+        ok('a second watchtower can be built', !!tower2);
+        const shooter = api.makeSurvivor(tower2.x + 500, tower2.y, { level: 2 });
+        G.survivors.push(shooter);
+        ok('Sniper duty can be assigned from a distance', api.assignJob(shooter, 'sniper'));
+        G.enemies.length = 0;
+        await frames(4);
+        ok('an unposted sniper does not get the tower bonus',
+          shooter.shotRange <= SURVIVOR_RANGE_BASE && !shooter.posted,
+          `range ${shooter.shotRange} posted=${shooter.posted}`);
+
+        // ...and they walk to it rather than sitting out there forever.
+        const startD = Math.hypot(shooter.x - tower2.x, shooter.y - tower2.y);
+        for (let i = 0; i < 24 && !shooter.posted; i++) {
+          G.enemies.length = 0;
+          await seconds(0.5);
+        }
+        const endD = Math.hypot(shooter.x - tower2.x, shooter.y - tower2.y);
+        ok('an unposted sniper walks to their tower', endD < startD - 50,
+          `${Math.round(startD)} -> ${Math.round(endD)}`);
+        ok('reaching the tower grants the bonus', shooter.posted && shooter.shotRange > SURVIVOR_RANGE_BASE,
+          `posted=${shooter.posted} range=${shooter.shotRange}`);
+        G.survivors.length = 0;
+      }
+
+      // A haul must survive its carrier dying.
+      {
+        G.pickups.length = 0;
+        const doomed = api.makeSurvivor(plot.x, plot.y, { level: 1 });
+        G.survivors.length = 0;
+        G.survivors.push(doomed);
+        doomed.carrying = { scrap: 12 };
+        doomed.carryItems = [{ id: 'item:medkit', n: 1 }];
+        doomed.hp = 0;
+        doomed.downed = true;
+        doomed.downT = 0.2;
+        await seconds(1.5);
+        ok('a dead scavenger drops their haul rather than deleting it',
+          G.pickups.length > 0 || (p.items.medkit || 0) > 0,
+          `${G.pickups.length} on the ground`);
+        G.survivors.length = 0;
+        G.pickups.length = 0;
+      }
+
+      // Ground items are real progress and must survive a reload.
+      {
+        G.pickups.length = 0;
+        d.teleport(plot.x + 700, plot.y);      // out of magnet range
+        await frames(3);
+        api.spawnPickup(plot.x, plot.y, 'res', 'scrap', 7);
+        api.spawnPickup(plot.x + 20, plot.y, 'item', 'medkit', 1);
+        await frames(3);
+        const before = G.pickups.length;
+        ok('test pickups exist on the ground', before >= 2, `${before}`);
+        api.saveGame();
+        api.loadGame();
+        p = G.player;
+        await frames(3);
+        ok('loose ground items survive a save/load', G.pickups.length >= before,
+          `${before} -> ${G.pickups.length}`);
+        G.pickups.length = 0;
+      }
+
       // The roster must stay reachable at the maximum crew size.
       {
         G.survivors.length = 0;

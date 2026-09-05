@@ -13,7 +13,9 @@ import {
   updateEnemies, updateSpawning, rebuildSpatial, seedArea, spawnEnemy,
 } from './enemies.js';
 import { updateBullets, updateTurrets, updateTraps } from './combat.js';
-import { updatePickups, rollContainer, grantLoot, collectBackpack, seedLoot } from './loot.js';
+import {
+  updatePickups, rollContainer, grantLoot, collectBackpack, seedLoot, spawnPickup,
+} from './loot.js';
 import {
   buildMenu, canPlace, placeStructure, repairStructure, demolishStructure,
   updateGenerators, updateFloodlights, useGenerator, generatorRunning,
@@ -484,7 +486,7 @@ export const api = {
   startRaid, addXp, addRes, countRes, dangerAtPx, solidPx, shake,
   findInteractable, placeStructure, canPlace, spawnEnemy, forceEndRaid,
   visibleRecipes, craft, nearWorkbench, upgradeBench, baseCenter,
-  grantLoot, rollContainer, repairStructure, demolishStructure, killPlayer,
+  grantLoot, rollContainer, spawnPickup, repairStructure, demolishStructure, killPlayer,
   raiseAttribute, buyPerk, recomputeStats, ATTRS, PERKS, perkStatus,
   seedRescues, recruit, reviveSurvivor, liveSurvivors, survivorCap,
   refreshAllSurvivors, makeSurvivor, rationsHeld, rationsCarried,
