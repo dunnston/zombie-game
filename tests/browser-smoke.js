@@ -446,6 +446,82 @@
       `${structCount} -> ${G.structures.length}`);
     ok('level survives a save/load round trip', G.player.level === lvl, `${lvl} -> ${G.player.level}`);
 
+    // ------------------------------------------- 11b. input and UI routing --
+    // A tap must survive a frame that runs no simulation step (high-refresh
+    // displays) and must not fire twice when several steps run in one frame.
+    {
+      const { Input } = d;
+      const before = G.ui.panel;
+      void before;
+      G.ui.panel = null;
+      G.ui.buildMode = false;
+
+      // Simulate the render loop's edge handling directly.
+      d.key('KeyB', true);
+      d.key('KeyB', false);
+      const held = Input.pressed.has('KeyB');
+      ok('a tap is recorded as an edge', held);
+      // Drive it through the real loop.
+      await frames(4);
+      ok('a single tap toggles build mode exactly once', G.ui.buildMode === true,
+        `buildMode=${G.ui.buildMode}`);
+      d.tap('KeyB');
+      await frames(4);
+      ok('build mode does not re-toggle on later frames', G.ui.buildMode === false);
+    }
+
+    // Clicking the build bar selects a piece without also placing one.
+    {
+      d.giveAll();
+      G.ui.panel = null;
+      G.ui.buildMode = true;
+      G.ui.buildIndex = 0;
+      await frames(3);
+      const rects = G.ui.hudRects || [];
+      ok('the build bar claims its screen region', rects.length > 0, `${rects.length} rects`);
+      const before = G.structures.length;
+      if (rects.length) {
+        const r = rects[0];
+        const s = G.dpr || 1;
+        const cx = (r.x + r.w * 0.15) * s, cy = (r.y + r.h * 0.6) * s;
+        d.mouseMove(cx / s, cy / s);
+        await frames(2);
+        d.mouseDown();
+        await frames(3);
+        d.mouseUp();
+        await frames(2);
+        ok('clicking the build bar does not place a structure',
+          G.structures.length === before, `${before} -> ${G.structures.length}`);
+      }
+      G.ui.buildMode = false;
+      await frames(2);
+    }
+
+    // Turrets must not fire into terrain.
+    {
+      const turret2 = G.structures.find((s) => s.type === 'turret');
+      if (turret2) {
+        const tree = [...G.world.propGrid.values()]
+          .sort((a, b) => Math.hypot(a.x - turret2.x, a.y - turret2.y) - Math.hypot(b.x - turret2.x, b.y - turret2.y))[0];
+        if (tree && Math.hypot(tree.x - turret2.x, tree.y - turret2.y) < 400) {
+          // Put an enemy directly behind that tree, in line with the turret.
+          const ang = Math.atan2(tree.y - turret2.y, tree.x - turret2.x);
+          const behind = Math.hypot(tree.x - turret2.x, tree.y - turret2.y) + 40;
+          G.enemies.length = 0;
+          const hidden = api.spawnEnemy('walker',
+            turret2.x + Math.cos(ang) * behind, turret2.y + Math.sin(ang) * behind, {});
+          await frames(4);
+          ok('turrets ignore enemies behind terrain',
+            turret2.targetE !== hidden, `target=${turret2.targetE ? 'something' : 'none'}`);
+          G.enemies.length = 0;
+        } else {
+          ok('turrets ignore enemies behind terrain', true, 'no tree in range to test with');
+        }
+      } else {
+        ok('turrets ignore enemies behind terrain', true, 'no turret survived to test with');
+      }
+    }
+
     // ----------------------------------------------------- 12. stability ---
     d.god(true);
     G.enemies.length = 0;

@@ -309,7 +309,7 @@ recipe gating, upgrade validity, the XP curve, raid escalation and threat
 thresholds.
 
 `tests/browser-smoke.js` is injected into the running dev server and drives the
-live game through 77 assertions using synthetic input events — movement, aiming,
+live game through 83 assertions using synthetic input events — movement, aiming,
 melee, gunfire, ammo, reloading, enemy pursuit, taking damage, searching
 containers, carry-capacity overflow, structure placement and cost, walls
 blocking, enemies attacking structures, workbench upgrades, tier-gated crafting,
@@ -323,8 +323,8 @@ deaths. It is what the raid balance was tuned against:
 
 | Raid | Duration | Structures lost | Walls dropped to |
 | --- | --- | --- | --- |
-| 1 | 43s | 0 | 99% |
-| 3 | 64s | 0 | 29% |
+| 1 | 38s | 0 | 98% |
+| 3 | 64s | 0 | 12% |
 | 5 | overwhelming | the whole base | 0% |
 
 Real bugs came out of this testing and out of automated review rather than out

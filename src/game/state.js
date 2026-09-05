@@ -5,6 +5,7 @@
 import { TILE, RES, bagWeight } from './config.js';
 import { isBlockedTile } from './world.js';
 import { clamp } from '../core/util.js';
+import { Input } from '../core/input.js';
 
 export const G = {
   version: 3,
@@ -27,7 +28,11 @@ export const G = {
   raidsDone: 0,
   notifications: [],
   tutorial: { step: 0, done: {}, hint: null },
-  ui: { panel: null, buildIndex: 0, buildMode: false, hover: null, mapOpen: false, levelChoices: null, tab: 0 },
+  ui: {
+    panel: null, buildIndex: 0, buildMode: false, hover: null, mapOpen: false,
+    levelChoices: null, tab: 0,
+    hudRects: [],   // screen-space regions that swallow clicks from the world
+  },
   stats: { kills: 0, looted: 0, built: 0, crafted: 0, deaths: 0, damageDealt: 0 },
   paused: false,
   gameOverCredits: false,
@@ -222,6 +227,23 @@ export function raycast(x0, y0, x1, y1, step = 8) {
 
 export const hasLineOfSight = (x0, y0, x1, y1) => raycast(x0, y0, x1, y1, 12) === null;
 
+/**
+ * Line of sight that ignores player-built structures — the same rule bullets
+ * use. Turrets target with this so they never lock onto something behind a tree
+ * and empty their magazine into it.
+ */
+export function hasTerrainLineOfSight(x0, y0, x1, y1, step = 14) {
+  const dx = x1 - x0, dy = y1 - y0;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-4) return true;
+  const n = Math.ceil(len / step);
+  for (let i = 1; i <= n; i++) {
+    const t = i / n;
+    if (terrainBlocksPx(x0 + dx * t, y0 + dy * t)) return false;
+  }
+  return true;
+}
+
 // ------------------------------------------------------------ spatial hash --
 
 const CELL = 96;
@@ -255,6 +277,23 @@ export class SpatialHash {
 export function notify(text, color = '#d8e8c0', big = false) {
   G.notifications.push({ text, color, t: 0, life: big ? 3.4 : 2.6, big });
   if (G.notifications.length > 7) G.notifications.shift();
+}
+
+/**
+ * True when the cursor is over a UI region that has claimed clicks. The HUD
+ * resolves its own clicks during the draw pass, so gameplay must not also act
+ * on the same press — otherwise choosing a build piece would place the previous
+ * one first.
+ */
+export function pointerOverHud() {
+  const rects = G.ui.hudRects;
+  if (!rects || rects.length === 0) return false;
+  const s = G.dpr || 1;
+  const mx = Input.mouse.x / s, my = Input.mouse.y / s;
+  for (const r of rects) {
+    if (mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h) return true;
+  }
+  return false;
 }
 
 export function shake(amount) {

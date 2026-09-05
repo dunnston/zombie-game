@@ -4,7 +4,9 @@
 import './style.css';
 import { G } from './game/state.js';
 import { ENEMIES } from './game/config.js';
-import { initInput, endFrame, Input } from './core/input.js';
+import {
+  initInput, endFrame, Input, snapshotEdges, clearEdges, restoreEdges,
+} from './core/input.js';
 import { initAudio, resumeAudio } from './core/audio.js';
 import { primeSprites, buildSprites } from './core/sprites.js';
 import { render } from './render/renderer.js';
@@ -74,16 +76,27 @@ function frame(now) {
   if (G.slowmo > 0) { G.slowmo = Math.max(0, G.slowmo - raw); scale = 0.28; }
 
   acc += raw * scale;
+
+  // Edge-triggered input is consumed by exactly one simulation step. A frame
+  // that runs no fixed update must keep the tap for the next one (otherwise
+  // short presses vanish on high-refresh displays), and a frame that runs
+  // several must not let each of them see the same press.
+  const edges = snapshotEdges();
   let steps = 0;
   while (acc >= FIXED && steps < MAX_STEPS) {
     update(FIXED);
     acc -= FIXED;
     steps++;
+    if (steps === 1) clearEdges();
   }
   if (steps === MAX_STEPS) acc = 0;
 
+  // Hand the edges back so the UI pass can resolve clicks from the same press.
+  const consumed = steps > 0;
+  if (consumed) restoreEdges(edges);
+
   render(ctx, canvas.width, canvas.height);
-  drawHUD(ctx, canvas.width, canvas.height);
+  drawHUD(ctx, canvas.width, canvas.height, consumed);
 
   // Pause-menu actions are resolved after the UI has drawn them.
   if (pauseActions.save) {
@@ -97,7 +110,8 @@ function frame(now) {
     G.paused = false;
   }
 
-  endFrame();
+  // Only discard the edges once a simulation step has actually seen them.
+  if (consumed) endFrame();
 }
 
 requestAnimationFrame(frame);

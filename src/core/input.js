@@ -15,10 +15,12 @@ export const Input = {
   _canvas: null,
 };
 
-// Keys the browser would otherwise use for scrolling / quick-find.
+// Keys the browser would otherwise use for scrolling, quick-find or reloading.
+// F5 is ours: we advertise it as the manual save, so the native reload has to
+// be cancelled or the page navigates away before the handler ever runs.
 const SWALLOW = new Set([
   'Space', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-  'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Slash', 'Quote',
+  'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Slash', 'Quote', 'F5',
 ]);
 
 export function initInput(canvas) {
@@ -78,4 +80,41 @@ export function endFrame() {
   Input.mouseReleased = false;
   Input.rightPressed = false;
   Input.wheel = 0;
+}
+
+// --------------------------------------------------------------- edge state --
+// Edge-triggered input has to be seen by exactly one simulation step. On a
+// high-refresh display most animation frames run zero fixed updates, so
+// clearing unconditionally would drop taps entirely; after a hitch several
+// updates run in one frame, so leaving them set would fire a toggle twice.
+// The loop snapshots the edges, lets the first step consume them, blanks them
+// for any extra steps, and restores them for the UI pass.
+
+export function snapshotEdges() {
+  return {
+    pressed: new Set(Input.pressed),
+    released: new Set(Input.released),
+    mousePressed: Input.mousePressed,
+    mouseReleased: Input.mouseReleased,
+    rightPressed: Input.rightPressed,
+    wheel: Input.wheel,
+  };
+}
+
+export function clearEdges() {
+  Input.pressed.clear();
+  Input.released.clear();
+  Input.mousePressed = false;
+  Input.mouseReleased = false;
+  Input.rightPressed = false;
+  Input.wheel = 0;
+}
+
+export function restoreEdges(e) {
+  Input.pressed = e.pressed;
+  Input.released = e.released;
+  Input.mousePressed = e.mousePressed;
+  Input.mouseReleased = e.mouseReleased;
+  Input.rightPressed = e.rightPressed;
+  Input.wheel = e.wheel;
 }

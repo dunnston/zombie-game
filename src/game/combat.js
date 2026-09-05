@@ -6,7 +6,9 @@
 // fun rather than infuriating.
 
 import { WEAPONS, STRUCTURES, THREAT, TILE } from './config.js';
-import { G, terrainBlocksPx, notify, shake, takeRes, countRes } from './state.js';
+import {
+  G, terrainBlocksPx, hasTerrainLineOfSight, notify, shake, takeRes, countRes,
+} from './state.js';
 import { damageEnemy, destroyStructure } from './damage.js';
 import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
@@ -295,15 +297,23 @@ export function updateTurrets(dt) {
     }
     s.starved = false;
 
-    // Retarget: nearest live enemy in range with line of sight.
-    let best = null, bestD = range * range;
+    // Retarget: nearest live enemy in range that the turret can actually hit.
+    // Without the sight test it would happily lock onto something behind a tree
+    // and pump its whole magazine into the trunk.
     G.spatial.query(s.x, s.y, range, scratch);
+    const inRange = [];
     for (const e of scratch) {
       if (e.dead) continue;
       const d = dist2(s.x, s.y, e.x, e.y);
-      if (d < bestD) { bestD = d; best = e; }
+      if (d < range * range) inRange.push({ e, d });
+    }
+    inRange.sort((a, b) => a.d - b.d);
+    let best = null;
+    for (const c of inRange) {
+      if (hasTerrainLineOfSight(s.x, s.y, c.e.x, c.e.y)) { best = c.e; break; }
     }
     s.targetE = best;
+    s.blindT = best ? 0 : (s.blindT || 0) + dt;
     if (!best) continue;
 
     const want = Math.atan2(best.y - s.y, best.x - s.x);

@@ -71,11 +71,21 @@ const inside = (x, y, w, h) => {
   return m.x >= x && m.x <= x + w && m.y >= y && m.y <= y + h;
 };
 
+// False on frames that ran no simulation step: the edges are being held over
+// for the next one, so the UI must draw without consuming them.
+let uiInteractive = true;
+const clicked = () => uiInteractive && Input.mousePressed;
+
+/** Records a screen-space region that swallows clicks from the world. */
+function claim(x, y, w, h) {
+  G.ui.hudRects.push({ x, y, w, h });
+}
+
 /** Immediate-mode button. Returns true on the frame it is clicked. */
 function button(ctx, x, y, w, h, label, opts = {}) {
   const { enabled = true, sub = null, color = C.text, small = false } = opts;
   const hot = inside(x, y, w, h);
-  const clicked = hot && enabled && Input.mousePressed;
+  const hit = hot && enabled && clicked();
 
   ctx.fillStyle = !enabled ? 'rgba(30,34,26,0.7)' : hot ? 'rgba(90,120,66,0.45)' : 'rgba(30,40,24,0.75)';
   ctx.fillRect(x, y, w, h);
@@ -91,8 +101,8 @@ function button(ctx, x, y, w, h, label, opts = {}) {
     ctx.fillStyle = enabled ? C.dim : '#4c5544';
     ctx.fillText(sub, x + 9, y + 29);
   }
-  if (clicked) sfx('ui');
-  return clicked;
+  if (hit) sfx('ui');
+  return hit;
 }
 
 function costString(cost) {
@@ -107,8 +117,10 @@ function costAffordable(cost) {
 
 // -------------------------------------------------------------------- entry --
 
-export function drawHUD(ctx, deviceW, deviceH) {
+export function drawHUD(ctx, deviceW, deviceH, interactive = true) {
   hitboxes.length = 0;
+  uiInteractive = interactive;
+  G.ui.hudRects = [];
   // The whole UI is authored in CSS pixels and scaled up for HiDPI displays,
   // so text stays legible regardless of devicePixelRatio.
   const S = G.dpr || 1;
@@ -578,11 +590,16 @@ function drawBuildBar(ctx, W, H) {
   const x0 = Math.max(10, W / 2 - total / 2);
   const y = H - 152;
 
+  const barW = Math.min(total + 20, W - 20);
+  // Clicks on the bar select a piece; they must not also be read as a placement
+  // by the world update, or picking a card would spend resources first.
+  claim(x0 - 10, y - 26, barW, ch + 40);
+
   ctx.fillStyle = C.bg;
-  ctx.fillRect(x0 - 10, y - 26, Math.min(total + 20, W - 20), ch + 40);
+  ctx.fillRect(x0 - 10, y - 26, barW, ch + 40);
   ctx.strokeStyle = C.borderHi;
   ctx.lineWidth = 2;
-  ctx.strokeRect(x0 - 9.5, y - 25.5, Math.min(total + 20, W - 20) - 1, ch + 39);
+  ctx.strokeRect(x0 - 9.5, y - 25.5, barW - 1, ch + 39);
 
   ctx.font = 'bold 11px "Courier New", monospace';
   ctx.fillStyle = C.borderHi;
@@ -605,7 +622,7 @@ function drawBuildBar(ctx, W, H) {
     ctx.lineWidth = sel ? 2 : 1;
     ctx.strokeRect(x + 0.5, y + 0.5, cw - 1, ch - 1);
 
-    if (inside(x, y, cw, ch) && Input.mousePressed) { G.ui.buildIndex = i; sfx('ui'); }
+    if (inside(x, y, cw, ch) && clicked()) { G.ui.buildIndex = i; sfx('ui'); }
 
     ctx.font = 'bold 10px "Courier New", monospace';
     ctx.fillStyle = !unlocked ? '#5c6650' : isTool ? C.blue : afford ? C.text : '#8a6a5a';
@@ -939,7 +956,7 @@ function drawLevelUp(ctx, W, H) {
     ctx.fillStyle = C.gold;
     ctx.fillText(`${i + 1}`, x + cw - 30, y + ch - 20);
 
-    if (hot && Input.mousePressed) chooseUpgrade(u.id);
+    if (hot && clicked()) chooseUpgrade(u.id);
   }
 }
 

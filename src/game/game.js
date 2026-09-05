@@ -5,7 +5,7 @@ import {
   TILE, PLAYER, THREAT, STRUCTURES, CAMERA, WEAPONS, RECIPES,
 } from './config.js';
 import {
-  G, notify, structAtPx, solidPx, shake, addRes, countRes,
+  G, notify, structAtPx, solidPx, shake, addRes, countRes, pointerOverHud,
 } from './state.js';
 import { createWorld, dangerAtPx, locationAtPx } from './world.js';
 import { createPlayer, updatePlayer, pickRandomSpawn, currentWeapon, selectSlot } from './player.js';
@@ -65,7 +65,10 @@ export function newGame(seed = 20240917) {
   G.time = 0;
   G.stats = { kills: 0, looted: 0, built: 0, crafted: 0, deaths: 0, damageDealt: 0 };
   G.tutorial = { step: 0, done: {}, hint: null };
-  G.ui = { panel: null, buildIndex: 0, buildMode: false, hover: null, mapOpen: false, levelChoices: null, tab: 0 };
+  G.ui = {
+    panel: null, buildIndex: 0, buildMode: false, hover: null, mapOpen: false,
+    levelChoices: null, tab: 0, hudRects: [],
+  };
   G.paused = false;
 
   const spot = pickRandomSpawn();
@@ -217,6 +220,9 @@ function updateBuildMode() {
     return;
   }
 
+  // The build bar resolves its own clicks; ignore presses that land on it.
+  const overBar = pointerOverHud();
+
   const sel = menu[G.ui.buildIndex];
   const tx = Math.floor(Input.mouse.wx / TILE);
   const ty = Math.floor(Input.mouse.wy / TILE);
@@ -226,10 +232,10 @@ function updateBuildMode() {
     const s = structAtPx(Input.mouse.wx, Input.mouse.wy);
     G.ui.ghost.target = s;
     G.ui.ghost.valid = !!s && dist2(s.x, s.y, p.x, p.y) < BUILD_RANGE * BUILD_RANGE;
-    if (Input.mousePressed && G.ui.ghost.valid) {
+    if (Input.mousePressed && !overBar && G.ui.ghost.valid) {
       if (sel === 'repair') repairStructure(s);
       else demolishStructure(s);
-    } else if (Input.mousePressed) {
+    } else if (Input.mousePressed && !overBar) {
       sfx('deny');
     }
     return;
@@ -241,7 +247,7 @@ function updateBuildMode() {
 
   // Hold to place a run of walls; single click for everything else.
   const repeatable = !!STRUCTURES[sel].wall;
-  const wantPlace = repeatable ? Input.mouseDown : Input.mousePressed;
+  const wantPlace = (repeatable ? Input.mouseDown : Input.mousePressed) && !overBar;
   if (wantPlace && (G.ui.placeCd || 0) <= 0) {
     if (placeStructure(sel, tx, ty)) {
       G.ui.placeCd = repeatable ? 0.07 : 0.16;
