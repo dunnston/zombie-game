@@ -1,0 +1,38 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body, #app {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0a0c09;
+}
+
+body {
+  font-family: 'Courier New', Courier, monospace;
+  color: #cfe0bb;
+  -webkit-font-smoothing: none;
+  user-select: none;
+  cursor: none;
+}
+
+#game {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+#overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  letter-spacing: 2px;
+  color: #7d8f68;
+}
+
+#overlay.hidden { display: none; }
