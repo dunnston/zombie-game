@@ -838,6 +838,104 @@
       await frames(4);
       ok('losing the tower demotes the sniper', worker.job === 'guard', worker.job);
 
+      // ------------------------- job economy regressions -------------------
+      // Scavengers must not strip the neighbourhood with nowhere to put it.
+      {
+        for (const st of [...G.structures]) if (st.type === 'stash') api.demolishStructure(st);
+        const scav = api.makeSurvivor(plot.x + 30, plot.y, { level: 2 });
+        G.survivors.length = 0;
+        G.survivors.push(scav);
+        api.assignJob(scav, 'scavenger');
+        const lootedNoStash = G.world.containers.filter((c) => c.looted).length;
+        for (let i = 0; i < 16; i++) { G.enemies.length = 0; await seconds(0.5); }
+        ok('scavengers do not loot with no stash to deliver to',
+          G.world.containers.filter((c) => c.looted).length === lootedNoStash,
+          `${G.world.containers.filter((c) => c.looted).length - lootedNoStash} stripped`);
+
+        // Equipment rolled by a scavenger must survive, not evaporate.
+        const stash3 = placeNear('stash');
+        ok('a stash can be rebuilt for the delivery test', !!stash3);
+        G.pickups.length = 0;
+        scav.carrying = { scrap: 5 };
+        scav.carryItems = [{ id: 'weapon:pistol', n: 1 }, { id: 'item:medkit', n: 2 }];
+        scav.x = stash3.x + 20; scav.y = stash3.y;
+        const scrapBefore = G.stash.scrap || 0;
+        // The player is standing right there and will magnet the dropped gear
+        // up within a frame, so measure what they end up holding.
+        const medkitsBefore = p.items.medkit || 0;
+        p.weapons = p.weapons.filter((w) => w !== 'pistol');
+        // Survivors correctly refuse to do chores while something is shooting at
+        // them, so keep the area clear for this measurement.
+        for (let i = 0; i < 12 && scav.carrying; i++) {
+          G.enemies.length = 0;
+          scav.x = stash3.x + 20; scav.y = stash3.y;
+          await seconds(0.4);
+        }
+        ok('materials are delivered into the stash', (G.stash.scrap || 0) > scrapBefore,
+          `${scrapBefore} -> ${G.stash.scrap || 0}`);
+        ok('equipment a scavenger found is not destroyed',
+          (p.items.medkit || 0) > medkitsBefore || p.weapons.includes('pistol') || G.pickups.length > 0,
+          `medkits ${medkitsBefore} -> ${p.items.medkit || 0}, pistol=${p.weapons.includes('pistol')}, ${G.pickups.length} on the ground`);
+        ok('the haul is cleared once handed over', !scav.carrying && !scav.carryItems?.length);
+
+        // Reassigning mid-haul must not delete the cargo either.
+        G.pickups.length = 0;
+        scav.carrying = { wood: 9 };
+        scav.carryItems = [];
+        const woodBefore2 = G.stash.wood || 0;
+        api.assignJob(scav, 'guard');
+        ok('reassigning mid-haul does not destroy the cargo',
+          (G.stash.wood || 0) > woodBefore2 || G.pickups.length > 0,
+          `stash ${woodBefore2} -> ${G.stash.wood || 0}, ${G.pickups.length} dropped`);
+
+        // Builders must not repair on credit they cannot pay for.
+        const wall3 = placeNear('woodWall');
+        wall3.hp = wall3.maxHp * 0.2;
+        const brokeHp = wall3.hp;
+        G.stash.wood = 0;
+        G.stash.scrap = 0;
+        scav.repairCredit = 0;
+        api.assignJob(scav, 'builder');
+        for (let i = 0; i < 14; i++) {
+          G.enemies.length = 0;
+          scav.x = wall3.x + 34; scav.y = wall3.y;
+          await seconds(0.4);
+        }
+        ok('builders cannot repair with an empty stash',
+          Math.abs(wall3.hp - brokeHp) < 1,
+          `${Math.round(brokeHp)} -> ${Math.round(wall3.hp)}`);
+        G.stash.wood = 500;
+        G.stash.scrap = 500;
+        for (let i = 0; i < 14 && wall3.hp <= brokeHp; i++) {
+          G.enemies.length = 0;
+          scav.x = wall3.x + 34; scav.y = wall3.y;
+          await seconds(0.4);
+        }
+        ok('builders resume once materials are available', wall3.hp > brokeHp,
+          `${Math.round(brokeHp)} -> ${Math.round(wall3.hp)}`);
+      }
+
+      // The roster must stay reachable at the maximum crew size.
+      {
+        G.survivors.length = 0;
+        for (let i = 0; i < 8; i++) {
+          G.survivors.push(api.makeSurvivor(plot.x + i * 20, plot.y + 40, { level: 1 }));
+        }
+        G.ui.panel = 'char';
+        G.ui.tab = 2;
+        G.ui.rosterScroll = 0;
+        await frames(4);
+        const firstPage = G.ui.rosterScroll;
+        G.ui.rosterScroll = 99;                 // clamped by the draw pass
+        await frames(4);
+        ok('the roster scrolls rather than hiding people',
+          G.ui.rosterScroll > firstPage && G.ui.rosterScroll < 99,
+          `scroll clamped to ${G.ui.rosterScroll} for ${G.survivors.length} people`);
+        G.ui.panel = null;
+        G.ui.rosterScroll = 0;
+        G.survivors.length = 0;
+      }
+
       G.survivors.length = 0;
       for (const s of [...G.structures]) api.demolishStructure(s);
       G.structures.length = 0;

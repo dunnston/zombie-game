@@ -12,7 +12,7 @@ import {
 } from './state.js';
 import { spawnBullet } from './combat.js';
 import { baseCenter } from './building.js';
-import { rollContainer } from './loot.js';
+import { rollContainer, spawnPickup } from './loot.js';
 import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
 import { addXp } from './progression.js';
@@ -108,7 +108,13 @@ export function assignJob(s, job) {
   }
   s.job = job;
   s.jobT = 0;
-  s.carrying = null;
+  // A haul was taken out of a real container, so reassignment must not delete
+  // it: hand it in if a stash is close, otherwise put it on the floor.
+  if (s.carrying || (s.carryItems && s.carryItems.length)) {
+    const stash = nearestStash(s.x, s.y);
+    if (stash && dist2(s.x, s.y, stash.x, stash.y) < 260 * 260) deliverCargo(s, stash);
+    else dropCargo(s);
+  }
   // Jobs target different kinds of object, so a leftover target from the
   // previous job is not just stale, it is the wrong shape entirely.
   s.runTarget = null;
@@ -492,22 +498,29 @@ export const SCAVENGE = {
  * the point: they turn time into materials while you do something else.
  */
 function scavengerStep(s, dt, base) {
-  const stash = nearestStash();
+  const stash = nearestStash(s.x, s.y);
 
   // Carrying a haul? Take it home.
-  if (s.carrying) {
-    if (!stash) { s.carrying = null; return { x: null, y: null }; }
+  if (s.carrying || (s.carryItems && s.carryItems.length)) {
+    // The stash was destroyed while they were walking back. Put the haul on the
+    // ground rather than deleting it — it was taken out of a real container.
+    if (!stash) { dropCargo(s); return { x: null, y: null }; }
     if (dist2(s.x, s.y, stash.x, stash.y) < 52 * 52) {
-      for (const id in s.carrying) addRes(G.stash, id, s.carrying[id]);
-      const total = Object.values(s.carrying).reduce((a, b) => a + b, 0);
-      FX.text(s.x, s.y - 24, `+${total} to stash`, '#e8c86a', 11, -34, 1.0);
-      sfx('loot');
-      awardSurvivorXp(s, 8);
-      s.carrying = null;
+      deliverCargo(s, stash);
       s.runTarget = null;
       return { x: null, y: null };
     }
     return { x: stash.x, y: stash.y };
+  }
+
+  // No stash, nowhere to put anything: don't strip the neighbourhood for
+  // nothing. Idle at the post until the player builds one.
+  if (!stash) {
+    if (!G.scavengeWarned || G.time - G.scavengeWarned > 45) {
+      G.scavengeWarned = G.time;
+      notify('Your scavengers need a Supply Stash to deliver to', '#d9c46a');
+    }
+    return { x: null, y: null };
   }
 
   // Pick a target container near the base. The `table` check makes sure we are
@@ -577,13 +590,17 @@ function scavengerStep(s, dt, base) {
     c.looted = true;
     const entries = rollContainer(c, 1, {});
     const haul = {};
+    const gear = [];
     for (const e of entries) {
-      // They bring back materials, not weapons — those are yours to find.
-      if (!RES[e.id]) continue;
-      haul[e.id] = (haul[e.id] || 0) + e.n;
+      // Materials go in the pack; weapons, armour and medicine are carried home
+      // too and left beside the stash. Nothing a container held is destroyed
+      // just because a survivor opened it rather than the player.
+      if (RES[e.id]) haul[e.id] = (haul[e.id] || 0) + e.n;
+      else gear.push(e);
     }
-    if (Object.keys(haul).length === 0) haul.scrap = 3;
-    s.carrying = haul;
+    if (Object.keys(haul).length === 0 && gear.length === 0) haul.scrap = 3;
+    s.carrying = Object.keys(haul).length ? haul : null;
+    s.carryItems = gear;
     FX.ring(c.x, c.y, 4, 26, 0.4, '#e8c86a', 2);
     s.runTarget = null;
   }
@@ -653,38 +670,88 @@ function builderStep(s, dt, base) {
   s.reachT = 0;
   s.lastReachD = Infinity;
 
-  // In reach: repair, paying as we go so it is never free.
-  const heal = BUILDER.repairPerSec * dt;
-  s.jobT += heal;
-  if (s.jobT >= 100) {
-    s.jobT -= 100;
-    let paid = true;
-    for (const id in BUILDER.costPer100) {
-      if (takeRes(G.stash, id, BUILDER.costPer100[id]) < BUILDER.costPer100[id]) paid = false;
-    }
-    if (!paid) {
+  // In reach. Materials are bought *before* any repair is applied, a block at a
+  // time and all-or-nothing — repairing first and billing later handed out
+  // almost a full block of free health every time the stash ran dry, which
+  // during a raid is the difference between a wall that should have fallen and
+  // one that did not.
+  if ((s.repairCredit || 0) <= 0) {
+    const affordable = Object.entries(BUILDER.costPer100)
+      .every(([id, n]) => countRes(G.stash, id) >= n);
+    if (!affordable) {
       if (!G.repairWarned || G.time - G.repairWarned > 40) {
         G.repairWarned = G.time;
         notify('Your builders are out of materials', '#d9c46a');
       }
       return { x: s.x, y: s.y };
     }
+    for (const [id, n] of Object.entries(BUILDER.costPer100)) takeRes(G.stash, id, n);
+    s.repairCredit = 100;
     awardSurvivorXp(s, 3);
   }
-  target.hp = Math.min(target.maxHp, target.hp + heal);
+
+  const heal = Math.min(
+    BUILDER.repairPerSec * dt,
+    s.repairCredit,
+    target.maxHp - target.hp,
+  );
+  s.repairCredit -= heal;
+  target.hp += heal;
   if (Math.random() < dt * 5) FX.sparks(target.x, target.y, 0, -1, 2, '#d8c88a');
   return { x: s.x, y: s.y };
 }
 
-const nearestStash = () => {
+/** The stash nearest to the given point — not, as it once was, to the origin. */
+function nearestStash(fromX = 0, fromY = 0) {
   let best = null, bd = Infinity;
   for (const st of G.structures) {
     if (st.destroyed || st.type !== 'stash') continue;
-    const d = dist2(st.x, st.y, 0, 0);
+    const d = dist2(st.x, st.y, fromX, fromY);
     if (d < bd) { bd = d; best = st; }
   }
   return best;
-};
+}
+
+/** Hands the haul over: materials into the stash, gear onto the ground beside it. */
+function deliverCargo(s, stash) {
+  let total = 0;
+  for (const id in s.carrying || {}) {
+    addRes(G.stash, id, s.carrying[id]);
+    total += s.carrying[id];
+  }
+  for (const e of s.carryItems || []) {
+    const kind = e.id.startsWith('weapon:') ? 'weapon'
+      : e.id.startsWith('armor:') ? 'armor'
+        : e.id.startsWith('item:') ? 'item' : 'res';
+    const id = kind === 'res' ? e.id : e.id.slice(e.id.indexOf(':') + 1);
+    spawnPickup(stash.x, stash.y + 26, kind, id, e.n);
+    total += e.n;
+  }
+  if (total > 0) {
+    FX.text(s.x, s.y - 24, `+${total} delivered`, '#e8c86a', 11, -34, 1.0);
+    sfx('loot');
+    awardSurvivorXp(s, 8);
+  }
+  s.carrying = null;
+  s.carryItems = null;
+}
+
+/** Puts a haul on the ground where the survivor stands. Never deletes it. */
+function dropCargo(s) {
+  for (const id in s.carrying || {}) spawnPickup(s.x, s.y, 'res', id, s.carrying[id]);
+  for (const e of s.carryItems || []) {
+    const kind = e.id.startsWith('weapon:') ? 'weapon'
+      : e.id.startsWith('armor:') ? 'armor'
+        : e.id.startsWith('item:') ? 'item' : 'res';
+    const id = kind === 'res' ? e.id : e.id.slice(e.id.indexOf(':') + 1);
+    spawnPickup(s.x, s.y, kind, id, e.n);
+  }
+  if (s.carrying || (s.carryItems && s.carryItems.length)) {
+    FX.text(s.x, s.y - 24, 'DROPPED', '#e8c86a', 11, -34, 1.0);
+  }
+  s.carrying = null;
+  s.carryItems = null;
+}
 
 /** Called when a bullet owned by a survivor lands a kill. */
 export function creditSurvivorKill(ownerTag, xp) {

@@ -11,7 +11,12 @@ import { bestArmor } from './loot.js';
 import { clamp } from '../core/util.js';
 import { xpForLevel, TILE } from './config.js';
 
-const KEY = 'deadline.save.v4';
+// v5: furnishing changed how many containers each building gets, which shifts
+// the ordinal container ids that `looted` is stored against. A v4 save loaded
+// against a v5 world would mark unrelated furniture as searched and re-fill
+// things you had already emptied, so those saves are retired rather than
+// silently corrupted.
+const KEY = 'deadline.save.v5';
 
 /** Where a dead player would come back, and at what health. */
 function resolveRespawn(p) {
@@ -59,6 +64,11 @@ export function saveGame() {
         job: s.job,
         // Towers are stored by tile, since structure objects are rebuilt on load.
         tower: s.tower && !s.tower.destroyed ? { tx: s.tower.tx, ty: s.tower.ty } : null,
+        // The source container is already recorded as looted, so a haul left out
+        // of the save would simply cease to exist.
+        carrying: s.carrying || null,
+        carryItems: s.carryItems && s.carryItems.length ? s.carryItems : null,
+        repairCredit: s.repairCredit || 0,
       })),
       rescues: G.rescues.map((r) => ({ x: r.x, y: r.y, name: r.name, level: r.level })),
       discovered: G.world.locations.filter((l) => l.discovered).map((l) => l.id),
@@ -187,6 +197,9 @@ export function loadGame() {
       s.hp = Math.min(sv.hp ?? s.maxHp, s.maxHp);
       if (sv.tower) s.tower = structAt(sv.tower.tx, sv.tower.ty);
       if (s.job === 'sniper' && !s.tower) s.job = 'guard';
+      s.carrying = sv.carrying || null;
+      s.carryItems = sv.carryItems || null;
+      s.repairCredit = sv.repairCredit || 0;
       G.survivors.push(s);
     }
     refreshAllSurvivors();

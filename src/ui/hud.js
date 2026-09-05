@@ -1061,8 +1061,31 @@ function drawPeopleTab(ctx, px, py, pw, ph) {
     return;
   }
 
-  for (const s of crew) {
-    const rowH = 74;
+  // A maxed Charisma plus three Recruiter ranks allows eight people, which is
+  // more rows than the panel can show — so the list scrolls.
+  const rowH = 74, rowGap = 6;
+  const listTop = y;
+  const listH = py + ph - listTop;
+  const visible = Math.max(1, Math.floor(listH / (rowH + rowGap)));
+  const maxScroll = Math.max(0, crew.length - visible);
+  if (inside(x, listTop, pw - 40, listH) && Input.wheel !== 0) {
+    G.ui.rosterScroll = clamp((G.ui.rosterScroll || 0) + Input.wheel, 0, maxScroll);
+  }
+  const scroll = clamp(G.ui.rosterScroll || 0, 0, maxScroll);
+  G.ui.rosterScroll = scroll;
+
+  if (maxScroll > 0) {
+    ctx.font = '10px "Courier New", monospace';
+    ctx.fillStyle = C.dim;
+    ctx.textAlign = 'right';
+    ctx.fillText(
+      `showing ${scroll + 1}-${Math.min(crew.length, scroll + visible)} of ${crew.length}  ·  scroll to see the rest`,
+      x + pw - 40, listTop - 6,
+    );
+    ctx.textAlign = 'left';
+  }
+
+  for (const s of crew.slice(scroll, scroll + visible)) {
     ctx.fillStyle = 'rgba(24,30,20,0.75)';
     ctx.fillRect(x, y, pw - 40, rowH);
     ctx.strokeStyle = s.downed ? C.warn : s.hungry ? '#a06a5a' : C.border;
@@ -1136,8 +1159,7 @@ function drawPeopleTab(ctx, px, py, pw, ph) {
     else if (s.job === 'sniper' && !s.tower) doing = 'No tower — falling back to guarding.';
     ctx.fillText(doing, bx + 8, y + 56);
 
-    y += rowH + 6;
-    if (y + rowH > py + ph) break;
+    y += rowH + rowGap;
   }
 }
 

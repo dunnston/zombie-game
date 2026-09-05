@@ -8,7 +8,7 @@ import { clamp } from '../core/util.js';
 import { Input } from '../core/input.js';
 
 export const G = {
-  version: 4,
+  version: 5,
   world: null,
   player: null,
   enemies: [],
