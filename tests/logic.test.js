@@ -19,8 +19,9 @@ import {
 } from '../src/game/daynight.js';
 import { pointsForLevel } from '../src/game/progression.js';
 import {
-  SURVIVOR, JOBS, JOB_IDS, SCAVENGE, BUILDER,
+  SURVIVOR, JOBS, JOB_IDS, SCAVENGE, BUILDER, POST_RADIUS, canSeeContainer,
 } from '../src/game/survivors.js';
+import { G } from '../src/game/state.js';
 import { makeRng, weightedPick, clamp, angleDelta, hash2, pruneInPlace, circleRectOverlap } from '../src/core/util.js';
 
 // ------------------------------------------------------------------- util ---
@@ -435,10 +436,31 @@ test('the four survivor jobs are distinct and described', () => {
     shorts.add(j.short);
   }
   assert.equal(JOBS.sniper.needs, 'watchtower', 'only the sniper needs a structure');
+  // A sniper has to actually be on the tower to draw its stats.
+  assert.ok(POST_RADIUS > 0 && POST_RADIUS < 100, `POST_RADIUS ${POST_RADIUS} is not a "standing on it" distance`);
   // Non-combat jobs need a give-up path, since there is no pathfinding.
   assert.ok(SCAVENGE.giveUpAfter > 0 && SCAVENGE.radius > 0);
   assert.ok(BUILDER.giveUpAfter > 0 && BUILDER.repairPerSec > 0);
   assert.ok(Object.keys(BUILDER.costPer100).length > 0, 'repairs must cost materials');
+});
+
+test('a scavenger can see containers it stands beside', () => {
+  // Every container marks its own tile blocked, so a sight ray run all the way
+  // to the centre reports "blocked" for every container in the world — which
+  // silently turned the scavenger's reachability preference into a no-op.
+  const w = createWorld(20240917);
+  G.world = w;
+  const open = w.containers.filter((c) => !c.hidden);
+  let visible = 0;
+  for (const c of open) {
+    if (canSeeContainer(c.x + 120, c.y, c)) visible++;
+  }
+  assert.ok(
+    visible > open.length * 0.2,
+    `only ${visible} of ${open.length} containers are visible from beside them`,
+  );
+  // And a container right under your nose is always workable.
+  assert.equal(canSeeContainer(open[0].x + 8, open[0].y, open[0]), true);
 });
 
 test('the floodlight is a real, power-gated structure', () => {

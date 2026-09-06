@@ -35,7 +35,7 @@ npm test
 npm run build
 ```
 
-`npm test` runs 51 Node assertions over the pure logic (world generation, loot
+`npm test` runs 52 Node assertions over the pure logic (world generation, loot
 tables, balance invariants, progression curves, perk trees, the day curve).
 `npm run build` produces a static bundle in `dist/` that can be opened from any
 static host.
@@ -395,7 +395,7 @@ nearest-neighbour filtering.
 npm test
 ```
 
-51 Node assertions covering world generation determinism, spawn-point safety,
+52 Node assertions covering world generation determinism, spawn-point safety,
 danger tiers, loot-table integrity and theming, weapon/enemy/wall tier ordering,
 recipe gating, the XP curve, raid escalation, threat thresholds, every attribute
 and perk actually changing a stat, perk gating by rank and cost, recompute

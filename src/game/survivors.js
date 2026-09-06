@@ -561,8 +561,7 @@ function scavengerStep(s, dt, base) {
   // looking at a container and not a structure left over from another job.
   if (!s.runTarget || !s.runTarget.table || s.runTarget.looted) {
     s.runTarget = null;
-    const originX = base.hasBase ? base.x : s.x;
-    const originY = base.hasBase ? base.y : s.y;
+    const { x: originX, y: originY } = homeAnchor(s, base);
     // Don't send two people to the same shelf, and skip anything this person
     // has already failed to reach.
     const claimed = new Set(liveSurvivors().map((o) => o.runTarget).filter(Boolean));
@@ -578,7 +577,7 @@ function scavengerStep(s, dt, base) {
       if (s.unreachLoot && s.unreachLoot.has(c.id)) continue;
       const d = dist2(originX, originY, c.x, c.y);
       if (d >= fallbackD && d >= bestD) continue;
-      if (d < bestD && hasTerrainLineOfSight(originX, originY, c.x, c.y, 20)) {
+      if (d < bestD && canSeeContainer(originX, originY, c)) {
         bestD = d; bestC = c;
       } else if (d < fallbackD) {
         fallbackD = d; fallbackC = c;
@@ -660,11 +659,10 @@ function builderStep(s, dt, base) {
   let target = s.runTarget;
   if (!target || !target.def || target.destroyed || target.hp >= target.maxHp) {
     target = null;
-    // Search from the base, not from wherever this person happens to be
+    // Search from their settlement, not from wherever this person happens to be
     // standing. A builder who wandered should still know the wall is broken and
     // walk back to it, rather than losing sight of the job.
-    const originX = base.hasBase ? base.x : s.x;
-    const originY = base.hasBase ? base.y : s.y;
+    const { x: originX, y: originY } = homeAnchor(s, base);
     let worst = 1;
     for (const st of G.structures) {
       if (st.destroyed || st.hp >= st.maxHp) continue;
@@ -733,6 +731,35 @@ function builderStep(s, dt, base) {
   target.hp += heal;
   if (Math.random() < dt * 5) FX.sparks(target.x, target.y, 0, -1, 2, '#d8c88a');
   return { x: s.x, y: s.y };
+}
+
+/**
+ * Where a worker considers "home". Deliberately the stash they would deliver
+ * to rather than baseCenter(), which averages every structure in the world — so
+ * with two settlements far apart that average lands in the empty middle and
+ * both settlements fall outside the working radius.
+ */
+function homeAnchor(s, base) {
+  const stash = nearestStash(s.x, s.y);
+  if (stash) return { x: stash.x, y: stash.y };
+  if (base && base.hasBase) return { x: base.x, y: base.y };
+  return { x: s.x, y: s.y };
+}
+
+/**
+ * Line of sight to a container, stopping short of its own tile.
+ *
+ * Every container marks its tile blocked, so a ray that runs all the way to the
+ * centre hits the target itself and reports "no line of sight" for literally
+ * every container in the world — which silently turned the reachability
+ * preference into a no-op.
+ */
+export function canSeeContainer(fromX, fromY, c) {
+  const dx = c.x - fromX, dy = c.y - fromY;
+  const len = Math.hypot(dx, dy);
+  if (len < 40) return true;
+  const back = Math.min(len - 1, 26);
+  return hasTerrainLineOfSight(fromX, fromY, c.x - (dx / len) * back, c.y - (dy / len) * back, 20);
 }
 
 /** The stash nearest to the given point — not, as it once was, to the origin. */
