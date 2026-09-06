@@ -117,21 +117,35 @@ Roughly how the first hour goes:
 
 ### World
 
-One authored 160×160-tile town (5120px square), generated from a fixed seed so
-you can learn its geography. Nine districts, each with its own danger tier and
-its own loot personality:
+One authored 320×320-tile map (10240px square), generated from a fixed seed so
+you can learn its geography. The town sits in the middle; farms lie across the
+river to the west, a pine forest to the north, a city to the east. Eighteen
+districts, each with its own danger tier and its own loot personality:
 
 | District | Danger | What's there |
 | --- | --- | --- |
 | Roadside Camp | ▲ | Shacks, a quiet crossroads, an easy first base |
 | Pine Hollow Suburbs | ▲ | Houses — wood, cloth, odds and ends |
+| Hollow Creek Farms | ▲ | Two farmsteads across the river: barns, silos, fields, a **feed store with fuel drums** |
+| Saddleback Ranch | ▲ | A stable and a fenced paddock at the end of the lane |
 | East Terraces | ▲▲ | Denser housing, larger groups |
 | Market Row | ▲▲ | Convenience store, **hardware store**, pawn shop |
 | Fuel Stop | ▲▲ | Fuel pumps, scrap |
+| Blackpine Forest | ▲▲ | Deep woods, hunting cabins with **gun safes**, dirt trails |
+| Grayson Lumber | ▲▲ | A sawmill and **log piles — wood by the ton** |
+| Loon Lake | ▲▲ | A lakeside lodge, a boathouse, a jetty |
+| Rust Belt Salvage | ▲▲ | A walled junkyard: **scrap, parts, electronics** |
 | Precinct 12 | ▲▲▲ | **Police lockers, gun safes, armour** |
 | St. Martha Hospital | ▲▲▲ | **Medicine, medkits** |
 | Dock Yard | ▲▲▲ | **Electronics, weapon parts** |
+| Crown Heights | ▲▲▲ | Apartment blocks, floor after floor of them |
+| Galleria Mall | ▲▲▲ | The mall, a drugstore and **the outfitters — the city's gun shop** |
 | Checkpoint Delta | ▲▲▲▲ | **Military parts, rifle ammo, the carbine** |
+| Downtown | ▲▲▲▲ | Office towers, city hall and **the bank vault**; the army's last stand on the highway |
+
+The river is solid to feet and transparent to bullets: you can shoot across it,
+and so can your turrets, but the only ways over are the two bridges. Farm
+fences work the same way. Fields are open ground — you can build on them.
 
 Nothing is level-gated. You can walk into the military checkpoint at minute one
 and you will die there. The map screen shades every district by danger, so you

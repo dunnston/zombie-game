@@ -166,6 +166,84 @@ function treeSprite(seed) {
   });
 }
 
+/** A conifer: stacked, narrowing tiers with a short trunk. The forest's tree. */
+function pineSprite(seed) {
+  const size = 56;
+  return mk(size, size, (g, w, h) => {
+    const cx = w / 2, cy = h / 2 + 4;
+    g.fillStyle = '#2e2216';
+    g.fillRect(cx - 2.5, cy + 6, 5, 8);
+    const tiers = [
+      { r: 22, y: 8, c: '#16240f' }, { r: 18, y: 2, c: '#1e3015' },
+      { r: 13, y: -4, c: '#27401b' }, { r: 8, y: -9, c: '#324f22' }, { r: 4, y: -13, c: '#3d5c2a' },
+    ];
+    for (const L of tiers) {
+      g.beginPath();
+      for (let i = 0; i < 9; i++) {
+        const a = (i / 9) * TAU - Math.PI / 2;
+        const rr = L.r * (0.72 + hash2(seed + i, L.r) * 0.5);
+        const x = cx + Math.cos(a) * rr;
+        const y = cy + L.y + Math.sin(a) * rr * 0.62;
+        i === 0 ? g.moveTo(x, y) : g.lineTo(x, y);
+      }
+      g.closePath();
+      g.fillStyle = L.c;
+      g.fill();
+    }
+    speckle(g, w, h, 40, ['#4a6b3399', '#0e160888'], seed, 0.5);
+  });
+}
+
+/** A round hay bale, seen from a little above. */
+function hayBaleSprite(seed) {
+  return mk(30, 26, (g, w, h) => {
+    ellipse(g, 15, 15, 12, 8, '#7a6428');
+    ellipse(g, 15, 12, 12, 8, '#a8893a');
+    g.strokeStyle = '#7a6428aa';
+    g.lineWidth = 1;
+    for (let i = 0; i < 3; i++) {
+      g.beginPath();
+      g.ellipse(15, 12, 4 + i * 3.5, 2.5 + i * 2.2, 0, 0, TAU);
+      g.stroke();
+    }
+    speckle(g, w, h, 20, ['#c9a84a88', '#5a481c88'], seed, 0.6);
+  });
+}
+
+/** A grain silo: a tall drum with a domed cap, drawn as its two-tile footprint. */
+function siloSprite() {
+  return mk(64, 80, (g, w, h) => {
+    const grad = g.createLinearGradient(8, 0, 56, 0);
+    grad.addColorStop(0, '#5d6570'); grad.addColorStop(0.45, '#8f98a3'); grad.addColorStop(1, '#4e555e');
+    g.fillStyle = grad;
+    g.fillRect(10, 18, 44, 54);
+    ellipse(g, 32, 72, 22, 8, '#4a5059');
+    g.fillStyle = grad;
+    g.fillRect(10, 18, 44, 50);
+    ellipse(g, 32, 18, 22, 9, '#7d8692');
+    ellipse(g, 32, 14, 16, 6, '#98a1ad');
+    g.strokeStyle = '#3a4048aa';
+    g.lineWidth = 1;
+    for (let y = 30; y < 70; y += 12) { g.beginPath(); g.moveTo(10, y); g.lineTo(54, y); g.stroke(); }
+    g.fillStyle = '#2f343a';
+    g.fillRect(28, 56, 8, 12);
+  });
+}
+
+/** A tuft of reeds for the water's edge. Scenery only. */
+function reedSprite(seed) {
+  return mk(22, 26, (g, w, h) => {
+    for (let i = 0; i < 6; i++) {
+      const x = 4 + hash2(seed, i) * 14;
+      const top = 3 + hash2(seed + 7, i) * 8;
+      g.strokeStyle = i % 2 ? '#5d7a3a' : '#4a6530';
+      g.lineWidth = 1.5;
+      g.beginPath(); g.moveTo(x, 24); g.lineTo(x + (hash2(seed, i + 3) - 0.5) * 4, top); g.stroke();
+      if (i % 3 === 0) { g.fillStyle = '#6b4f2a'; g.fillRect(x - 1, top, 2.5, 5); }
+    }
+  });
+}
+
 function bushSprite(seed) {
   return mk(28, 28, (g, w, h) => {
     for (let i = 0; i < 5; i++) {
@@ -241,6 +319,7 @@ function containerSprite(kind) {
       crate: ['#4f5a4a', '#67765f'], trunk: ['#454a50', '#5d646c'],
       locker: ['#2f4459', '#3f5a76'], safe: ['#3a3d40', '#54585c'],
       milcrate: ['#4a5233', '#636d44'], pump: ['#7a3b2c', '#a4503b'],
+      logs: ['#4a3620', '#6a4f2d'], drum: ['#5a3a2a', '#8a4a30'],
     }[kind] || ['#5a5245', '#726858'];
 
     roundRect(g, 2, 2, S - 4, S - 4, 3, base[0]);
@@ -281,6 +360,16 @@ function containerSprite(kind) {
     } else if (kind === 'trunk') {
       g.beginPath(); g.moveTo(4, 11); g.lineTo(S - 4, 11); g.stroke();
       g.fillStyle = '#8b9199'; g.fillRect(S / 2 - 3, 14, 6, 2);
+    } else if (kind === 'logs') {
+      // Log ends, stacked.
+      for (const [x, y] of [[8, 9], [15, 9], [22, 9], [11.5, 16], [18.5, 16], [15, 23]]) {
+        g.fillStyle = '#8a6a3c'; g.beginPath(); g.arc(x, y, 3.6, 0, TAU); g.fill();
+        g.fillStyle = '#c9a56a'; g.beginPath(); g.arc(x, y, 2.2, 0, TAU); g.fill();
+        g.fillStyle = '#8a6a3c'; g.beginPath(); g.arc(x, y, 0.9, 0, TAU); g.fill();
+      }
+    } else if (kind === 'drum') {
+      g.fillStyle = '#3a2418'; g.fillRect(6, 8, S - 12, 3); g.fillRect(6, 19, S - 12, 3);
+      g.fillStyle = '#d8b23a'; g.fillRect(9, 12, 6, 5);
     } else if (kind === 'pump') {
       g.fillStyle = '#1f1f1f'; g.fillRect(6, 6, S - 12, 9);
       g.fillStyle = '#d8b23a'; g.fillRect(8, 8, S - 16, 5);
@@ -814,6 +903,10 @@ export function buildSprites() {
   Sprites.trees = [0, 1, 2, 3].map((i) => treeSprite(i * 37 + 11));
   Sprites.bushes = [0, 1, 2].map((i) => bushSprite(i * 19 + 5));
   Sprites.rocks = [0, 1].map((i) => rockSprite(i * 23 + 3));
+  Sprites.pines = [0, 1, 2, 3].map((i) => pineSprite(i * 41 + 7));
+  Sprites.hay = [0, 1, 2].map((i) => hayBaleSprite(i * 17 + 9));
+  Sprites.reeds = [0, 1, 2].map((i) => reedSprite(i * 29 + 13));
+  Sprites.silo = siloSprite();
 
   Sprites.cars = [
     carSprite('#7a3f3a', '#4d2724', false),
@@ -827,7 +920,7 @@ export function buildSprites() {
     'bookshelf', 'dresser', 'wardrobe', 'desk', 'filing', 'fridge',
     'nightstand', 'vanity', 'footlocker', 'vending', 'toolrack', 'displaycase',
   ];
-  const FIXTURES = ['cabinet', 'toolbox', 'shelf', 'medcab', 'crate', 'trunk', 'locker', 'safe', 'milcrate', 'pump'];
+  const FIXTURES = ['cabinet', 'toolbox', 'shelf', 'medcab', 'crate', 'trunk', 'locker', 'safe', 'milcrate', 'pump', 'logs', 'drum'];
 
   for (const k of [...FIXTURES, ...FURNITURE]) {
     Sprites[`c_${k}`] = FURNITURE.includes(k) ? furnitureSprite(k) : containerSprite(k);

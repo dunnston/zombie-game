@@ -1,6 +1,26 @@
 # tasks/todo.md
 
-## Current round — online co-op multiplayer
+## Current round — the map expansion
+
+Owner, 2026-09-06: "I want to make the current map a lot bigger. I want to add
+a more rural area, a city area, a forest area, maybe a river and a pond."
+
+- [x] 160 → 320 tiles; the town shifted to (80, 80) with its layout intact
+- [x] The Marrow river down the west side, two bridges, sand banks, reeds
+- [x] Loon Lake (lodge, boathouse, jetty), a town pond, a farm pond, a stock pond
+- [x] Farms and ranch: fields, barns, silos, hay, paddock fences, a feed store
+- [x] Forest: pines, a lumber camp with log piles, four hunting cabins, trails
+- [x] City: Crown Heights apartments, Downtown towers + bank + plaza + garage,
+      Galleria Mall + drugstore + outfitters, streets choked with wrecks
+- [x] Junkyard and orchard in the south
+- [x] Bullets pass over water and fences (`bulletBlocksPx`)
+- [x] New game starts by the Roadside Camp
+- [x] Sealed rooms fixed (the old four-room partition and furniture in doorways)
+- [x] Save → v9; Node tests for biomes, danger tiers and reachability
+- [x] Both suites green; raid harness indices 1–3 in range
+- [ ] The owner walks it
+
+## Previous round — online co-op multiplayer
 
 Owner asked for multiplayer on 2026-09-06. Agreed shape after two rounds of
 questions: online co-op for up to four, one player hosts and the host's browser

@@ -2,14 +2,15 @@
 // Pure data + pure helpers, so the balance tests can import it under Node.
 
 export const TILE = 32;
-export const WORLD_TILES = 160;
-export const WORLD_SIZE = TILE * WORLD_TILES; // 5120px square
+export const WORLD_TILES = 320;
+export const WORLD_SIZE = TILE * WORLD_TILES; // 10240px square
 
 // ---------------------------------------------------------------- terrain ---
 
 export const T = {
   GRASS: 0, ROAD: 1, SIDEWALK: 2, DIRT: 3, FLOOR_WOOD: 4,
   WALL: 5, WATER: 6, RUBBLE: 7, LOT: 8, FLOOR_TILE: 9, GRAVEL: 10,
+  FIELD: 11, SAND: 12, FENCE: 13,
 };
 
 export const TERRAIN = {
@@ -24,9 +25,16 @@ export const TERRAIN = {
   [T.LOT]:        { a: '#313236', b: '#3a3b4064' },
   [T.FLOOR_TILE]: { a: '#54544f', b: '#5d5d5764' },
   [T.GRAVEL]:     { a: '#3e3d38', b: '#4a4941aa' },
+  [T.FIELD]:      { a: '#4b3a26', b: '#5a4630aa' },   // tilled farmland
+  [T.SAND]:       { a: '#6e6449', b: '#7c7255aa' },   // river banks and shores
+  [T.FENCE]:      { a: '#38472a', b: '#31402552' },   // grass under a rail fence
 };
 
-export const SOLID_TILES = new Set([T.WALL, T.WATER]);
+export const SOLID_TILES = new Set([T.WALL, T.WATER, T.FENCE]);
+
+// Solid to feet, not to bullets: you can shoot across a river or over a farm
+// fence, you just cannot walk there. Walls and trees still stop rounds.
+export const SHOOT_OVER = new Set([T.WATER, T.FENCE]);
 
 // -------------------------------------------------------------- resources ---
 
@@ -368,6 +376,12 @@ export const LOOT = {
     { id: 'mil', min: 1, max: 3, w: 10 },
   ],
   fuelPump: [{ id: 'fuel', min: 12, max: 26, w: 100 }],
+  fuelDrum: [{ id: 'fuel', min: 8, max: 18, w: 70 }, { id: 'scrap', min: 2, max: 6, w: 30 }],
+  // A stack of felled timber: the lumber camp's reason to exist.
+  logPile: [
+    { id: 'wood', min: 12, max: 24, w: 64 }, { id: 'scrap', min: 1, max: 3, w: 14 },
+    { id: 'cloth', min: 1, max: 3, w: 12 }, { id: 'parts', min: 1, max: 1, w: 10 },
+  ],
   // Palletised stock: bulk building material rather than anything personal.
   crate: [
     { id: 'wood', min: 8, max: 18, w: 30 },
@@ -491,6 +505,8 @@ export const CONTAINERS = {
   militaryCrate:{ table: 'militaryCrate', rolls: [3, 4], sprite: 'milcrate', label: 'Military Crate' },
   hospitalCrate:{ table: 'hospitalCrate', rolls: [2, 4], sprite: 'medcab', label: 'Supply Cabinet' },
   fuelPump:     { table: 'fuelPump', rolls: [1, 2], sprite: 'pump', label: 'Fuel Pump' },
+  fuelDrum:     { table: 'fuelDrum', rolls: [1, 2], sprite: 'drum', label: 'Fuel Drum' },
+  logPile:      { table: 'logPile', rolls: [2, 3], sprite: 'logs', label: 'Log Pile' },
 
   bookshelf:    { table: 'bookshelf', rolls: [1, 2], sprite: 'bookshelf', label: 'Bookshelf' },
   dresser:      { table: 'dresser', rolls: [1, 2], sprite: 'dresser', label: 'Dresser' },
@@ -545,6 +561,57 @@ export const FURNISHING = {
   military: [
     ['militaryCrate', 26], ['footlocker', 24], ['gunSafe', 10], ['filing', 8],
     ['desk', 8], ['electronics', 8], ['vending', 4],
+  ],
+
+  // ------------------------------------------------------------ the country --
+  barn: [
+    ['toolrack', 20], ['toolbox', 18], ['crate', 16], ['shelf', 12],
+    ['fuelDrum', 12], ['logPile', 10], ['cabinet', 6], ['kitchen', 6],
+  ],
+  farmstore: [
+    ['shelf', 22], ['toolrack', 16], ['crate', 14], ['vending', 10],
+    ['fuelDrum', 10], ['fridge', 8], ['cabinet', 8], ['toolbox', 8], ['desk', 4],
+  ],
+  // A hunting cabin or a lakeside lodge: someone's bolt-hole, rifle included.
+  cabin: [
+    ['cabinet', 14], ['bookshelf', 12], ['footlocker', 12], ['fridge', 10],
+    ['kitchen', 8], ['wardrobe', 8], ['nightstand', 8], ['toolbox', 8],
+    ['gunSafe', 7], ['shelf', 6],
+  ],
+  lumber: [
+    ['logPile', 30], ['toolrack', 16], ['toolbox', 14], ['crate', 12],
+    ['fuelDrum', 10], ['shelf', 6], ['desk', 6], ['cabinet', 6],
+  ],
+  junk: [
+    ['toolbox', 24], ['crate', 18], ['electronics', 16], ['toolrack', 12],
+    ['fuelDrum', 10], ['shelf', 8], ['filing', 6], ['desk', 6],
+  ],
+
+  // ------------------------------------------------------------- the city --
+  apartment: [
+    ['dresser', 14], ['wardrobe', 12], ['nightstand', 12], ['bookshelf', 10],
+    ['fridge', 10], ['kitchen', 10], ['cabinet', 10], ['vanity', 8],
+    ['desk', 6], ['locker', 4], ['vending', 4],
+  ],
+  office: [
+    ['desk', 26], ['filing', 22], ['electronics', 12], ['vending', 10],
+    ['locker', 8], ['bookshelf', 8], ['cabinet', 8], ['shelf', 6],
+  ],
+  bank: [
+    ['safe', 22], ['filing', 20], ['desk', 18], ['displaycase', 10],
+    ['locker', 10], ['cabinet', 8], ['electronics', 6], ['vending', 6],
+  ],
+  mall: [
+    ['shelf', 20], ['displaycase', 16], ['vending', 14], ['wardrobe', 10],
+    ['pharmacy', 10], ['fridge', 8], ['kitchen', 8], ['electronics', 8], ['cabinet', 6],
+  ],
+  drugstore: [
+    ['pharmacy', 26], ['shelf', 24], ['medcab', 10], ['vending', 10],
+    ['fridge', 10], ['cabinet', 8], ['displaycase', 6], ['desk', 6],
+  ],
+  gunshop: [
+    ['displaycase', 30], ['gunSafe', 22], ['shelf', 14], ['toolrack', 12],
+    ['policeLocker', 8], ['footlocker', 8], ['desk', 6],
   ],
 };
 

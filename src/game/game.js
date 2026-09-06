@@ -131,7 +131,13 @@ export function newGame(seed = 20240917) {
   // do not, and a slotless game gets one the first time it saves.
   G.slotId = null;
 
-  const spot = pickRandomSpawn();
+  // Wake up by the roadside at the camp: the map is big now, and the first
+  // minutes should be about the crossroads, not about finding it.
+  const camp = G.world.locations.find((l) => l.id === 'camp');
+  const near = camp
+    ? { x: (camp.rect[0] + camp.rect[2] / 2) * TILE, y: (camp.rect[1] + camp.rect[3] / 2) * TILE, r: 30 * TILE }
+    : null;
+  const spot = pickRandomSpawn(520, near);
   G.player = createPlayer(spot.x, spot.y);
   giveStarterKit(G.player);
 
@@ -139,7 +145,7 @@ export function newGame(seed = 20240917) {
   G.camera.y = spot.y;
 
   spawnVehicles();
-  seedRescues(G.world, 8);
+  seedRescues(G.world, 12);   // four times the ground, half again the survivors
   seedArea(spot.x, spot.y, 1100, 5);
   notify('You wake up on the roadside. Find shelter before dark.', '#d8e8c0', true);
   return G;

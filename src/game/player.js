@@ -342,11 +342,21 @@ export function bagLoad(p) {
 
 /**
  * A random open tile in tier-1 land. Rejects spots with enemies nearby so a
- * respawn is never an instant second death.
+ * respawn is never an instant second death. With `near`, only tiles within
+ * that many pixels of a point are considered — the first morning starts by
+ * the Roadside Camp, not in a field on the far side of the river.
  */
-export function pickRandomSpawn(minEnemyDist = 520) {
-  const tiles = G.world.spawnTiles;
-  if (!tiles.length) return { x: 78 * 32, y: 78 * 32 };
+export function pickRandomSpawn(minEnemyDist = 520, near = null) {
+  let tiles = G.world.spawnTiles;
+  if (near) {
+    const r2 = near.r * near.r;
+    const close = tiles.filter(([tx, ty]) => {
+      const dx = tx * 32 + 16 - near.x, dy = ty * 32 + 16 - near.y;
+      return dx * dx + dy * dy <= r2;
+    });
+    if (close.length) tiles = close;
+  }
+  if (!tiles.length) return { x: 160 * 32, y: 160 * 32 };
   const d2 = minEnemyDist * minEnemyDist;
   let fallback = null;
   for (let i = 0; i < 40; i++) {

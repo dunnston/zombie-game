@@ -4,7 +4,7 @@
 at the start of a session and updated at the end of one. If something here
 contradicts the code, the code is right and this file needs fixing — say so.
 
-- **Last updated:** 2026-09-06, online co-op merged (PR #11)
+- **Last updated:** 2026-09-06, the map expansion (in review)
 - **Repo:** https://github.com/dunnston/zombie-game
 - **Owner:** dunnston
 
@@ -67,13 +67,15 @@ These settle arguments. When a decision is close, the pillar wins.
 
 **Status: a genuinely playable game, well past MVP, and now a co-op one.**
 Nine rounds merged, online co-op among them. Not yet played between two houses.
+The map has just grown fourfold — the town is now the middle of a world with
+farms, a forest, a river and a city — and nobody has played the new ground yet.
 
 | | |
 | --- | --- |
 | Source | 42 modules, ~15,400 lines. Browser bundle depends on Vite only; the broker on `ws`. |
 | Assets | Zero. Every sprite is drawn in code at boot; every sound is WebAudio. |
-| Tests | 75 Node assertions; browser suite 361 |
-| Save format | **v8** payload (players by identity), in **slots** (index v1) |
+| Tests | 77 Node assertions; browser suite 361 |
+| Save format | **v9** payload (the 320-tile world; v8 was players by identity), in **slots** (index v1) |
 | Performance | ~60fps with 90 active enemies; ~66 KB/s per guest on the wire |
 
 ### Multiplayer — where it stands
@@ -142,11 +144,23 @@ session after PR #7 outranks the rest of the roadmap.
 
 ## 4. What is built
 
-**World.** One authored 160×160-tile town (5120px square) from a fixed seed, so
-the player can learn its geography. Nine districts across four danger tiers:
-Roadside Camp and Pine Hollow Suburbs (▲), East Terraces, Market Row and Fuel
-Stop (▲▲), Precinct 12, St. Martha Hospital and Dock Yard (▲▲▲), Checkpoint
-Delta (▲▲▲▲).
+**World.** One authored 320×320-tile map (10240px square) from a fixed seed, so
+the player can learn its geography. The original 160-tile town sits in the
+middle, shifted by (80, 80), and the country wraps around it. Eighteen
+districts across four danger tiers, running roughly west to east:
+
+| Where | Districts |
+| --- | --- |
+| The town (centre) | Roadside Camp, Pine Hollow Suburbs (▲); East Terraces, Market Row, Fuel Stop (▲▲); Precinct 12, St. Martha Hospital, Dock Yard (▲▲▲); Checkpoint Delta (▲▲▲▲) |
+| The country (west, across the river) | Hollow Creek Farms, Saddleback Ranch (▲) — fields, barns, silos, a feed store, fenced paddocks |
+| The forest (north) | Blackpine Forest, Grayson Lumber, Loon Lake (▲▲) — pines, hunting cabins, a sawmill with log piles, a lodge with a jetty |
+| The city (east) | Crown Heights (▲▲▲), Downtown (▲▲▲▲), Galleria Mall (▲▲▲) — apartment blocks, office towers, the bank vault, a drugstore and a gun shop |
+| The south | Rust Belt Salvage (▲▲) — a walled junkyard; an orchard south of the hospital |
+
+The Marrow river runs the full height of the map down the west side, with two
+bridges (the highway and the north road). Water and fences are solid to feet
+and transparent to bullets. Fields are walkable and buildable. The new game
+starts within thirty tiles of the Roadside Camp, not anywhere in tier-1 land.
 
 **Combat.** Eight weapons across melee (pipe → machete → sledgehammer) and
 firearms (pistol, SMG, shotgun, rifle, carbine), with three ammo types, real
@@ -285,8 +299,10 @@ server/signal.js     the signalling broker. Introduces browsers; holds no game s
    Player structures live in a *separate* destructible map. Collision, bullets,
    build validation and AI steering all read the same two sources so they can
    never disagree.
-2. **Bullets use terrain-only collision** (`terrainBlocksPx`), so they pass over
-   player-built structures. This is deliberate — see pillar 3.
+2. **Bullets use terrain-only collision** (`bulletBlocksPx`), so they pass over
+   player-built structures. This is deliberate — see pillar 3. Water and fences
+   go the other way: `SOLID_TILES` to feet, `SHOOT_OVER` to rounds, so a river
+   is something you shoot across and walk around.
 3. **`damage.js` exists only to break an import cycle** between player, enemies,
    combat and building. Route damage through it.
 4. **`recomputeStats()` in `perks.js` is the only source of player modifiers.**
@@ -383,6 +399,12 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | No TURN server in v1 | Public STUN gets most pairs through. Strict NATs will fail with a readable message. Relaying through the broker is the follow-up, not a reason to hold the PR. |
 | A guest's held intent expires after 400ms of silence, and a paused guest sends "holding nothing" every step | The host keeps the last intent it heard, so silence used to mean "carry on": a paused guest kept running, a hidden tab kept firing. Codex review of PR B. The timeout covers the cases the guest cannot announce (tab hidden, line dying); the explicit idle packet makes pausing stop you instantly. A late packet on the unordered channel now contributes only its edges — its held state is stale by definition. |
 | `client.js` reaches `toTitle()` through `netHooks`, not an import | Importing game.js from the guest session closed a cycle (game → inventory → actions → client → game) that evaluated game.js before inventory.js and broke boot with a temporal-dead-zone error. game.js fills `netHooks.toTitle` at load. Same rule as `damage.js` (invariant 3): break cycles with a hook, not a re-export. |
+| The town kept its layout and moved to the middle | Four times the ground, and the owner has already walked the old town once. Shifting it by (80, 80) keeps every district where it was relative to every other; the new biomes wrap it. A fresh layout would have thrown away the one thing the first playtest taught them. |
+| One river, two bridges, shootable across | A river that stops feet but not bullets is a tactic (build on the bank, they come over the bridge) rather than a wall. Two crossings, not one, so the farms are never a dead end; not three, so the crossing still matters. |
+| Danger runs west to east | Farms (▲) — town — city (▲▲▲▲). A player who wants quiet goes west and finds food and fuel; one who wants guns goes east. The forest is ▲▲ all the way across the north so "the woods at night" means something. |
+| The new game starts by the camp | Spawn tiles are any open tier-1 ground, and on a 320-tile map that includes a field on the far side of the river. The first morning is the crossroads; respawns without a bedroll still use the whole tier-1 set. |
+| A wardrobe never goes in a doorway | The old furnishing pass could drop a container on a partition gap or two either side of a door, and three rooms in the old town were sealed for good. Buildings now hand the furnisher only tiles off every wall line and not beside an opening; a Node test proves every container reachable from the camp. |
+| Fences are terrain, not structures | A paddock rail is scenery you cannot walk through, like a tree. Making it a destructible structure would put it in the raid target list and the salvage economy for no gain. |
 
 ---
 
@@ -390,6 +412,10 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 
 ### Next up (highest value first)
 
+0. **The owner walks the new map.** Is the country worth the walk, does the
+   forest feel dangerous or just slow, is downtown readable at speed, is the
+   river a tactic or a nuisance? Every district was screenshotted and every
+   container proven reachable, but nobody has *played* it.
 1. **The owner plays co-op with a friend.** Everything in PR B was verified
    between two browsers on one machine; the questions that matter — does the
    guest's movement feel right at real latency, does 66 KB/s hold up on a real
@@ -524,6 +550,12 @@ pause, host gone — were never exercised. A protocol that keeps the last state
 must also expire it; and every client-side transition needs a hook the suite
 can call in one browser (`DEADLINE.net.client.hostGone()` now).
 
+**Render the map before you trust it.** A 320-tile generator was checked
+first with a Node script that dumps a PNG and floods from the camp — which is
+how three sealed rooms in the *old* town and a two-tile apartment cell that
+two wardrobes could close came to light in the first ten minutes, before a
+single browser frame. Reachability is an outcome; assert it.
+
 ---
 
 ## 9. How to verify
@@ -533,7 +565,7 @@ round. Current expected totals:
 
 | Suite | Expected |
 | --- | --- |
-| `npm test` (Node, pure logic) | 75 |
+| `npm test` (Node, pure logic) | 77 |
 | `tests/browser-smoke.js` | 361 |
 
 **Run the browser suite with the page visible and focused.** Its waits are
@@ -671,6 +703,16 @@ input (`key`, `tap`, `mouseDown`, `aimAt`) and the whole `api` surface.
 ## 11. Changelog
 
 Newest first. One line per meaningful change.
+
+- **2026-09-06** — The map expansion. 160 → 320 tiles: the town moved to the
+  middle and gained farms and a ranch across a river to the west, a pine forest
+  with a lumber camp, a lake and hunting cabins to the north, a three-district
+  city (apartments, downtown, mall) to the east, and a junkyard and orchard to
+  the south. Nine new districts, three new tiles (field, sand, fence), four new
+  props (pine, hay, silo, reeds), eleven new furnishing tables. Bullets now
+  pass over water and fences. The furnishing pass no longer seals rooms
+  (three sealed rooms existed in the old town). Save → v9. Asked for by the
+  owner: "a lot bigger", rural, city, forest, a river and a pond.
 
 - **2026-09-06** — PR B review round. A paused guest now tells the host it is
   holding nothing, the host expires a silent guest's intent after 400ms, a late

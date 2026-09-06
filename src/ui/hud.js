@@ -1282,8 +1282,11 @@ function drawMapPanel(ctx, W, H) {
   ctx.textAlign = 'center';
   for (const l of world.locations) {
     const [lx, ly, lw, lh] = l.rect;
-    const cx = mx((lx + lw / 2) * TILE);
-    const cy = my((ly + lh / 2) * TILE);
+    // A district the size of the forest labels itself off-centre so the
+    // places inside it stay readable.
+    const [ltx, lty] = l.label || [lx + lw / 2, ly + lh / 2];
+    const cx = mx(ltx * TILE);
+    const cy = my(lty * TILE);
     ctx.strokeStyle = l.discovered ? 'rgba(180,210,150,0.5)' : 'rgba(120,130,110,0.28)';
     ctx.lineWidth = 1;
     ctx.strokeRect(mx(lx * TILE), my(ly * TILE), lw * TILE * sc, lh * TILE * sc);

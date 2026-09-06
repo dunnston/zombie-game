@@ -336,7 +336,7 @@
     }
 
     // ------------------------------------------------------- 3. combat -----
-    const open = findOpenSpot(G, 78 * 32, 78 * 32);
+    const open = findOpenSpot(G, 160 * 32, 160 * 32);   // the crossroads at the camp
     d.teleport(open.x, open.y);
     G.enemies.length = 0;
     await frames(2);
@@ -2383,7 +2383,7 @@
       b.send('reliable', d.net.msg.hello('smoke-guest', 'Bex', null));
       await frames(4);
       const welcome = reliable.find((m) => m.t === 'welcome');
-      ok('hello is answered with a welcome carrying the whole world', !!welcome && welcome.world && welcome.world.v === 8 && welcome.world.seed === G.world.seed,
+      ok('hello is answered with a welcome carrying the whole world', !!welcome && welcome.world && welcome.world.v === G.version && welcome.world.seed === G.world.seed,
         welcome ? `v${welcome.world.v}, ${Object.keys(welcome.world.players).length} players in the record` : reliable.map((m) => m.t).join(','));
       const guest = G.players.find((q) => q.netId === (welcome && welcome.n));
       ok('the guest is a real player in the host\'s world', !!guest && !guest.away && guest.name === 'Bex' && guest.id === 'smoke-guest');
@@ -2621,13 +2621,22 @@
       }
       return true;
     };
-    for (let ty = 8; ty < W - 8; ty += 2) {
-      for (let tx = 8; tx < W - 8; tx += 2) {
-        if (G.world.danger[ty * W + tx] > 2) continue;
-        if (clear(tx, ty)) return { x: tx * 32 + 16, y: ty * 32 + 16 };
+    // The town first — the country around it is forest and farmland, and a
+    // plot in the woods is one the survivors and cars under test get stuck in.
+    for (const [x0, x1] of townFirst(W)) {
+      for (let ty = x0; ty < x1; ty += 2) {
+        for (let tx = x0; tx < x1; tx += 2) {
+          if (G.world.danger[ty * W + tx] > 2) continue;
+          if (clear(tx, ty)) return { x: tx * 32 + 16, y: ty * 32 + 16 };
+        }
       }
     }
-    return { x: 80 * 32, y: 80 * 32 };
+    return { x: 160 * 32, y: 160 * 32 };
+  }
+
+  /** Scan ranges: the central half of the map, then all of it. */
+  function townFirst(W) {
+    return [[Math.floor(W / 4) + 8, Math.floor((3 * W) / 4) - 8], [8, W - 8]];
   }
 
   /** A clear plot that still has unlooted containers within scavenging range. */
@@ -2644,12 +2653,14 @@
       return true;
     };
     const loot = G.world.containers.filter((c) => !c.looted && !c.hidden);
-    for (let ty = 8; ty < W - 8; ty += 2) {
-      for (let tx = 8; tx < W - 8; tx += 2) {
-        if (G.world.danger[ty * W + tx] > 2) continue;
-        if (!clear(tx, ty)) continue;
-        const px = tx * 32 + 16, py = ty * 32 + 16;
-        if (loot.some((c) => Math.hypot(c.x - px, c.y - py) < 600)) return { x: px, y: py };
+    for (const [x0, x1] of townFirst(W)) {
+      for (let ty = x0; ty < x1; ty += 2) {
+        for (let tx = x0; tx < x1; tx += 2) {
+          if (G.world.danger[ty * W + tx] > 2) continue;
+          if (!clear(tx, ty)) continue;
+          const px = tx * 32 + 16, py = ty * 32 + 16;
+          if (loot.some((c) => Math.hypot(c.x - px, c.y - py) < 600)) return { x: px, y: py };
+        }
       }
     }
     return clearOpenPlot(G, n);

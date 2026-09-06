@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  RES, WEAPONS, ENEMIES, STRUCTURES, RECIPES, LOOT, CONTAINERS, FURNISHING, CONSUMABLES,
+  RES, WEAPONS, ENEMIES, STRUCTURES, RECIPES, LOOT, CONTAINERS, FURNISHING, CONSUMABLES, T,
   BUILD_ORDER, THREAT, RAIDS, PLAYER, TILE, WORLD_TILES,
   bagWeight, xpForLevel, raidSpec, GEAR, GEAR_SLOTS, MAX_GEAR_DR,
 } from '../src/game/config.js';
@@ -666,7 +666,67 @@ test('the world generates a complete, playable map', () => {
   assert.ok(w.containers.length > 150, `only ${w.containers.length} containers`);
   assert.ok(w.props.length > 400, `only ${w.props.length} props`);
   assert.ok(w.spawnTiles.length > 100, `only ${w.spawnTiles.length} spawn points`);
-  assert.equal(w.locations.length, 9);
+  assert.equal(w.locations.length, 18);
+});
+
+test('the country wraps the town with its own biomes', () => {
+  const w = createWorld(20240917);
+  const count = (t, rect) => {
+    let n = 0;
+    for (let y = rect[1]; y < rect[1] + rect[3]; y++) for (let x = rect[0]; x < rect[0] + rect[2]; x++) if (w.tiles[y * w.w + x] === t) n++;
+    return n;
+  };
+  const rectOf = (id) => w.locations.find((l) => l.id === id).rect;
+  // Farmland is tilled, the lake holds water, the forest is thick with trees.
+  assert.ok(count(T.FIELD, rectOf('farms')) > 800, 'the farms have fields');
+  assert.ok(count(T.WATER, rectOf('lake')) > 500, 'the lake has water in it');
+  assert.ok(count(T.FENCE, rectOf('ranch')) > 60, 'the ranch has a fenced paddock');
+  let pines = 0, forestTrees = 0;
+  for (const p of w.props) {
+    if (p.kind === 'pine') pines++;
+    if ((p.kind === 'pine' || p.kind === 'tree') && p.ty < 62) forestTrees++;
+  }
+  assert.ok(pines > 500, `only ${pines} pines`);
+  assert.ok(forestTrees > 1500, `the forest only has ${forestTrees} trees`);
+  // The river runs the full height of the map, and both bridges cross it.
+  for (let y = 0; y < w.h; y++) {
+    let water = 0;
+    for (let x = 40; x < 90; x++) if (w.tiles[y * w.w + x] === T.WATER) water++;
+    const bridge = (y >= 105 && y <= 110) || (y >= 157 && y <= 163);
+    if (bridge) assert.equal(water, 0, `row ${y} should be a bridge`);
+    else assert.ok(water >= 4, `row ${y} has no river`);
+  }
+});
+
+test('every district and nearly every container can be reached on foot from the camp', () => {
+  const w = createWorld(20240917);
+  const W = w.w;
+  const seen = new Uint8Array(W * W);
+  const q = [[160, 160]];
+  seen[160 * W + 160] = 1;
+  while (q.length) {
+    const [x, y] = q.pop();
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= W) continue;
+      const i = ny * W + nx;
+      if (seen[i] || w.blocked[i]) continue;
+      seen[i] = 1;
+      q.push([nx, ny]);
+    }
+  }
+  // Every location, including the ones across the river.
+  for (const l of w.locations) {
+    const [lx, ly, lw, lh] = l.rect;
+    let n = 0;
+    for (let y = ly; y < ly + lh; y++) for (let x = lx; x < lx + lw; x++) if (seen[y * W + x]) n++;
+    assert.ok(n > 50, `${l.id} is cut off from the camp (${n} reachable tiles)`);
+  }
+  // Every container has a walkable neighbour you can search it from. (Two
+  // corner pieces boxed in by their neighbours are reached diagonally.)
+  const around = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]];
+  const cutOff = w.containers.filter((c) => !around.some(([dx, dy]) => seen[(c.ty + dy) * W + c.tx + dx]));
+  assert.equal(cutOff.length, 0, `unreachable containers: ${cutOff.map((c) => `${c.kind}@${c.tx},${c.ty}`).join(' ')}`);
 });
 
 test('world edges are treated as blocked', () => {
@@ -686,6 +746,12 @@ test('danger rises with distance from the safe districts', () => {
   assert.equal(tierOf('police'), 3);
   assert.equal(tierOf('hospital'), 3);
   assert.equal(tierOf('military'), 4);
+  assert.equal(tierOf('farms'), 1);
+  assert.equal(tierOf('forest'), 2);
+  assert.equal(tierOf('heights'), 3);
+  assert.equal(tierOf('downtown'), 4);
+  // Deep in the forest, well away from the town, is still tier 2.
+  assert.equal(dangerAtPx(w, 20 * TILE, 10 * TILE), 2);
 });
 
 test('every player spawn point is safe, open, low-danger ground', () => {
@@ -709,6 +775,12 @@ test('high-value districts carry their signature loot', () => {
   assert.ok(guns.length >= 8, `police station only has ${guns.length} weapon caches`);
   const meds = w.containers.filter((c) => inLoc(c, 'hospital') && (c.table === 'pharmacy' || c.table === 'hospitalCrate'));
   assert.ok(meds.length >= 10, `hospital only has ${meds.length} medical caches`);
+  const logs = w.containers.filter((c) => inLoc(c, 'lumber') && c.table === 'logPile');
+  assert.ok(logs.length >= 12, `lumber camp only has ${logs.length} log piles`);
+  const safes = w.containers.filter((c) => inLoc(c, 'downtown') && c.table === 'gunSafe');
+  assert.ok(safes.length >= 2, `the bank only has ${safes.length} safes`);
+  const guns2 = w.containers.filter((c) => inLoc(c, 'mall') && (c.table === 'gunSafe' || c.table === 'displaycase'));
+  assert.ok(guns2.length >= 4, `the outfitters only has ${guns2.length} gun cases`);
 });
 
 test('locations are found by world position', () => {
@@ -716,7 +788,7 @@ test('locations are found by world position', () => {
   const l = w.locations.find((x) => x.id === 'police');
   const hit = locationAtPx(w, (l.rect[0] + 2) * TILE, (l.rect[1] + 2) * TILE);
   assert.equal(hit.id, 'police');
-  assert.equal(locationAtPx(w, 2 * TILE, 2 * TILE), null);
+  assert.equal(locationAtPx(w, 60 * TILE, 290 * TILE), null);   // the south-west outskirts
 });
 
 test('chopping a tree frees the tile it was blocking', () => {

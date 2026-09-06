@@ -7,7 +7,7 @@
 
 import { WEAPONS, STRUCTURES, THREAT, TILE } from './config.js';
 import {
-  G, terrainBlocksPx, hasTerrainLineOfSight, notify, shake, takeRes, countRes,
+  G, bulletBlocksPx, hasTerrainLineOfSight, notify, shake, takeRes, countRes,
   isLocal, baseOwner, presentPlayers,
 } from './state.js';
 import { damageEnemy, destroyStructure } from './damage.js';
@@ -66,7 +66,7 @@ export function updateBullets(dt) {
       b.x += (b.vx * dt) / steps;
       b.y += (b.vy * dt) / steps;
 
-      if (terrainBlocksPx(b.x, b.y)) {
+      if (bulletBlocksPx(b.x, b.y)) {
         FX.sparks(b.x, b.y, -b.vx, -b.vy, 4, '#cfd6dd');
         FX.decal(b.x, b.y, 2, '#1a1a18');
         sfx('hitWall');

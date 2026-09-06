@@ -2,7 +2,7 @@
 // system shares. Deliberately free of gameplay rules — those live in the
 // system modules so this file stays cycle-free.
 
-import { TILE, RES, bagWeight } from './config.js';
+import { TILE, RES, SHOOT_OVER, bagWeight } from './config.js';
 import {
   ITEMS, isSlots, slotsAdd, slotsTake, slotsCount, slotsWeight, itemWeight,
 } from './items.js';
@@ -13,7 +13,7 @@ import { Input } from '../core/input.js';
 export const G = {
   // Save payload version. 6 was the single-player record; 8 keeps every
   // player by identity so a hosted world remembers its guests.
-  version: 8,
+  version: 9,
   world: null,
   // Every survivor in the world who is a person at a keyboard. In solo this
   // holds exactly one. `G.player` below is an alias for the *local* one, so the
@@ -274,6 +274,16 @@ export const terrainBlocksPx = (px, py) =>
   isBlockedTile(G.world, Math.floor(px / TILE), Math.floor(py / TILE));
 
 /**
+ * What stops a round. Everything that stops a foot, except water and fences:
+ * a river is a barrier you can shoot across, and a farm fence is knee high.
+ */
+export function bulletBlocksPx(px, py) {
+  const tx = Math.floor(px / TILE), ty = Math.floor(py / TILE);
+  if (!isBlockedTile(G.world, tx, ty)) return false;
+  return !SHOOT_OVER.has(G.world.tiles[ty * G.world.w + tx]);
+}
+
+/**
  * Slide-along-walls circle movement. Resolves X and Y independently so an
  * entity brushing a wall keeps its remaining momentum instead of sticking.
  */
@@ -374,7 +384,7 @@ export function hasTerrainLineOfSight(x0, y0, x1, y1, step = 14) {
   const n = Math.ceil(len / step);
   for (let i = 1; i <= n; i++) {
     const t = i / n;
-    if (terrainBlocksPx(x0 + dx * t, y0 + dy * t)) return false;
+    if (bulletBlocksPx(x0 + dx * t, y0 + dy * t)) return false;
   }
   return true;
 }

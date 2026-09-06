@@ -493,3 +493,16 @@ guest sends "holding nothing" every step rather than nothing). And every
 role-transition on the client — join, leave, host gone, pause — needs a hook
 the suite can call in one browser; `client.hostGone()` is exposed for exactly
 that.
+
+### Render the map before you trust it
+
+The 320-tile generator was checked first under Node: a script that dumps the
+tiles to a PNG, floods from the camp, and lists every container without a
+walkable neighbour. Before a browser frame was drawn it had found three rooms
+in the *old* town that had been sealed since PR #1 (the four-room partition
+could put both gaps in the far half), and a two-tile apartment cell that two
+wardrobes could close. Screenshots of each district came after, for the look.
+
+**Rule:** for anything spatial, assert reachability as an outcome. "Every
+container can be reached from the camp" is now a Node test; it would have
+caught the old sealed rooms on day one.
