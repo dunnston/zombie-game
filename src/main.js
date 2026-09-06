@@ -20,6 +20,10 @@ import {
   ACTIONS, codesFor, rebind, resetBinds, keyLabel, actionLabel, conflictsFor, loadBinds,
 } from './core/bindings.js';
 import { notify } from './game/state.js';
+import { startHosting, stopHosting, isHosting, hostOffline, debugAttachGuest } from './net/host.js';
+import { joinGame, leaveGame, isClient, clientDebug } from './net/client.js';
+import { makeLoopback } from './net/transport.js';
+import { hashPassword, msg, PROTOCOL, packSnapshot, loadIdentity } from './net/protocol.js';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -124,6 +128,12 @@ function frame(now) {
   if (pauseActions.quit) {
     pauseActions.quit = false;
     toTitle(true);
+    if (isHosting()) stopHosting();
+  }
+  if (pauseActions.leave) {
+    pauseActions.leave = false;
+    leaveGame(true);
+    toTitle(false);
   }
 
   // Only discard the edges once a simulation step has actually seen them.
@@ -160,6 +170,12 @@ window.DEADLINE = {
   toTitle,
   saves: { listSlots, createSlot, deleteSlot, loadSlot, saveToSlot, latestSlot },
   binds: { ACTIONS, codesFor, rebind, resetBinds, keyLabel, actionLabel, conflictsFor, loadBinds },
+  // Networking, for the browser suite: host without a broker and drive a fake
+  // guest through an in-memory loopback.
+  net: {
+    startHosting, stopHosting, isHosting, hostOffline, debugAttachGuest, joinGame, leaveGame, isClient,
+    makeLoopback, hashPassword, msg, PROTOCOL, packSnapshot, loadIdentity, client: clientDebug,
+  },
 
   // Synthetic input, so the test drives the same code path a human does.
   key(code, down = true) {

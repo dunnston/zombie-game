@@ -4,7 +4,7 @@
 at the start of a session and updated at the end of one. If something here
 contradicts the code, the code is right and this file needs fixing — say so.
 
-- **Last updated:** 2026-09-06, title screen / save slots / key bindings in review
+- **Last updated:** 2026-09-06, online co-op in review
 - **Repo:** https://github.com/dunnston/zombie-game
 - **Owner:** dunnston
 
@@ -65,16 +65,16 @@ These settle arguments. When a decision is close, the pillar wins.
 
 ## 3. Where we are right now
 
-**Status: a genuinely playable game, well past MVP, now being made
-multiplayer.** Seven rounds merged; the menu-and-saves round is in review.
+**Status: a genuinely playable game, well past MVP, and now a co-op one.**
+Eight rounds merged; online co-op is in review.
 
 | | |
 | --- | --- |
-| Source | 36 modules, ~13,600 lines, no dependencies but Vite |
+| Source | 42 modules, ~15,400 lines. Browser bundle depends on Vite only; the broker on `ws`. |
 | Assets | Zero. Every sprite is drawn in code at boot; every sound is WebAudio. |
-| Tests | 69 Node assertions; browser suite 340 |
-| Save format | **v7** payload, in **slots** (index v1) |
-| Performance | ~60fps with 90 active enemies |
+| Tests | 74 Node assertions; browser suite 355 |
+| Save format | **v8** payload (players by identity), in **slots** (index v1) |
+| Performance | ~60fps with 90 active enemies; ~66 KB/s per guest on the wire |
 
 ### Multiplayer — where it stands
 
@@ -91,9 +91,13 @@ revive a downed teammate, guests remembered in the host's save. Two PRs:
 | --- | --- | --- |
 | A — foundation | [#9](https://github.com/dunnston/zombie-game/pull/9) | `G.players[]`, intent split from simulation, actor parameters everywhere, downed/revive. No visible change in solo. |
 | A2 — menu and saves | [#10](https://github.com/dunnston/zombie-game/pull/10) | Title screen on boot (Continue / New Game / Load / Multiplayer / Controls), any number of save slots with delete, rebindable keys. Asked for by the owner while A was in review. |
-| B — online co-op | next | Broker, WebRTC transport, host/client sessions, the Host/Join buttons the Multiplayer screen already has, save v8. |
+| B — online co-op | **in review** | Broker, WebRTC transport, host and guest sessions, HOST / JOIN screens, save v8. Verified browser-to-browser through the broker on this machine. |
 
-The full plan is in `tasks/todo.md`.
+**Known limits, stated plainly:** no TURN relay yet, so some pairs of players behind
+strict NATs will not connect (the follow-up is to relay through the broker);
+snapshots are JSON at 20Hz — about 66 KB/s per guest with two dozen enemies
+in range — and binary packing is the follow-up if that ever matters; a guest's
+pause is local (the world runs on without them); guests cannot save.
 
 ### Shipped
 
@@ -197,6 +201,23 @@ click a row, press a key; conflicts are shown, not refused; RESET TO DEFAULTS.
 Mouse buttons, the wheel and `Esc` are fixed. Bindings live in the browser,
 not in a save. The pause menu gained CONTROLS and QUIT TO TITLE (saves first).
 
+**Online co-op** *(in review)*. Up to four. One player HOSTS: their browser
+runs the simulation exactly as in solo, and a ~120-line signalling broker
+(`server/signal.js`, `npm run signal`) hands them a six-character room code.
+Friends JOIN with the code (and the password, if one was set — hashed in the
+browser, checked by the host, never seen by the broker). The handshake goes
+through the broker; the game runs browser to browser over WebRTC. Guests send
+their intent every step and predict their own movement with the same
+`movePlayer()` the host runs; the host sends snapshots at 20Hz (every player,
+and the enemies, pickups, cars, survivors and packs within 1600px of that
+guest) and events for everything else — a wall placed, a container looted, a
+kill, a tracer. Anything a guest does that changes shared state (build, craft,
+equip, spend a point) is a command the host validates with the same functions
+solo uses. The host's save (v8) keeps every player by identity, so a guest
+who comes back gets their character. LAN play needs only the broker on the
+host's machine; internet play needs the broker deployed once and the built
+game served from anywhere.
+
 **Players.** The world holds a list of players, and
 `G.player` is an alias for the one at this keyboard. Each player has an
 `intent` — what they want to do this step, as data — and the simulation reads
@@ -243,6 +264,15 @@ src/
   ui/kit.js          the immediate-mode UI kit: palette, panel, button, cursor
   ui/hud.js          HUD, panels, map, pause menu (on canvas)
   ui/menu.js         the title screen and its sub-screens; the controls panel
+  net/
+    protocol.js      what goes over the wire: message builders, intent packing,
+                     snapshot packing, identity, password hash. Node-testable.
+    transport.js     a Peer over WebRTC (via the broker) or in-memory loopback
+    events.js        the host's outgoing event queue; emit() is a no-op in solo
+    actions.js       the UI's one seam: a direct call in solo/host, a command on a guest
+    host.js          admits guests, applies their intent, sends snapshots and events
+    client.js        joins, predicts its own player, eases everyone else, applies events
+server/signal.js     the signalling broker. Introduces browsers; holds no game state.
 ```
 
 ### Invariants — break these and something subtle goes wrong
@@ -277,6 +307,14 @@ src/
     the *local* player and belongs to the camera, the HUD and the renderer. A
     system that means "whoever did this" — damage, XP, threat, cost, loot —
     takes `p`. Base-wide multipliers read `baseOwner()`, never `G.player`.
+11. **The UI changes shared state only through `act.*`** (`net/actions.js`).
+    A direct call in solo and on the host; a command to the host on a guest.
+    A new button that mutates the world goes through there or it silently
+    desyncs a guest.
+12. **Sim modules never import the network.** They call `emit()` from
+    `net/events.js` (a no-op unless hosting) or, for `state.js` and anything
+    it imports, `netEmit()` through `netHooks`. `G.net.role` is the only thing
+    the sim reads about networking, and only `game.js` branches on it.
 
 ---
 
@@ -332,6 +370,13 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | CONTINUE follows the slot last *chosen*, then the one last *written* | Loading a slot marks it current before it saves. Picking purely by `updated` meant a refresh straight after LOAD reopened whichever game happened to save last. Same review. |
 | Every on-screen key hint goes through `primaryLabel()` | Fourteen strings said "press E", "WASD", "(TAB)", "F: take ammo" by hand; after a rebind they lied. Hints are built from the bindings at draw time, and the tutorial's texts became functions for that reason. Same review. |
 | Buttons behind a modal are disabled, not just covered | The immediate-mode `clicked()` is non-consuming, so a click on KEEP could also land on a LOAD underneath. Anything under the delete confirmation is drawn disabled while it is up. Same review. |
+| A guest joins through `applySaveData()` | The welcome carries exactly what `serialiseGame()` produces, and the guest rebuilds through the same function a slot load uses. Join and load cannot drift, and a v8 save was the join format for free. |
+| Structures, stash and inventories travel as events; positions as snapshots | Walls change rarely and must never be missed; positions change every step and a dropped one does not matter. Reliable channel for the first, unordered best-effort for the second. Inventories and the stash are diffed twice a second and sent only when they changed. |
+| Bullets are events, not entities | A guest draws the tracer from `bulletFired` and its damage is zero there; the host decides every hit. Nothing to reconcile, and a magazine of SMG fire is a few hundred bytes. |
+| The guest predicts only its own movement | The same `movePlayer()` as the host, then a lerp toward the host's answer (snap over 48px). Everything else eases toward its last reported place. No prediction of anyone else's actions — that is where desync-shaped bugs live. |
+| The host's identity keys its own record; guests are keyed by theirs | `deadline.identity` in each browser. A returning guest with the same browser gets the same character; a stranger gets a fresh one beside the host. |
+| Kill XP for a remote player's own kill goes to them | The player object is the bullet's owner on the host, as in solo. Automated kills still pay everyone present. |
+| No TURN server in v1 | Public STUN gets most pairs through. Strict NATs will fail with a readable message. Relaying through the broker is the follow-up, not a reason to hold the PR. |
 
 ---
 
@@ -339,14 +384,15 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 
 ### Next up (highest value first)
 
-1. **Multiplayer PR B — online co-op.** The signalling broker, the WebRTC
-   transport, host and client sessions, the lobby behind the Multiplayer
-   screen's Host/Join buttons, save v8 with guests remembered (a hosted world
-   is a `coop` slot). Then two browsers on one world through the broker on
-   localhost, and a measured wire rate recorded in §9. Follow-ups already
-   known: a TURN/relay fallback for symmetric NAT, binary snapshots if the
-   measured rate warrants it.
-2. **Finish the playtest response.** Crafting folded into the inventory screen
+1. **The owner plays co-op with a friend.** Everything in PR B was verified
+   between two browsers on one machine; the questions that matter — does the
+   guest's movement feel right at real latency, does 66 KB/s hold up on a real
+   connection, how often does STUN alone fail — need two houses.
+2. **Co-op follow-ups.** A TURN/relay fallback through the broker for strict
+   NATs; binary snapshots if the wire rate matters; a guest's pause that asks
+   the host to pause; in-game chat; deploying the broker and the built game
+   somewhere so friends can play without the owner running `npm run signal`.
+3. **Finish the playtest response.** Crafting folded into the inventory screen
    (the owner never found it on `C`), tiered storage containers, and light
    hunger and thirst. See `tasks/todo.md` for the working plan.
 2. **Decide what to do with `GameAssets/`.** Seven 1448x1086 art boards arrived
@@ -471,8 +517,8 @@ round. Current expected totals:
 
 | Suite | Expected |
 | --- | --- |
-| `npm test` (Node, pure logic) | 69 |
-| `tests/browser-smoke.js` | 340 |
+| `npm test` (Node, pure logic) | 74 |
+| `tests/browser-smoke.js` | 355 |
 
 **Run the browser suite with the page visible and focused.** Its waits are
 counted in animation frames. A backgrounded tab throttles
@@ -503,6 +549,32 @@ rectangle in `G.menu.rects` under its label (`'NEW GAME'`, `'LOAD:<slotId>'`,
 into the real name field through `DEADLINE.menu.setText()`, and at the end
 deletes every slot the run created and restores the bindings it found — the
 suite must leave the player's own saves alone.
+
+**Verifying online co-op.** Two layers.
+
+*In the suite* — section *11j. hosting, with a loopback guest*: `hostOffline()`
+makes the page the authority without a broker; a fake guest on an in-memory
+peer sends the real messages. It asserts hello → welcome (a v8 world, the
+roster), intent over the wire moving the guest's player, snapshots at ~20Hz
+carrying every player, a `place` command building a wall and echoing as a
+`struct` event, a refused command doing nothing, the hosted save keeping the
+guest by identity, disconnect parking rather than removing, the same identity
+getting the same character back, and the wrong password being rejected.
+
+*For real* — the broker and two browsers:
+
+```bash
+npm run signal
+```
+
+Host in one page (`DEADLINE.net.startHosting({ name })` returns the code, or
+use the HOST screen), join in another (`DEADLINE.net.joinGame({ code,
+passwordHash: null, identity: { id, name } })`, or the JOIN screen). The guest
+page must be *visible* to run its loop; a hidden page still connects, receives
+the world and snapshots and can send commands, which is enough to prove the
+transport. Measured on 2026-09-06 with one guest and ~23 enemies in range:
+**66 KB/s host → guest**, join in 1.8s, `DEADLINE.errors` empty on both sides.
+A pair on separate networks has **not** been tested yet — see §7.
 
 **Verifying the multiplayer foundation.** The smoke suite's section
 *11i. a second survivor* joins a second player with `api.joinPlayer()`, drives
@@ -579,6 +651,12 @@ input (`key`, `tap`, `mouseDown`, `aimAt`) and the whole `api` surface.
 
 Newest first. One line per meaningful change.
 
+- **2026-09-06** — Online co-op (PR B). A signalling broker (`server/signal.js`,
+  the one new dependency, `ws`), WebRTC transport with an in-memory loopback for
+  the suite, host and guest sessions, HOST and JOIN screens, save → v8 with
+  every player kept by identity. Verified browser-to-browser through the
+  broker: 66 KB/s per guest, join in 1.8s. The `act.*` seam and the `emit()`
+  rule (§5 invariants 11–12) are what keep the sim network-free.
 - **2026-09-06** — Title screen, save slots, key bindings (PR A2). The game
   boots to a menu; saves are slots (any number, delete with confirm, the old
   single save migrated into slot 1); every key rebindable from a controls

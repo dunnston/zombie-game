@@ -19,10 +19,18 @@ import { turretPowered } from './building.js';
 import { propAtTile, removeProp } from './world.js';
 import { spawnPickup } from './loot.js';
 import { addXp } from './progression.js';
+import { emit } from '../net/events.js';
 
 const scratch = [];
 
 export function spawnBullet(x, y, angle, opts) {
+  // Guests draw the tracer themselves; the hit is decided here.
+  if (opts.owner !== 'remote') {
+    emit('bullet', {
+      x: Math.round(x), y: Math.round(y), a: Math.round(angle * 1000) / 1000, sp: Math.round(opts.speed),
+      lf: Math.round(opts.life * 100) / 100, c: opts.color || '#ffe6a8', sz: opts.size || 2.2, w: opts.w || null,
+    });
+  }
   G.bullets.push({
     x, y, px: x, py: y,
     vx: Math.cos(angle) * opts.speed,
@@ -155,6 +163,7 @@ function chopProp(p, w, dmg) {
 
   if (prop.hp <= 0) {
     const yield_ = 6 + Math.round(Math.random() * 5 * p.lootMul);
+    emit('prop', { key: `${prop.tx},${prop.ty}` });
     removeProp(G.world, prop);
     FX.debris(prop.x, prop.y, 18, '#3f5226');
     FX.text(prop.x, prop.y - 20, `WOOD +${yield_}`, '#a3763f', 12, -38, 1.0);
@@ -198,6 +207,7 @@ export function fireGun(p, w) {
       size: w.id === 'rifle' ? 3 : 2.2,
       crit,
       owner: p,
+      w: i === 0 ? w.id : null,      // one sound per shot, not per pellet
     });
   }
 
@@ -338,7 +348,7 @@ export function updateTurrets(dt) {
       s.ammo--;
       const a = s.aim + (Math.random() - 0.5) * 0.07;
       spawnBullet(s.x + Math.cos(a) * 18, s.y + Math.sin(a) * 18, a, {
-        speed: 1300, dmg, life: 0.5, knock: 45, color: '#9fe0ff', size: 2.2, owner: 'turret',
+        speed: 1300, dmg, life: 0.5, knock: 45, color: '#9fe0ff', size: 2.2, owner: 'turret', w: 'turret',
       });
       FX.muzzle(s.x + Math.cos(a) * 20, s.y + Math.sin(a) * 20, a, 0.7);
       sfx('turret');

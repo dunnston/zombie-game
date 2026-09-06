@@ -33,6 +33,7 @@ import {
   C, panel, bar, uiMouse, inside, clicked, claim, UI_KIT, beginUiFrame, button, drawCursor,
 } from './kit.js';
 import { primaryLabel } from '../core/bindings.js';
+import { act } from '../net/actions.js';
 
 export { uiMouse };
 
@@ -65,6 +66,7 @@ export function drawHUD(ctx, deviceW, deviceH, interactive = true) {
 
   drawVitals(ctx, W, H);
   drawClock(ctx, W, H);
+  drawRoomChip(ctx, W, H);
   drawWeaponBar(ctx, W, H);
   drawThreat(ctx, W, H);
   drawResourceStrip(ctx, W, H);
@@ -503,6 +505,14 @@ function drawMinimap(ctx, W, H) {
     ctx.arc(mx(b.x), my(b.y), 3, 0, TAU);
     ctx.fill();
   }
+  // Teammates, in their colour.
+  for (const q of G.players) {
+    if (q === G.player || q.away || q.dead) continue;
+    ctx.fillStyle = q.color || '#dff0ff';
+    ctx.beginPath();
+    ctx.arc(mx(q.x), my(q.y), 3, 0, TAU);
+    ctx.fill();
+  }
   // Enemies
   for (const e of G.enemies) {
     if (e.dead) continue;
@@ -610,6 +620,11 @@ function drawOffscreenMarkers(ctx, W, H) {
   }
   if (G.player.spawnStructure && !G.player.spawnStructure.destroyed) {
     marks.push({ x: G.player.spawnStructure.x, y: G.player.spawnStructure.y, color: '#9fd0ff', label: 'CAMP' });
+  }
+  // Teammates off screen: their colour, their name.
+  for (const q of G.players) {
+    if (q === G.player || q.away || q.dead) continue;
+    marks.push({ x: q.x, y: q.y, color: q.color || '#dff0ff', label: q.name.toUpperCase() });
   }
 
   const S = G.dpr || 1;
@@ -836,7 +851,7 @@ function drawSkillsTab(ctx, px, py, pw, ph) {
     ctx.textAlign = 'center';
     ctx.fillText(rank >= ATTR_MAX ? '—' : '+', bx + bw / 2, ry + 29);
     ctx.textAlign = 'left';
-    if (bhot && clicked()) raiseAttribute(id);
+    if (bhot && clicked()) act.raiseAttribute(id);
 
     ry += rowH + 6;
   }
@@ -870,7 +885,7 @@ function drawSkillsTab(ctx, px, py, pw, ph) {
     ctx.strokeStyle = maxed ? C.accent : st.locked ? '#333d2a' : buyable && hot ? C.borderHi : C.border;
     ctx.lineWidth = 1.5;
     ctx.strokeRect(kx + 0.5, ky + 0.5, kw - 1, rowH - 1);
-    if (hot && buyable && clicked()) buyPerk(perk.id);
+    if (hot && buyable && clicked()) act.buyPerk(perk.id);
 
     ctx.font = 'bold 13px "Courier New", monospace';
     ctx.fillStyle = st.locked ? '#5c6650' : maxed ? C.accent : C.text;
@@ -1154,7 +1169,7 @@ function drawPeopleTab(ctx, px, py, pw, ph) {
       ctx.fillText(job.name.toUpperCase(), bx + bw / 2, y + 56);
       ctx.textAlign = 'left';
 
-      if (hot && clicked() && !active) assignJob(s, id);
+      if (hot && clicked() && !active) act.assignJob(s, id);
       bx += bw + 5;
     }
 
@@ -1200,7 +1215,7 @@ function drawCraftPanel(ctx, W, H) {
       sub: null,
       color: C.blue,
     })) {
-      upgradeBench(bench);
+      act.upgradeBench(bench);
     }
     ctx.font = '10px "Courier New", monospace';
     ctx.fillStyle = afford ? C.dim : '#a06a5a';
@@ -1231,7 +1246,7 @@ function drawCraftPanel(ctx, W, H) {
       sub,
       color: locked ? '#8a8f84' : st.ok ? C.text : '#a08a5a',
     })) {
-      craft(r, tier);
+      act.craft(r, tier);
     }
     ctx.font = 'bold 9px "Courier New", monospace';
     ctx.fillStyle = r.bench === 2 ? C.blue : r.bench === 1 ? C.dim : C.accent;
@@ -1372,16 +1387,46 @@ function drawDeath(ctx, W, H) {
 
 // -------------------------------------------------------------------- pause --
 
+/** Hosting: the room code and the head count, under the clock. Joined: whose game. */
+function drawRoomChip(ctx, W, H) {
+  const role = G.net.role;
+  if (role === 'solo') return;
+  const x = 10, y = 150, w = 250, h = 30;
+  ctx.fillStyle = C.bgSoft;
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = C.border;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  ctx.font = 'bold 11px "Courier New", monospace';
+  if (role === 'host') {
+    const present = G.players.filter((p) => !p.away).length;
+    ctx.fillStyle = C.gold;
+    ctx.fillText(`ROOM ${G.net.code || '……'}`, x + 10, y + 19);
+    ctx.fillStyle = C.dim;
+    ctx.font = '10px "Courier New", monospace';
+    ctx.fillText(`${present}/4 here  ·  friends join with the code`, x + 110, y + 19);
+  } else {
+    ctx.fillStyle = C.blue;
+    ctx.fillText(`${G.net.hostName || 'HOST'}'S GAME`.toUpperCase(), x + 10, y + 19);
+    ctx.fillStyle = C.dim;
+    ctx.font = '10px "Courier New", monospace';
+    ctx.fillText(G.net.stats ? `${Math.round(G.net.stats.recvPerSec / 1024)} KB/s` : '', x + 190, y + 19);
+  }
+  void H;
+}
+
 // Resolved by main.js after the UI has drawn, so saving and quitting happen
 // outside the draw pass.
-export const pauseActions = { save: false, quit: false };
+export const pauseActions = { save: false, quit: false, stopHost: false, leave: false };
 
 function drawPause(ctx, W, H) {
+  const role = G.net.role;
   ctx.fillStyle = 'rgba(6,8,5,0.82)';
   ctx.fillRect(0, 0, W, H);
-  const w = 380, h = 344;
+  const roster = role === 'host' ? G.players.filter((p) => !p.away) : [];
+  const w = 380, h = 344 + (role === 'host' ? 30 + roster.length * 16 : 0);
   const x = (W - w) / 2, y = (H - h) / 2;
-  panel(ctx, x, y, w, h, 'PAUSED');
+  panel(ctx, x, y, w, h, role === 'client' ? 'PAUSED — the world carries on without you' : 'PAUSED');
 
   ctx.textAlign = 'center';
   ctx.font = 'bold 26px "Courier New", monospace';
@@ -1392,15 +1437,33 @@ function drawPause(ctx, W, H) {
   ctx.fillText(`Level ${G.player.level}   ·   ${G.stats.kills} kills   ·   ${G.raidsDone} raids   ·   ${clock(G.time)}`, W / 2, y + 84);
   ctx.textAlign = 'left';
 
-  const bw = w - 60, bx = x + 30;
   let by = y + 106;
+  if (role === 'host') {
+    ctx.font = 'bold 12px "Courier New", monospace';
+    ctx.fillStyle = C.gold;
+    ctx.textAlign = 'center';
+    ctx.fillText(`ROOM CODE  ${G.net.code || '……'}`, W / 2, by + 4);
+    ctx.font = '10px "Courier New", monospace';
+    ctx.fillStyle = C.dim;
+    let ry = by + 20;
+    for (const q of roster) { ctx.fillText(`${q.name}${q === G.player ? '  (you, hosting)' : ''}`, W / 2, ry); ry += 16; }
+    ctx.textAlign = 'left';
+    by += 30 + roster.length * 16;
+  }
+
+  const bw = w - 60, bx = x + 30;
   // Each button's rectangle is recorded for the browser suite, like the menu's.
   const rec = (key) => { G.menu.rects[`PAUSE:${key}`] = { x: bx, y: by, w: bw, h: 34 }; };
   rec('RESUME');
   if (button(ctx, bx, by, bw, 34, 'RESUME  (ESC)')) { G.paused = false; }
   by += 44;
-  rec('SAVE');
-  if (button(ctx, bx, by, bw, 34, `SAVE GAME  (${primaryLabel('save').toUpperCase()})`)) { pauseActions.save = true; }
+  if (role === 'client') {
+    rec('LEAVE');
+    if (button(ctx, bx, by, bw, 34, 'LEAVE GAME', { sub: 'the host keeps your character', color: C.gold })) { pauseActions.leave = true; }
+  } else {
+    rec('SAVE');
+    if (button(ctx, bx, by, bw, 34, `SAVE GAME  (${primaryLabel('save').toUpperCase()})`)) { pauseActions.save = true; }
+  }
   by += 44;
   // Opens the controls panel *over* the pause: the world stays stopped, and
   // BACK returns here. Unpausing to show it let enemies act on a player who
@@ -1409,11 +1472,19 @@ function drawPause(ctx, W, H) {
   if (button(ctx, bx, by, bw, 34, 'CONTROLS')) { G.ui.panel = 'controls'; }
   by += 44;
   rec('QUIT');
-  if (button(ctx, bx, by, bw, 34, 'QUIT TO TITLE', { sub: 'saves first', color: C.gold })) { pauseActions.quit = true; }
+  if (role === 'client') {
+    if (button(ctx, bx, by, bw, 34, 'QUIT TO TITLE', { color: C.gold })) { pauseActions.leave = true; }
+  } else if (button(ctx, bx, by, bw, 34, role === 'host' ? 'STOP HOSTING AND QUIT' : 'QUIT TO TITLE', { sub: 'saves first', color: C.gold })) {
+    pauseActions.quit = true;
+  }
   by += 48;
   ctx.font = '10px "Courier New", monospace';
   ctx.fillStyle = C.dim;
   ctx.textAlign = 'center';
-  ctx.fillText(G.slotId ? 'autosaves every 25s' : 'this game has no save slot yet — SAVE GAME makes one', W / 2, by + 16);
+  ctx.fillText(
+    role === 'client' ? 'your progress is saved by the host'
+      : G.slotId ? 'autosaves every 25s' : 'this game has no save slot yet — SAVE GAME makes one',
+    W / 2, by + 16,
+  );
   ctx.textAlign = 'left';
 }

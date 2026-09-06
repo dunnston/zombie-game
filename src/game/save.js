@@ -6,9 +6,11 @@
 // which key) is saves.js's business, and a guest joining a hosted game will
 // come in through applySaveData too, so the two can never drift.
 
-import { G, structAt } from './state.js';
+import { G, structAt, addPlayer } from './state.js';
 import { createWorld, removeProp } from './world.js';
 import { createPlayer, pickRandomSpawn } from './player.js';
+import { PLAYER } from './config.js';
+import { loadIdentity } from '../net/protocol.js';
 import { makeStructure } from './building.js';
 import { recomputeStats, startingAttrs } from './perks.js';
 import { makeSurvivor, refreshAllSurvivors } from './survivors.js';
@@ -23,7 +25,7 @@ import { xpForLevel, TILE } from './config.js';
  * build no longer recognises and clamping stacks to today's limits — a save
  * must never be able to reintroduce a deleted item or an over-full stack.
  */
-function restoreSlots(container, saved) {
+export function restoreSlots(container, saved) {
   if (!Array.isArray(saved)) return;
   for (let i = 0; i < container.slots.length; i++) {
     const s = saved[i];
@@ -56,19 +58,100 @@ function resolveRespawn(p) {
   return { x: spot.x, y: spot.y, hp: p.maxHp };
 }
 
+/**
+ * One player as the save records them. Everything that is theirs: where they
+ * stand, what they carry and wear, their level and perks, their bedroll. A
+ * guest's record is keyed by their identity so they get it back on rejoining.
+ */
+export function playerRecord(p) {
+  // An autosave can land inside the death countdown. Persisting hp: 0 with no
+  // death state would restore a player who is walking around dead, so resolve
+  // the pending respawn at save time exactly as respawnPlayer would. The
+  // backpack has already been dropped and is saved separately, so no
+  // consequence is skipped.
+  const resolved = p.dead || p.downed ? resolveRespawn(p) : { x: p.x, y: p.y, hp: p.hp };
+  return {
+    id: p.id || null, name: p.name, seat: Math.max(0, PLAYER.colors.indexOf(p.color)), netId: p.netId,
+    x: resolved.x, y: resolved.y, hp: resolved.hp, stam: p.stam,
+    slot: p.slot, mag: p.mag,
+    bag: p.bag.slots, hotbar: p.hotbar.slots, equip: p.equip,
+    level: p.level, xp: p.xp, skillPoints: p.skillPoints,
+    attrs: p.attrs, perks: p.perks, secondWindCd: p.secondWindCd,
+    spawn: p.spawnStructure ? { tx: p.spawnStructure.tx, ty: p.spawnStructure.ty } : null,
+    carKeys: p.carKeys || [],
+    driving: p.drivingId || null,
+    away: !!p.away,
+  };
+}
+
+/**
+ * Puts a record's belongings and progression onto a player. Position is taken
+ * too unless `keepPosition` — a guest receiving their inventory mid-game keeps
+ * standing where they are. Never restores mid-drive; stepping out on load is a
+ * kinder failure than waking up inside geometry.
+ */
+export function restorePlayerRecord(p, rec, { keepPosition = false } = {}) {
+  if (!rec) return p;
+  restoreSlots(p.bag, rec.bag);
+  restoreSlots(p.hotbar, rec.hotbar);
+  for (const slot of GEAR_SLOTS) {
+    const id = rec.equip ? rec.equip[slot] : null;
+    p.equip[slot] = GEAR[id] ? id : null;
+  }
+  p.slot = clamp(rec.slot || 0, 0, p.hotbar.slots.length - 1);
+  p.mag = rec.mag || {};
+  p.level = rec.level || 1;
+  p.xp = rec.xp || 0;
+  p.xpNext = xpForLevel(p.level);
+  p.skillPoints = rec.skillPoints || 0;
+  p.attrs = { ...startingAttrs(), ...(rec.attrs || {}) };
+  p.perks = rec.perks || {};
+  p.secondWindCd = rec.secondWindCd || 0;
+  p.carKeys = rec.carKeys || [];
+  if (rec.name) p.name = rec.name;
+  recomputeStats(p);
+  if (!keepPosition) {
+    p.x = rec.x; p.y = rec.y;
+    // Belt and braces: never restore a player who is alive on zero health,
+    // whatever an older or hand-edited save claims.
+    p.hp = clamp(rec.hp ?? p.maxHp, 1, p.maxHp);
+    p.dead = false;
+    p.downed = false;
+    p.stam = Math.min(rec.stam ?? p.maxStam, p.maxStam);
+    p.drivingId = null;
+  }
+  p.spawnTile = rec.spawn || null;
+  return p;
+}
+
+/** Who this browser is, for keying the host's own record. */
+function hostIdentityId() {
+  const id = loadIdentity();
+  return id.id;
+}
+
+/**
+ * A v6 payload described one player under `player`. v8 keeps a map of them.
+ * Wrapping is all it takes — nothing about the record itself changed.
+ */
+export function migrateSave(data) {
+  if (!data || data.v !== 6) return data;
+  const hostId = 'legacy-host';
+  const rec = { ...(data.player || {}), id: hostId, name: 'Survivor', seat: 0, carKeys: data.carKeys || [], driving: data.driving || null };
+  const out = { ...data, v: 8, hostId, players: { [hostId]: rec } };
+  delete out.player; delete out.carKeys; delete out.driving;
+  return out;
+}
+
 /** The whole game as plain data. Throws only if there is no game to describe. */
 export function serialiseGame() {
   {
-    const p = G.player;
-    // An autosave can land inside the death countdown. Persisting hp: 0 with no
-    // death state would restore a player who is walking around dead, so resolve
-    // the pending respawn at save time exactly as respawnPlayer would. The
-    // backpack has already been dropped and is saved separately, so no
-    // consequence is skipped.
-    const resolved = p.dead || p.downed ? resolveRespawn(p) : { x: p.x, y: p.y, hp: p.hp };
+    const me = G.player;
+    if (!me.id) me.id = hostIdentityId();
 
     const data = {
       v: G.version,
+      hostId: me.id,
       seed: G.world.seed,
       time: G.time,
       playtime: G.playtime || 0,
@@ -107,8 +190,6 @@ export function serialiseGame() {
         hp: v.hp, fuel: v.fuel, locked: v.locked, keyId: v.keyId, hotwired: v.hotwired,
         destroyed: v.destroyed, trunk: v.trunk, tiles: v.tiles, keyHint: v.keyHint,
       })),
-      carKeys: G.player.carKeys || [],
-      driving: G.player.drivingId || null,
       discovered: G.world.locations.filter((l) => l.discovered).map((l) => l.id),
       structures: G.structures.map((s) => ({
         t: s.type, tx: s.tx, ty: s.ty, hp: s.hp, maxHp: s.maxHp,
@@ -122,22 +203,17 @@ export function serialiseGame() {
       pickups: G.pickups.map((it) => ({
         x: Math.round(it.x), y: Math.round(it.y), k: it.kind, i: it.id, n: it.n,
       })),
-      player: {
-        x: resolved.x, y: resolved.y, hp: resolved.hp, stam: p.stam,
-        slot: p.slot, mag: p.mag,
-        bag: p.bag.slots, hotbar: p.hotbar.slots, equip: p.equip,
-        level: p.level, xp: p.xp, skillPoints: p.skillPoints,
-        attrs: p.attrs, perks: p.perks, secondWindCd: p.secondWindCd,
-        spawn: p.spawnStructure ? { tx: p.spawnStructure.tx, ty: p.spawnStructure.ty } : null,
-      },
+      // Every player, keyed by identity. The host's own record is under hostId.
+      players: Object.fromEntries(G.players.map((p, i) => [p.id || `seat${i}`, playerRecord(p)])),
     };
     return data;
   }
 }
 
 /** Rebuilds G from save data. Returns false if the data is not usable. */
-export function applySaveData(data) {
-  if (!data || data.v !== G.version) return false;
+export function applySaveData(raw) {
+  const data = migrateSave(raw);
+  if (!data || data.v !== G.version || !data.players) return false;
 
   try {
     G.world = createWorld(data.seed);
@@ -169,30 +245,25 @@ export function applySaveData(data) {
     G.tutorial = { step: data.tutorial?.step || 0, done: data.tutorial?.done || {}, hint: null };
     G.raid = null;
 
-    const pd = data.player;
-    const p = createPlayer(pd.x, pd.y);
-    restoreSlots(p.bag, pd.bag);
-    restoreSlots(p.hotbar, pd.hotbar);
-    for (const slot of GEAR_SLOTS) {
-      const id = pd.equip ? pd.equip[slot] : null;
-      p.equip[slot] = GEAR[id] ? id : null;
-    }
-    p.slot = clamp(pd.slot || 0, 0, p.hotbar.slots.length - 1);
-    p.mag = pd.mag || {};
-    p.level = pd.level || 1;
-    p.xp = pd.xp || 0;
-    p.xpNext = xpForLevel(p.level);
-    p.skillPoints = pd.skillPoints || 0;
-    p.attrs = { ...startingAttrs(), ...(pd.attrs || {}) };
-    p.perks = pd.perks || {};
-    p.secondWindCd = pd.secondWindCd || 0;
-    recomputeStats(p);
-    // Belt and braces: never restore a player who is alive on zero health,
-    // whatever an older or hand-edited save claims.
-    p.hp = clamp(pd.hp ?? p.maxHp, 1, p.maxHp);
-    p.dead = false;
-    p.stam = Math.min(pd.stam ?? p.maxStam, p.maxStam);
+    // Players. The host's record is the one at this keyboard; everyone else is
+    // parked `away` until they connect and claim theirs. Until a guest joins,
+    // this browser's identity is what the host's record is keyed by.
+    const ids = Object.keys(data.players);
+    const hostId = data.hostId && data.players[data.hostId] ? data.hostId : ids[0];
+    const hostRec = data.players[hostId];
+    const p = createPlayer(hostRec.x, hostRec.y, { id: hostIdentityId(), name: hostRec.name, seat: hostRec.seat || 0 });
+    restorePlayerRecord(p, hostRec);
     G.player = p;
+    let seat = 1;
+    for (const id of ids) {
+      if (id === hostId) continue;
+      const rec = data.players[id];
+      const q = createPlayer(rec.x, rec.y, { id, name: rec.name, seat: rec.seat ?? seat++ });
+      restorePlayerRecord(q, rec);
+      q.away = true;
+      addPlayer(q);
+      q.netId = rec.netId || q.netId;
+    }
 
     for (const s of data.structures || []) {
       const st = makeStructure(s.t, s.tx, s.ty, 1);
@@ -205,11 +276,16 @@ export function applySaveData(data) {
       st.ammo = s.ammo || 0;
       st.on = s.on !== false;
       st.active = !!s.active;
-      if (s.t === 'bedroll' && pd.spawn && pd.spawn.tx === s.tx && pd.spawn.ty === s.ty) {
-        p.spawnStructure = st;
-        p.spawnPoint = { x: st.x, y: st.y + 32 };
+      if (s.t === 'bedroll') {
+        for (const q of G.players) {
+          if (q.spawnTile && q.spawnTile.tx === s.tx && q.spawnTile.ty === s.ty) {
+            q.spawnStructure = st;
+            q.spawnPoint = { x: st.x, y: st.y + 32 };
+          }
+        }
       }
     }
+    for (const q of G.players) delete q.spawnTile;
 
     for (const b of data.backpacks || []) {
       G.backpacks.push({ x: b.x, y: b.y, contents: b.c, t: 0, id: Math.random() });
@@ -277,10 +353,6 @@ export function applySaveData(data) {
     // Key markers live on freshly generated container objects, so they have to
     // be re-planted after a load or every locked car becomes keyless.
     plantVehicleKeys();
-    p.carKeys = data.carKeys || [];
-    // Never restore mid-drive: it would need the car's tiles reconciled, and
-    // stepping out on load is a kinder failure than waking up inside geometry.
-    p.drivingId = null;
 
     G.camera.x = p.x;
     G.camera.y = p.y;

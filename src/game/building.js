@@ -5,7 +5,7 @@
 import { STRUCTURES, BUILD_ORDER, TILE, THREAT, BENCH_UPGRADE_COST } from './config.js';
 import {
   G, structAt, addStructure, removeStructure, canAfford, spend, scaledCost,
-  notify, addRes, addResCapped, takeRes, countRes, baseOwner, presentPlayers,
+  notify, addRes, addResCapped, takeRes, countRes, baseOwner, presentPlayers, structChanged,
 } from './state.js';
 import { isBlockedTile } from './world.js';
 import { ITEMS, slotsEntries, packAllowance } from './items.js';
@@ -104,7 +104,10 @@ export function makeStructure(type, tx, ty, hpMul = 1) {
 /** Marks the bedrolls that are somebody's respawn point, for the renderer. */
 export function refreshBedrolls() {
   for (const s of G.structures) {
-    if (s.type === 'bedroll') s.active = G.players.some((q) => q.spawnStructure === s);
+    if (s.type !== 'bedroll') continue;
+    const was = s.active;
+    s.active = G.players.some((q) => q.spawnStructure === s);
+    if (s.active !== was) structChanged(s);
   }
 }
 
@@ -155,6 +158,7 @@ export function repairStructure(s, p = G.player) {
   if (!canAfford(cost, 1, p)) { sfx('deny'); notify('Not enough materials to repair', '#c96a5a'); return false; }
   spend(cost, 1, p);
   s.hp = s.maxHp;
+  structChanged(s);
   sfx('build');
   FX.ring(s.x, s.y, 4, 26, 0.35, '#7ce08a', 2);
   FX.text(s.x, s.y - 16, 'REPAIRED', '#7ce08a', 11, -32, 0.7);
@@ -233,6 +237,7 @@ export function useGenerator(s, p = G.player) {
   if (generatorRunning(s)) {
     s.on = false;
     s.running = false;
+    structChanged(s);
     notify('Generator off', '#d8e8c0');
     sfx('ui');
     return true;
@@ -256,6 +261,7 @@ export function useGenerator(s, p = G.player) {
     return false;
   }
   s.on = true;
+  structChanged(s);
   sfx('build');
   notify(take > 0 ? `Generator refuelled and running` : 'Generator on', '#b7e08a');
   return true;
@@ -273,6 +279,7 @@ export function upgradeBench(s, p = G.player) {
   spend(BENCH_UPGRADE_COST, 1, p);
   s.tier = 2;
   G.benchTier = 2;
+  structChanged(s);
   sfx('levelUp');
   FX.ring(s.x, s.y, 6, 90, 0.6, '#59b8c4', 3);
   notify('WORKBENCH II — advanced weapons and steel unlocked', '#59b8c4', true);
@@ -282,6 +289,12 @@ export function upgradeBench(s, p = G.player) {
 }
 
 // ----------------------------------------------------------------- queries --
+
+/** The live structure on a tile, or null. */
+export const structAtTile = (tx, ty) => {
+  const s = structAt(tx, ty);
+  return s && !s.destroyed ? s : null;
+};
 
 export function nearestStructure(x, y, range, pred = () => true) {
   let best = null, bd = range * range;

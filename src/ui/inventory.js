@@ -10,10 +10,9 @@ import { GEAR, GEAR_SLOTS, GEAR_SLOT_NAMES, WEAPONS } from '../game/config.js';
 import { G, notify } from '../game/state.js';
 import { itemDef, stackLimit } from '../game/items.js';
 import { carriedWeight } from '../game/player.js';
-import { recomputeStats } from '../game/perks.js';
-import {
-  equipFromBag, unequip, equipBest, moveStack, dropStack,
-} from '../game/equipment.js';
+// Every change to what the player carries goes through the action seam: a
+// direct call in solo and on the host, a command to the host on a guest.
+import { act } from '../net/actions.js';
 import { Input } from '../core/input.js';
 import { clamp } from '../core/util.js';
 import { sfx } from '../core/audio.js';
@@ -171,22 +170,8 @@ function endDrag(p, zone) {
 
   if (from.kind === 'equip') {
     if (zone.kind === 'equip') return;
-    const cont = zone.kind === 'bag' ? p.bag : p.hotbar;
-    const id = p.equip[from.slot];
-    if (!id) return;
-    const target = cont.slots[zone.i];
-    if (target) {
-      // Only swap with something that fits the same body slot.
-      const g = GEAR[target.id];
-      if (!g || g.slot !== from.slot || target.n !== 1) return;
-      p.equip[from.slot] = target.id;
-      cont.slots[zone.i] = { id, n: 1 };
-    } else {
-      p.equip[from.slot] = null;
-      cont.slots[zone.i] = { id, n: 1 };
-    }
-    recomputeStats(p);
-    sfx('ui');
+    // Taking a piece off into a cell; swaps only with a piece for the same slot.
+    act.unequipTo(from.slot, zone.kind, zone.i);
     return;
   }
 
@@ -200,11 +185,7 @@ function endDrag(p, zone) {
       notify(`That is not worn on your ${GEAR_SLOT_NAMES[zone.slot].toLowerCase()}`, '#c96a5a');
       return;
     }
-    const previous = p.equip[zone.slot];
-    p.equip[zone.slot] = s.id;
-    cont.slots[from.i] = previous ? { id: previous, n: 1 } : null;
-    recomputeStats(p);
-    sfx('ui');
+    act.equipFromSlot(from.kind, from.i, zone.slot);
     return;
   }
 
@@ -218,7 +199,7 @@ function endDrag(p, zone) {
     return;
   }
 
-  moveStack(p, from.kind, from.i, zone.kind, zone.i);
+  act.moveStack(from.kind, from.i, zone.kind, zone.i);
 }
 
 /** Whether the stack being dragged is something the hotbar will hold. */
@@ -282,7 +263,7 @@ export function drawInventoryPanel(ctx, W, H, ui) {
   ctx.font = 'bold 12px "Courier New", monospace';
   ctx.fillStyle = p.armorDR > 0 ? C.accent : C.dim;
   ctx.fillText(`TOTAL ARMOUR  ${Math.round((p.armorDR || 0) * 100)}%`, eqX, eqY + 16);
-  if (button(ctx, eqX, eqY + 26, 168, 26, 'EQUIP BEST', { small: true })) equipBest(p);
+  if (button(ctx, eqX, eqY + 26, 168, 26, 'EQUIP BEST', { small: true })) act.equipBest();
 
   // ------------------------------------------------------------------ pack --
   const gridX = x + 268;
@@ -352,7 +333,7 @@ export function drawInventoryPanel(ctx, W, H, ui) {
   if (button(ctx, x + w - 152, y + h - 40, 132, 26, 'DROP HOVERED', {
     small: true, enabled: !!hoverStack, color: C.warn,
   }) && hoverStack) {
-    dropStack(p, over.kind, over.i, true);
+    act.dropStack(over.kind, over.i, true);
   }
 
   ctx.font = '10px "Courier New", monospace';
@@ -376,7 +357,7 @@ export function drawInventoryPanel(ctx, W, H, ui) {
 
 /** Right click: wear it, or send it between pack and hotbar. */
 function quickAction(p, zone) {
-  if (zone.kind === 'equip') { unequip(p, zone.slot); return; }
+  if (zone.kind === 'equip') { act.unequip(zone.slot); return; }
   const cont = zone.kind === 'bag' ? p.bag : p.hotbar;
   const s = cont.slots[zone.i];
   if (!s) return;
@@ -384,11 +365,11 @@ function quickAction(p, zone) {
   if (!it) return;
 
   if (it.kind === 'gear') {
-    if (zone.kind === 'bag') { equipFromBag(p, zone.i); return; }
+    if (zone.kind === 'bag') { act.equipFromBag(zone.i); return; }
     const free = p.bag.slots.findIndex((v) => !v);
     if (free < 0) { sfx('deny'); notify('No room in your pack', '#c96a5a'); return; }
-    moveStack(p, 'hotbar', zone.i, 'bag', free);
-    equipFromBag(p, free);
+    act.moveStack('hotbar', zone.i, 'bag', free);
+    act.equipFromBag(free);
     return;
   }
 
@@ -397,7 +378,7 @@ function quickAction(p, zone) {
   let target = to.slots.findIndex((t) => t && t.id === s.id && t.n < stackLimit(s.id));
   if (target < 0) target = to.slots.findIndex((t) => !t);
   if (target < 0) { sfx('deny'); notify('No room', '#c96a5a'); return; }
-  moveStack(p, zone.kind, zone.i, toKind, target);
+  act.moveStack(zone.kind, zone.i, toKind, target);
 }
 
 function drawTooltip(ctx, id, mx, my, px, py, pw, ph) {

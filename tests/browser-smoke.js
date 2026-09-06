@@ -2351,6 +2351,103 @@
       G.backpacks.length = 0;
     }
 
+    // ------------------------------------- 11j. hosting, with a loopback guest --
+    // The host session driven by a fake guest over an in-memory peer: the same
+    // messages a real browser sends, without a broker or a second window.
+    {
+      d.god(true);
+      G.enemies.length = 0;
+      p = G.player;
+      const spotH = clearOfStructures(G, p.x, p.y);
+      d.teleport(spotH.x, spotH.y);
+      await frames(2);
+
+      d.net.hostOffline({ name: 'Ash' });
+      ok('hosting offline makes this browser the authority', G.net.role === 'host' && G.mode === 'coop' && G.player.name === 'Ash');
+      const { a, b } = d.net.makeLoopback();
+      const reliable = [], state = [];
+      b.onMessage('reliable', (m) => reliable.push(m));
+      b.onMessage('state', (m) => state.push(m));
+      d.net.debugAttachGuest(a, 'smoke');
+
+      // No password on this room, so a hello with any hash is let in. The
+      // password check itself is exercised further down with one set.
+      b.send('reliable', d.net.msg.hello('smoke-guest', 'Bex', null));
+      await frames(4);
+      const welcome = reliable.find((m) => m.t === 'welcome');
+      ok('hello is answered with a welcome carrying the whole world', !!welcome && welcome.world && welcome.world.v === 8 && welcome.world.seed === G.world.seed,
+        welcome ? `v${welcome.world.v}, ${Object.keys(welcome.world.players).length} players in the record` : reliable.map((m) => m.t).join(','));
+      const guest = G.players.find((q) => q.netId === (welcome && welcome.n));
+      ok('the guest is a real player in the host\'s world', !!guest && !guest.away && guest.name === 'Bex' && guest.id === 'smoke-guest');
+      ok('the roster names both of them', !!welcome && welcome.roster.map((r) => r.name).join(',') === 'Ash,Bex', welcome && welcome.roster.map((r) => r.name).join(','));
+
+      // Intent over the wire drives the guest's player through the ordinary sim.
+      const gx0 = guest.x;
+      const it = api.makeIntent(); it.mx = 1; it.aimX = guest.x + 200; it.aimY = guest.y;
+      for (let i = 0; i < 40; i++) { b.send('state', d.net.msg.intent(i, it)); await frames(1); }
+      ok('a guest\'s intent moves their player', guest.x - gx0 > 30, `moved ${Math.round(guest.x - gx0)}px`);
+      const snaps = state.filter((m) => m.t === 'snap');
+      ok('snapshots arrive at about twenty a second', snaps.length >= 10 && snaps.length <= 16, `${snaps.length} in 40 frames`);
+      const last = snaps[snaps.length - 1];
+      ok('a snapshot carries every player and only nearby enemies', !!last && last.pl.length === G.players.length && Array.isArray(last.en) && Array.isArray(last.bp),
+        last ? Object.keys(last).join(',') : 'none');
+
+      // A command is validated and executed by the host, and echoed as an event.
+      G.stash.wood = (G.stash.wood || 0) + 200; G.stash.scrap = (G.stash.scrap || 0) + 200;
+      let wtx = Math.floor(guest.x / 32) + 2, wty = Math.floor(guest.y / 32);
+      for (let dx = 0; dx < 5 && !api.canPlace('woodWall', wtx, wty, guest).ok; dx++) wtx++;
+      const built0 = G.structures.length, ev0 = reliable.length;
+      b.send('reliable', d.net.msg.cmd('place', { type: 'woodWall', tx: wtx, ty: wty }));
+      await frames(4);
+      ok('a place command from a guest builds a wall', G.structures.length === built0 + 1, `${G.structures.length - built0} built`);
+      ok('...and the guest hears about it as a struct event', reliable.slice(ev0).some((m) => m.t === 'ev' && m.k === 'struct' && m.s.t === 'woodWall'));
+      // A command that should fail does nothing: out of range.
+      const far0 = G.structures.length;
+      b.send('reliable', d.net.msg.cmd('place', { type: 'woodWall', tx: wtx + 40, ty: wty }));
+      await frames(3);
+      ok('a command the rules refuse is refused for a guest too', G.structures.length === far0);
+
+      // A saved world remembers the guest.
+      const data = d.api.saveGame() ? JSON.parse(localStorage.getItem(`deadline.slot.${G.slotId}`)) : null;
+      ok('the hosted world saves the guest\'s record by identity', !!data && !!data.players['smoke-guest'] && data.players['smoke-guest'].name === 'Bex',
+        data ? Object.keys(data.players).join(',') : 'no save');
+
+      // Disconnect parks, not removes; a return with the same identity gets the same player.
+      b.close();
+      await frames(4);
+      ok('a guest who drops is parked, not removed', guest.away && G.players.includes(guest) && G.net.guests.length === 0);
+      const { a: a2, b: b2 } = d.net.makeLoopback();
+      const rel2 = [];
+      b2.onMessage('reliable', (m) => rel2.push(m));
+      d.net.debugAttachGuest(a2, 'smoke2');
+      b2.send('reliable', d.net.msg.hello('smoke-guest', 'Bex again', null));
+      await frames(4);
+      const w2 = rel2.find((m) => m.t === 'welcome');
+      ok('the same identity comes back to the same character', !!w2 && w2.n === guest.netId && !guest.away && G.players.filter((q) => q.id === 'smoke-guest').length === 1,
+        w2 ? `netId ${w2.n} (was ${guest.netId})` : 'no welcome');
+      b2.close();
+      await frames(3);
+
+      // A password, when set, is checked by the host.
+      d.net.stopHosting();
+      const hash = await d.net.hashPassword('pumpkin');
+      d.net.hostOffline({ name: 'Ash', passwordHash: hash });
+      const { a: a3, b: b3 } = d.net.makeLoopback();
+      const rel3 = [];
+      b3.onMessage('reliable', (m) => rel3.push(m));
+      d.net.debugAttachGuest(a3, 'smoke3');
+      b3.send('reliable', d.net.msg.hello('other-guest', 'Cole', await d.net.hashPassword('wrong')));
+      await frames(4);
+      ok('the wrong password is rejected', rel3.some((m) => m.t === 'reject' && /password/.test(m.reason)) && !G.players.some((q) => q.id === 'other-guest'),
+        rel3.map((m) => m.t + (m.reason ? ':' + m.reason : '')).join(','));
+      d.net.stopHosting();
+      ok('stopping the host puts the game back to solo', G.net.role === 'solo');
+      G.players.length = 1; G.localIdx = 0;   // drop the parked guest for the sections below
+      G.mode = 'solo';
+      G.enemies.length = 0;
+      G.structures.forEach((s) => { if (s.type === 'woodWall') api.demolishStructure(s); });
+    }
+
     // ----------------------------------------------------- 12. stability ---
     d.god(true);
     G.enemies.length = 0;

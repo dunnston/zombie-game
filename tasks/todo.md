@@ -41,7 +41,7 @@ assertion.
 - [x] `api.joinPlayer/leavePlayer` for tests; tests in both suites
 - [x] Docs: PROJECT.md §3 §5 §6 §7 §11, tasks/lessons.md
 
-### PR A2 — title screen, save slots, key bindings  (branch `feat/menu-and-saves`)
+### PR A2 — title screen, save slots, key bindings  (PR #10, merged)
 
 Owner, 2026-09-06, while PR A was in verification: "When the player loads
 should have a menu. Should include controls and key binds and allow them to
@@ -68,16 +68,22 @@ different single player saves. I should be able to delete saves as well."
       and its Testing section is refreshed (it still says 52 Node / 211 smoke and
       has the Saving heading twice)
 
-### PR B — online co-op  (branch `feat/online-coop`)
+### PR B — online co-op  (branch `feat/online-coop`, in review)
 
-- [ ] `server/signal.js` broker (`ws`, `npm run signal`)
-- [ ] `src/net/transport.js` WebRTC, two DataChannels
-- [ ] `src/net/host.js`, `client.js`, `events.js`, `actions.js`, `protocol.js`
-- [ ] Title/lobby screens, overlay inputs
-- [ ] Save v8 with per-identity player records; v7 migration
-- [ ] Teammate readability: colours, name tags, edge markers, minimap
-- [ ] Tests: Node protocol/save; smoke with a fake in-page guest; `tests/net-e2e.js`
-- [ ] Docs, measured wire rate in PROJECT.md §9
+Verified: npm test 74/74; smoke 359/359 with a loopback guest; real WebRTC
+through the broker between two browsers on this machine — join 1.8s, 66 KB/s
+per guest, a guest's wall built and echoed, disconnect parks the character.
+
+- [x] `server/signal.js` broker (`ws`, `npm run signal`)
+- [x] `src/net/transport.js` WebRTC, two DataChannels
+- [x] `src/net/host.js`, `client.js`, `events.js`, `actions.js`, `protocol.js`
+- [x] Title/lobby screens, overlay inputs
+- [x] Save v8 with per-identity player records; v7 migration
+- [x] Teammate readability: colours, name tags, edge markers, minimap
+- [x] Tests: Node protocol/save; smoke with a fake in-page guest. (No `net-e2e`
+      script: Playwright is not a dependency; the two-browser check was done by
+      hand through the broker and is written up in PROJECT.md §9.)
+- [x] Docs, measured wire rate in PROJECT.md §9
 
 ## Previous round — playtest response (pacing, inventory, survival)
 

@@ -890,3 +890,94 @@ test('play time reads as minutes and hours', () => {
   assert.equal(playtimeLabel(47 * 60), '47m');
   assert.equal(playtimeLabel(2 * 3600 + 5 * 60), '2h 05m');
 });
+
+// ------------------------------------------------------------- networking ---
+
+test('room codes use an unambiguous alphabet and normalise what a person types', async () => {
+  const { makeCode, isCode } = await import('../server/signal.js');
+  const { isRoomCode, normaliseCode, CODE_ALPHABET } = await import('../src/net/protocol.js');
+  assert.ok(!/[01OI]/.test(CODE_ALPHABET), 'no 0/O/1/I');
+  for (let i = 0; i < 200; i++) {
+    const c = makeCode();
+    assert.equal(c.length, 6);
+    assert.ok(isCode(c) && isRoomCode(c), c);
+  }
+  assert.equal(normaliseCode(' ab-c2 d3 '), 'ABC2D3');
+  assert.equal(isRoomCode('ABC0D3'), false, 'zero is not in the alphabet');
+});
+
+test('an intent survives the wire: packed, unpacked, and merged without losing an edge', async () => {
+  const { packIntent, unpackIntent, mergeIntent } = await import('../src/net/protocol.js');
+  const { makeIntent } = await import('../src/game/intent.js');
+  const it = makeIntent();
+  it.mx = 0.6; it.my = -0.8; it.aimX = 1234.4; it.aimY = 88.6;
+  it.sprint = true; it.fire = true; it.interact = true; it.slot = 3; it.wheel = -1;
+  it.drive.left = true; it.drive.brake = true;
+  const back = unpackIntent(JSON.parse(JSON.stringify(packIntent(it))), makeIntent());
+  assert.equal(back.mx, 0.6); assert.equal(back.my, -0.8);
+  assert.equal(back.aimX, 1234); assert.equal(back.aimY, 89);
+  assert.ok(back.sprint && back.fire && back.interact && !back.sneak && !back.reload);
+  assert.equal(back.slot, 3); assert.equal(back.wheel, -1);
+  assert.ok(back.drive.left && back.drive.brake && !back.drive.forward);
+  // A packet with the edge, then one without: the edge must still be seen once.
+  const held = makeIntent();
+  mergeIntent(held, packIntent(it));
+  const later = makeIntent(); later.mx = 1;
+  mergeIntent(held, packIntent(later));
+  assert.equal(held.mx, 1, 'held state comes from the newest packet');
+  assert.equal(held.interact, true, 'the earlier press is not lost');
+  assert.equal(held.slot, 3, 'nor the slot change');
+});
+
+test('a snapshot describes only what is near the guest, and every player', async () => {
+  const { packSnapshot, INTEREST_RADIUS } = await import('../src/net/protocol.js');
+  const far = INTEREST_RADIUS * 2;
+  const fakeG = {
+    time: 10, day: 1, dayTime: 0.3, threat: 5, threatTier: 0, raid: null, raidsDone: 0, benchTier: 1,
+    players: [
+      { netId: 1, x: 0, y: 0, angle: 0, hp: 100, maxHp: 100, stam: 50, maxStam: 100, slot: 0, level: 1, xp: 0, xpNext: 55, skillPoints: 0 },
+      { netId: 2, x: far, y: 0, angle: 0, hp: 100, maxHp: 100, stam: 50, maxStam: 100, slot: 0, level: 1, xp: 0, xpNext: 55, skillPoints: 0 },
+    ],
+    enemies: [
+      { id: 1, type: 'walker', x: 100, y: 0, angle: 0, hp: 10, maxHp: 10, flash: 0 },
+      { id: 2, type: 'walker', x: far, y: 0, angle: 0, hp: 10, maxHp: 10, flash: 0 },
+      { id: 3, type: 'walker', x: 50, y: 0, angle: 0, hp: 10, maxHp: 10, flash: 0, dead: true },
+    ],
+    pickups: [{ uid: 7, x: 10, y: 10, kind: 'res', id: 'wood', n: 3 }, { uid: 8, x: far, y: 10, kind: 'res', id: 'wood', n: 3 }],
+    vehicles: [{ id: 1, x: far, y: 100, angle: 0, hp: 1, fuel: 1 }],
+    survivors: [], backpacks: [{ id: 'b1', x: 5, y: 5 }],
+  };
+  const s = packSnapshot(fakeG, fakeG.players[0], 42);
+  assert.equal(s.q, 42);
+  assert.equal(s.pl.length, 2, 'every player, near or far');
+  assert.deepEqual(s.en.map((e) => e.id), [1], 'only the live enemy in range');
+  assert.deepEqual(s.pk.map((p) => p.u), [7]);
+  assert.equal(s.vh.length, 0, 'a far car is not described');
+  assert.equal(s.bp.length, 1);
+  // The same world seen by the far player describes the far things instead.
+  const s2 = packSnapshot(fakeG, fakeG.players[1], 43);
+  assert.deepEqual(s2.en.map((e) => e.id), [2]);
+  assert.equal(s2.vh.length, 1);
+});
+
+test('password hashes compare equal for the same password and differ otherwise', async () => {
+  const { hashPassword } = await import('../src/net/protocol.js');
+  const a = await hashPassword('pumpkin'), b = await hashPassword('pumpkin'), c = await hashPassword('Pumpkin');
+  assert.equal(a, b);
+  assert.notEqual(a, c);
+  assert.ok(a.length >= 8);
+});
+
+test('a v6 save is wrapped into v8 with its one player under the host id', async () => {
+  const { migrateSave } = await import('../src/game/save.js');
+  const v6 = { v: 6, seed: 1, player: { x: 1, y: 2, level: 4, bag: [] }, carKeys: ['key1'], driving: null, structures: [] };
+  const v8 = migrateSave(JSON.parse(JSON.stringify(v6)));
+  assert.equal(v8.v, 8);
+  assert.ok(v8.hostId && v8.players[v8.hostId], 'the host record exists');
+  assert.equal(v8.players[v8.hostId].level, 4);
+  assert.deepEqual(v8.players[v8.hostId].carKeys, ['key1'], 'car keys moved into the record');
+  assert.equal(v8.player, undefined);
+  assert.equal(v8.seed, 1);
+  const already = { v: 8, players: {} };
+  assert.equal(migrateSave(already), already, 'a v8 save passes through untouched');
+});

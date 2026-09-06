@@ -429,3 +429,37 @@ rather than an hour.
 
 **Rule:** measure the frame rate for a second before starting a long browser
 run, and start each run in a fresh tab.
+
+## Round 7 — online co-op
+
+### Keep the network out of the simulation, and the sim stays testable in Node
+
+`emit()` is a no-op unless hosting, `act.*` is a direct call unless a guest,
+and only `game.js` branches on `G.net.role`. Every other module reads and
+writes exactly what it did in solo. That is why the whole Node suite still
+runs without a browser, and why a host's game is byte-for-byte the solo game
+plus a snapshot pass at the end of each step.
+
+**Rule:** the authority runs the unchanged sim; networking is a layer that
+reads it afterwards and feeds intent into it beforehand.
+
+### A hidden page still connects
+
+The guest for the browser-to-browser check ran in a pane whose animation
+frames never fire. It still reached the broker, completed the WebRTC handshake,
+received the world and twenty snapshots a second, and sent a command that
+built a wall on the host — everything except stepping its own loop. Frames are
+for rendering and prediction; the transport is event-driven and does not care.
+
+**Rule:** know which parts of a system need frames and which do not, and use
+the one you have. A hidden page is a perfectly good transport test.
+
+### Markdown with backticks does not survive a shell-quoted script
+
+Twice this session a `node -e "…"` that spliced Markdown into a doc lost its
+code spans: bash saw the backticks as command substitutions, ran `F5` and
+`renameSlot()` as commands, and pasted the empty results. The script reported
+success both times. The second time it dropped a whole README section.
+
+**Rule:** edit prose with the editing tool, not through a shell string. If a
+script must write text containing backticks, put the script in a file.

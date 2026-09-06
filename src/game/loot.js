@@ -304,7 +304,7 @@ export function dropBackpack(p) {
   const contents = { bag: held, mag: { ...p.mag } };
   if (Object.keys(held).length === 0) return null;
 
-  const pack = { x: p.x, y: p.y, contents, t: 0, id: Date.now() + Math.random() };
+  const pack = { x: p.x, y: p.y, contents, t: 0, id: `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`, owner: p.netId };
   G.backpacks.push(pack);
 
   slotsClear(p.bag);

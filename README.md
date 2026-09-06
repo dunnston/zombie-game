@@ -39,14 +39,15 @@ npm test
 npm run build
 ```
 
-`npm test` runs 69 Node assertions over the pure logic (world generation, loot
+`npm test` runs 74 Node assertions over the pure logic (world generation, loot
 tables, balance invariants, progression curves, perk trees, the day curve, save
 slots and key bindings).
 `npm run build` produces a static bundle in `dist/` that can be opened from any
 static host.
 
-Requires Node 18+. No API keys, no external services, no network access at
-runtime.
+Requires Node 18+. No API keys, no external services. Solo play makes no network
+requests; co-op talks to the broker you run (`npm run signal`) and then to the
+other players directly.
 
 ---
 
@@ -371,6 +372,38 @@ its seed, so a save only stores the deltas: what you've looted, what you've
 chopped, what you've built, and who you are. Saves live in the browser's
 LocalStorage. A save from before slots existed is picked up as "Game 1".
 
+### Playing together
+
+Up to four people in one town. One of you **hosts** — the game runs in their
+browser — and the others **join** with a six-character room code.
+
+On the host's machine, run the signalling broker alongside the game:
+
+```bash
+npm run signal
+```
+
+It only introduces browsers to each other; once a friend is connected the game
+traffic goes straight between you, and the broker can be closed with no effect.
+Then, on the title screen: **MULTIPLAYER → HOST A GAME**, pick a world (or a
+new one), set a password if you like, START HOSTING. The room code is on the
+pause menu and under the clock. Friends open the game, **MULTIPLAYER → JOIN A
+GAME**, type the code, the password and a name, CONNECT.
+
+You share the base and the stash. Each of you has your own pack, hotbar,
+equipment, level and perks. Bullets do not hurt teammates and you walk through
+each other. When you run out of health with a teammate up, you go **down** for
+thirty seconds instead of dying; they hold the interact key beside you to get
+you back up. The host saves the world, and your character with it — come back
+with the same browser and it is yours.
+
+On the same network nothing else is needed. Across the internet the broker
+has to be reachable (deploy `server/signal.js` anywhere that runs Node and
+point the game at it with `?signal=wss://your-broker` or `VITE_SIGNAL_URL`),
+and the built game served from any static host. Some pairs of players behind
+strict routers will not connect yet — there is no relay fallback in this
+version; the game says so rather than hanging.
+
 ---
 
 ## Architecture
@@ -451,7 +484,7 @@ and perk actually changing a stat, perk gating by rank and cost, recompute
 idempotency, the day/night curve and clock, and survivor scaling.
 
 `tests/browser-smoke.js` is injected into the running dev server and drives the
-live game through 340 assertions using synthetic input events — the title
+live game through 355 assertions using synthetic input events — the title
 screen, save slots and key rebinding driven by real clicks, movement, aiming,
 melee, gunfire, ammo, reloading, enemy pursuit, taking damage, searching
 containers, carry-capacity overflow, structure placement and cost, walls

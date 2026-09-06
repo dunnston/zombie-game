@@ -48,8 +48,8 @@ export function startRaid() {
 
   sfx('raidWarn');
   screenFlash('#8c3a1a', 0.55);
-  notify(`${spec.name} INCOMING — ${WARNING_TIME}s`, '#e05a4a', true);
-  notify(center.hasBase ? 'They are heading for your base' : 'They are coming for you', '#d98a4a', true);
+  notify(`${spec.name} INCOMING — ${WARNING_TIME}s`, '#e05a4a', true, 'all');
+  notify(center.hasBase ? 'They are heading for your base' : 'They are coming for you', '#d98a4a', true, 'all');
 }
 
 function spawnRing(cx, cy, minR, maxR) {
@@ -77,7 +77,7 @@ function startWave(raid) {
   raid.wave++;
   raid.toSpawn = raid.spec.base + raid.spec.growth * (raid.wave - 1);
   raid.spawnTimer = 0;
-  notify(`WAVE ${raid.wave} / ${raid.spec.waves}`, '#e05a4a', true);
+  notify(`WAVE ${raid.wave} / ${raid.spec.waves}`, '#e05a4a', true, 'all');
   sfx('raidWarn');
   shake(5);
 }
@@ -231,7 +231,7 @@ export function updateRaid(dt) {
  * your base would make hiding until it ended better than defending.
  */
 function scatterRaid(message) {
-  notify(message, '#d9c46a', true);
+  notify(message, '#d9c46a', true, 'all');
   for (let i = G.enemies.length - 1; i >= 0; i--) if (G.enemies[i].raid) G.enemies.splice(i, 1);
   finishRaid(false);
 }
@@ -261,7 +261,7 @@ function finishRaid(repelled = true) {
   screenFlash(repelled ? '#2a6a3a' : '#4a4a2a', 0.4);
   const rewardText = Object.entries(reward).map(([k, v]) => `${k} +${v}`).join('  ');
   const tint = repelled ? '#b7e08a' : '#d9c46a';
-  notify(repelled ? `${spec.name} REPELLED` : `${spec.name} OVER`, tint, true);
+  notify(repelled ? `${spec.name} REPELLED` : `${spec.name} OVER`, tint, true, 'all');
   notify(rewardText ? `Salvage delivered to stash — ${rewardText}` : 'No salvage worth taking', tint, true);
   for (const q of presentPlayers()) FX.ring(q.x, q.y, 10, 200, 0.9, tint, 4);
 }

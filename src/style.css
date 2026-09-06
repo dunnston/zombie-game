@@ -39,7 +39,7 @@ body {
 
 /* The one real text box the menus use (new-game name; later the room code).
    Positioned over the canvas by menu.js in CSS pixels. */
-#deadline-textfield {
+.deadline-textfield {
   position: fixed;
   z-index: 5;
   display: none;
@@ -54,4 +54,4 @@ body {
   user-select: text;
 }
 
-#deadline-textfield:focus { border-color: #8fae6a; }
+.deadline-textfield:focus { border-color: #8fae6a; }
