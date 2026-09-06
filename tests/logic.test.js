@@ -839,10 +839,16 @@ test('save slots are created, listed newest first, renamed and deleted', () => {
   assert.equal(defaultName('coop'), 'Co-op world 1');
   assert.ok(hasSave());
   assert.equal(listSlots().length, 2);
-  // Touch b so it is the most recent.
+  // Touch b so it is the most recent; CONTINUE follows the *chosen* slot first
+  // (what a load marks current), and only then the most recently written.
   b.updated = a.updated + 1000;
   globalThis.localStorage.setItem(INDEX_KEY, JSON.stringify({ v: 1, current: b.id, slots: [a, b] }));
   assert.equal(latestSlot().id, b.id);
+  globalThis.localStorage.setItem(INDEX_KEY, JSON.stringify({ v: 1, current: a.id, slots: [a, b] }));
+  assert.equal(latestSlot().id, a.id, 'the slot the player last picked wins over the one written last');
+  globalThis.localStorage.setItem(INDEX_KEY, JSON.stringify({ v: 1, current: 'gone', slots: [a, b] }));
+  assert.equal(latestSlot().id, b.id, 'a stale current falls back to the most recent');
+  globalThis.localStorage.setItem(INDEX_KEY, JSON.stringify({ v: 1, current: b.id, slots: [a, b] }));
   assert.ok(renameSlot(a.id, 'Renamed'));
   assert.equal(listSlots().find((s) => s.id === a.id).name, 'Renamed');
   assert.ok(deleteSlot(b.id));

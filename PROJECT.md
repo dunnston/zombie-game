@@ -72,7 +72,7 @@ multiplayer.** Seven rounds merged; the menu-and-saves round is in review.
 | --- | --- |
 | Source | 36 modules, ~13,600 lines, no dependencies but Vite |
 | Assets | Zero. Every sprite is drawn in code at boot; every sound is WebAudio. |
-| Tests | 69 Node assertions; browser suite 330 |
+| Tests | 69 Node assertions; browser suite 340 |
 | Save format | **v7** payload, in **slots** (index v1) |
 | Performance | ~60fps with 90 active enemies |
 
@@ -327,6 +327,10 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | The Multiplayer screen ships disabled, with a reason | A dead button is a broken promise; a hidden one makes the menu look unfinished when it is not. The screen explains what is coming and where it will live, and PR B only has to enable two buttons. |
 | The UI kit is its own module | `menu.js` needed the HUD's panels and buttons, and the HUD needed the menu's controls panel — an import cycle. Moving the kit to `kit.js` made both a leaf's clients instead of each other's. |
 | A game started through `newGame()` has no slot until it saves | The tests start dozens of games; giving each a slot on creation would litter the browser. The first save creates one, autosave only runs for a game that has one, and the pause menu says so. |
+| The controls panel opened from the pause menu sits *over* the pause | The first version unpaused to show it, so the world ran while the player's input was captured by the panel — enemies could act on someone who could not answer. Now the world stays stopped and BACK returns to the pause menu. Found by the Codex review of PR #10. |
+| CONTINUE follows the slot last *chosen*, then the one last *written* | Loading a slot marks it current before it saves. Picking purely by `updated` meant a refresh straight after LOAD reopened whichever game happened to save last. Same review. |
+| Every on-screen key hint goes through `primaryLabel()` | Fourteen strings said "press E", "WASD", "(TAB)", "F: take ammo" by hand; after a rebind they lied. Hints are built from the bindings at draw time, and the tutorial's texts became functions for that reason. Same review. |
+| Buttons behind a modal are disabled, not just covered | The immediate-mode `clicked()` is non-consuming, so a click on KEEP could also land on a LOAD underneath. Anything under the delete confirmation is drawn disabled while it is up. Same review. |
 
 ---
 
@@ -467,7 +471,7 @@ round. Current expected totals:
 | Suite | Expected |
 | --- | --- |
 | `npm test` (Node, pure logic) | 69 |
-| `tests/browser-smoke.js` | 330 |
+| `tests/browser-smoke.js` | 340 |
 
 **Run the browser suite with the page visible and focused.** Its waits are
 counted in animation frames. A backgrounded tab throttles
@@ -478,7 +482,12 @@ is not on screen) fires no frames at all. In Playwright, call
 suite now fails saying so; if the budget guard trips it reports the frame rate
 it saw.
 
-The suite runs about four minutes. Kick it off asynchronously and poll:
+A Playwright tab that has been open for many runs can also be throttled by
+Chromium to a frame or two a second while still reporting itself visible and
+focused; the budget guard then fires "at 1.0fps". Open a fresh tab for each run
+and measure `requestAnimationFrame` for a second before starting.
+
+The suite runs about six minutes. Kick it off asynchronously and poll:
 
 ```js
 window.__r = null;

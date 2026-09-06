@@ -175,6 +175,12 @@ export function keyLabel(code) {
 
 export const actionLabel = (id) => codesFor(id).map(keyLabel).join(' / ');
 
+/**
+ * The one key a hint should name: "hold E", "press B". Every on-screen hint
+ * goes through this, so a rebound key is never advertised by its old name.
+ */
+export const primaryLabel = (id) => keyLabel(codesFor(id)[0]);
+
 // The browser must not scroll, quick-find or reload on a key the game uses,
 // whatever the player has bound it to.
 setSwallowPredicate((code) => boundCodes().has(code));

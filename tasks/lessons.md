@@ -395,3 +395,37 @@ good measure.
 
 **Rule:** when a test sets up a prop to provoke behaviour, assert the
 behaviour. The prop is scaffolding; the world is allowed to supply its own.
+
+### A wall-clock probe after world generation reads the frame before
+
+Hand probes of the menu fixes gave contradictory answers — "unpaused, but
+time frozen", "loaded, but still on the title" — until sampling every 50ms
+showed that for about half a second after `newGame()` or a slot load the
+frames are slow, and a `sleep(300)` read state before the next frame had
+processed the click. The smoke suite never saw this because its waits count
+frames. Reproduce with frame-counted waits, or expect to chase ghosts.
+
+**Rule:** in a game loop, "after" means "after the next frame", not "after N
+milliseconds". Wait on frames.
+
+### A modal drawn over live buttons is not a modal
+
+The delete confirmation was painted over the slot list, but the immediate-mode
+buttons under it were still evaluated first and `clicked()` does not consume
+the press, so KEEP and a LOAD underneath could both fire on one click. Codex
+caught it in review. The rows are now drawn disabled while the dialog is up.
+
+**Rule:** with immediate-mode UI, a dialog has to disable what it covers, not
+just paint over it.
+
+### "Visible and focused" is not "running at 60fps"
+
+A Playwright tab that had hosted six full suite runs dropped to one to three
+animation frames a second while `document.visibilityState` said "visible" and
+`hasFocus()` said true. CPU was at 5%. A fresh tab in the same browser ran at
+60. The budget guard reported it correctly ("451 frames at 1.0fps — a
+throttled tab, not a stuck loop"), which is the only reason this cost minutes
+rather than an hour.
+
+**Rule:** measure the frame rate for a second before starting a long browser
+run, and start each run in a fresh tab.

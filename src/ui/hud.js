@@ -32,6 +32,7 @@ import { ITEMS } from '../game/items.js';
 import {
   C, panel, bar, uiMouse, inside, clicked, claim, UI_KIT, beginUiFrame, button, drawCursor,
 } from './kit.js';
+import { primaryLabel } from '../core/bindings.js';
 
 export { uiMouse };
 
@@ -80,7 +81,8 @@ export function drawHUD(ctx, deviceW, deviceH, interactive = true) {
   else if (G.ui.panel === 'controls') drawControlsPanel(ctx, W, H, () => { G.ui.panel = null; });
 
   if (p.dead || p.downed) drawDeath(ctx, W, H);
-  if (G.paused) drawPause(ctx, W, H);
+  // The controls panel opened from the pause menu sits in front of it.
+  if (G.paused && G.ui.panel !== 'controls') drawPause(ctx, W, H);
 
   drawCursor(ctx);
 }
@@ -137,7 +139,7 @@ function drawVitals(ctx, W, H) {
   const held = (id) => countRes(p.bag, id) + countRes(p.hotbar, id);
   const bandages = held('bandage'), kits = held('medkit');
   ctx.fillStyle = bandages + kits > 0 ? C.text : C.dim;
-  ctx.fillText(`Q  HEAL   bandage ${bandages}   medkit ${kits}`, x, y + 74);
+  ctx.fillText(`${primaryLabel('useHeal').toUpperCase()}  HEAL   bandage ${bandages}   medkit ${kits}`, x, y + 74);
 
   if (p.skillPoints > 0) {
     ctx.fillStyle = C.gold;
@@ -588,7 +590,11 @@ function drawTopCentre(ctx, W, H) {
   if (!G.ui.panel && !G.ui.buildMode) {
     ctx.font = '10px "Courier New", monospace';
     ctx.fillStyle = 'rgba(125,143,104,0.75)';
-    ctx.fillText('B BUILD   ·   C CRAFT   ·   TAB CHARACTER   ·   M MAP   ·   E INTERACT   ·   Q HEAL   ·   ESC MENU', cx, H - 14);
+    const K = (id) => primaryLabel(id).toUpperCase();
+    ctx.fillText(
+      `${K('build')} BUILD   ·   ${K('craft')} CRAFT   ·   ${K('character')} CHARACTER   ·   ${K('map')} MAP   ·   ${K('interact')} INTERACT   ·   ${K('useHeal')} HEAL   ·   ESC MENU`,
+      cx, H - 14,
+    );
   }
   ctx.textAlign = 'left';
 }
@@ -1176,7 +1182,7 @@ function drawCraftPanel(ctx, W, H) {
 
   const bench = nearWorkbench(G.player.x, G.player.y);
   const tier = bench ? bench.tier : 0;
-  panel(ctx, x, y, w, h, `CRAFTING  —  ${bench ? `Workbench ${tier === 2 ? 'II' : 'I'} in range` : 'no workbench nearby'}  —  C to close`);
+  panel(ctx, x, y, w, h, `CRAFTING  —  ${bench ? `Workbench ${tier === 2 ? 'II' : 'I'} in range` : 'no workbench nearby'}  —  ${primaryLabel('craft')} to close`);
 
   ctx.font = '11px "Courier New", monospace';
   ctx.fillStyle = C.dim;
@@ -1337,7 +1343,7 @@ function drawDeath(ctx, W, H) {
     ctx.fillText('YOU ARE DOWN', W / 2, H / 2 - 20);
     ctx.font = '15px "Courier New", monospace';
     ctx.fillStyle = C.text;
-    ctx.fillText('A teammate can hold E beside you to get you up.', W / 2, H / 2 + 16);
+    ctx.fillText(`A teammate can hold ${primaryLabel('interact')} beside you to get you up.`, W / 2, H / 2 + 16);
     ctx.fillStyle = C.dim;
     ctx.font = '13px "Courier New", monospace';
     ctx.fillText(`${Math.ceil(p.downT)}s before you bleed out`, W / 2, H / 2 + 44);
@@ -1388,12 +1394,21 @@ function drawPause(ctx, W, H) {
 
   const bw = w - 60, bx = x + 30;
   let by = y + 106;
+  // Each button's rectangle is recorded for the browser suite, like the menu's.
+  const rec = (key) => { G.menu.rects[`PAUSE:${key}`] = { x: bx, y: by, w: bw, h: 34 }; };
+  rec('RESUME');
   if (button(ctx, bx, by, bw, 34, 'RESUME  (ESC)')) { G.paused = false; }
   by += 44;
-  if (button(ctx, bx, by, bw, 34, 'SAVE GAME  (F5)')) { pauseActions.save = true; }
+  rec('SAVE');
+  if (button(ctx, bx, by, bw, 34, `SAVE GAME  (${primaryLabel('save').toUpperCase()})`)) { pauseActions.save = true; }
   by += 44;
-  if (button(ctx, bx, by, bw, 34, 'CONTROLS')) { G.paused = false; G.ui.panel = 'controls'; }
+  // Opens the controls panel *over* the pause: the world stays stopped, and
+  // BACK returns here. Unpausing to show it let enemies act on a player who
+  // could not answer.
+  rec('CONTROLS');
+  if (button(ctx, bx, by, bw, 34, 'CONTROLS')) { G.ui.panel = 'controls'; }
   by += 44;
+  rec('QUIT');
   if (button(ctx, bx, by, bw, 34, 'QUIT TO TITLE', { sub: 'saves first', color: C.gold })) { pauseActions.quit = true; }
   by += 48;
   ctx.font = '10px "Courier New", monospace';

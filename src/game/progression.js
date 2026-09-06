@@ -12,6 +12,7 @@ import {
   ATTRS, PERKS_BY_ID, recomputeStats, canRaiseAttr, perkStatus, attrCost, perkCost,
 } from './perks.js';
 import { refreshAllSurvivors } from './survivors.js';
+import { primaryLabel } from '../core/bindings.js';
 
 /** Points awarded for reaching a given level. Every fifth level pays double. */
 export const pointsForLevel = (level) => (level % 5 === 0 ? 2 : 1);
@@ -39,7 +40,7 @@ function onLevelUp(p, levels) {
   FX.text(p.x, p.y - 46, `LEVEL ${p.level}`, '#ffe08a', 18, -28, 1.6);
   if (isLocal(p)) {
     notify(
-      `LEVEL ${p.level} — ${p.skillPoints} skill point${p.skillPoints === 1 ? '' : 's'} to spend (TAB)`,
+      `LEVEL ${p.level} — ${p.skillPoints} skill point${p.skillPoints === 1 ? '' : 's'} to spend (${primaryLabel('character').toUpperCase()})`,
       '#ffe08a', true,
     );
   } else {

@@ -43,8 +43,16 @@ export function listSlots() {
 
 export const slotById = (id) => readIndex().slots.find((s) => s.id === id) || null;
 
-/** The slot CONTINUE would open: the one played most recently. */
+/**
+ * The slot CONTINUE would open: the one the player last chose. Loading a slot
+ * marks it current even before it saves, so a refresh straight after LOAD
+ * still comes back to the game that was picked, not to whichever one happened
+ * to be written last.
+ */
 export function latestSlot() {
+  const idx = readIndex();
+  const current = idx.slots.find((s) => s.id === idx.current);
+  if (current) return current;
   const all = listSlots();
   return all.length ? all[0] : null;
 }

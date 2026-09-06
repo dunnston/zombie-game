@@ -228,6 +228,10 @@ function drawSlots(ctx, W, H) {
   }
   G.menu.scroll = clamp(G.menu.scroll, 0, maxScroll);
 
+  // While the delete confirmation is up, everything behind it is inert: a
+  // click meant for KEEP must not also land on a LOAD underneath.
+  const modal = !!G.menu.confirmDelete;
+
   ctx.save();
   ctx.beginPath();
   ctx.rect(x, y + 32, w, listH);
@@ -249,10 +253,10 @@ function drawSlots(ctx, W, H) {
         x + 20, ry + 42,
       );
       const bx = x + w - 20 - 84 * 2;
-      if (menuButton(ctx, `LOAD:${s.id}`, bx, ry + 13, 76, 32, 'LOAD', { center: true, color: C.accent })) {
+      if (menuButton(ctx, `LOAD:${s.id}`, bx, ry + 13, 76, 32, 'LOAD', { center: true, color: C.accent, enabled: !modal })) {
         if (loadSlot(s.id)) seedLoot((G.world.seed ^ 0x9E3779B9) >>> 0);
       }
-      if (menuButton(ctx, `DELETE:${s.id}`, bx + 84, ry + 13, 76, 32, 'DELETE', { center: true, color: C.warn })) {
+      if (menuButton(ctx, `DELETE:${s.id}`, bx + 84, ry + 13, 76, 32, 'DELETE', { center: true, color: C.warn, enabled: !modal })) {
         G.menu.confirmDelete = s.id;
       }
     }
@@ -268,8 +272,8 @@ function drawSlots(ctx, W, H) {
     ctx.textAlign = 'left';
   }
 
-  if (menuButton(ctx, 'BACK', x + 20, y + h - 60, 120, 40, 'BACK', { center: true })) goto('main');
-  if (menuButton(ctx, 'NEW GAME', x + w - 160, y + h - 60, 140, 40, 'NEW GAME', { center: true })) goto('new');
+  if (menuButton(ctx, 'BACK', x + 20, y + h - 60, 120, 40, 'BACK', { center: true, enabled: !modal })) goto('main');
+  if (menuButton(ctx, 'NEW GAME', x + w - 160, y + h - 60, 140, 40, 'NEW GAME', { center: true, enabled: !modal })) goto('new');
 
   if (G.menu.confirmDelete) drawConfirmDelete(ctx, W, H, slots.find((s) => s.id === G.menu.confirmDelete));
 }

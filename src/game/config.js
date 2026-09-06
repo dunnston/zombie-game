@@ -236,7 +236,7 @@ export const STRUCTURES = {
   gate: {
     id: 'gate', name: 'Gate', cost: { wood: 22, scrap: 12 }, hp: 560,
     solid: true, tier: 1, threat: 1.5, gate: true,
-    desc: 'Stand next to it and press E to open or close.',
+    desc: 'Stand next to it and interact to open or close.',
   },
   spike: {
     id: 'spike', name: 'Spike Trap', cost: { wood: 12, scrap: 10 }, hp: 200,

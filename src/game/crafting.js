@@ -11,6 +11,7 @@ import {
   ITEMS, slotsAdd, firstEmpty, packAllowance, stackLimit, slotsWeight, itemWeight,
 } from './items.js';
 import { spawnEntryPickup } from './loot.js';
+import { primaryLabel } from '../core/bindings.js';
 
 /** The prefixed entry id for an item, so it can be spawned as a ground pickup. */
 function entryIdFor(id) {
@@ -87,7 +88,7 @@ export function craft(r, benchTier, p = G.player) {
     label = `${w.name} crafted`;
   } else if (r.give.armor) {
     orGround(r.give.armor, 1, slotsAdd(p.bag, r.give.armor, 1));
-    label = `${GEAR[r.give.armor].name} crafted — equip it from your pack (I)`;
+    label = `${GEAR[r.give.armor].name} crafted — equip it from your pack (${primaryLabel('inventory')})`;
   } else if (r.give.item) {
     orGround(r.give.item, r.give.n, slotsAdd(p.bag, r.give.item, r.give.n));
     label = `${CONSUMABLES[r.give.item].name} x${r.give.n}`;

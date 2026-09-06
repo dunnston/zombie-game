@@ -191,19 +191,103 @@
       ok('the rebound key moves the player and the old one does not', movedL > 25 && Math.abs(movedD) < 4,
         `L ${Math.round(movedL)}px, D ${Math.round(movedD)}px`);
 
-      // The pause menu opens the same panel in-game; RESET puts everything back.
-      G.ui.panel = 'controls';
+      // Hints follow the bindings: with Move right on L, the game says so.
+      ok('on-screen hints name the key that is actually bound',
+        !!G.tutorial.hint && G.tutorial.hint.startsWith('WASL to move'), G.tutorial.hint);
+      {
+        G.stash.wood = (G.stash.wood || 0) + 200; G.stash.scrap = (G.stash.scrap || 0) + 200;
+        d.binds.rebind('withdraw', 'KeyY');
+        const stx = Math.floor(G.player.x / 32), sty = Math.floor(G.player.y / 32);
+        let stash = null;
+        for (let dx = 2; dx < 7 && !stash; dx++) {
+          if (api.canPlace('stash', stx + dx, sty).ok) stash = api.placeStructure('stash', stx + dx, sty);
+        }
+        if (stash) {
+          d.teleport(stash.x - 40, stash.y);
+          await frames(3);
+          const hv = api.findInteractable();
+          ok('the stash prompt names the rebound key', !!hv && hv.kind === 'stash' && hv.label.includes('Y: take ammo'), hv && hv.label);
+          api.demolishStructure(stash);
+        } else {
+          ok('the stash prompt names the rebound key', false, 'nowhere to place a stash');
+        }
+      }
+
+      // The pause menu opens the same panel in-game, over the pause: the world
+      // must stay stopped while you are in there (the first review of this PR
+      // found it running), and BACK returns to the pause menu.
+      d.tap('Escape');
       await frames(3);
+      ok('Escape pauses', G.paused);
+      await click('PAUSE:CONTROLS');
+      // G.time is session time and always runs; G.playtime only accrues while
+      // the world is actually stepping, which is what "paused" has to mean here.
+      const played = G.playtime;
+      const eP = api.spawnEnemy('walker', G.player.x + 200, G.player.y, { aggro: true });
+      const ex = eP.x;
+      await seconds(0.5);
+      ok('CONTROLS from the pause menu keeps the world paused',
+        G.ui.panel === 'controls' && G.paused && G.playtime === played && eP.x === ex,
+        `paused=${G.paused} playtime moved ${(G.playtime - played).toFixed(2)}s, walker moved ${Math.round(Math.abs(eP.x - ex))}px`);
+      G.enemies.length = 0;
       await click('RESET TO DEFAULTS');
       ok('RESET TO DEFAULTS restores the shipped keys', d.binds.codesFor('moveRight').join() === 'KeyD,ArrowRight' && d.binds.ACTIONS.every((a) => d.binds.codesFor(a.id).join() === a.def.join()));
       await click('ROW:interact');
       d.tap('Escape');
       await frames(3);
       ok('Escape cancels a pending rebind before it closes the panel', G.menu.pendingRebind === null && G.ui.panel === 'controls');
-      d.tap('Escape');
-      await frames(3);
-      ok('...and then closes the panel', G.ui.panel === null);
+      await click('BACK');
+      ok('BACK from the panel returns to the pause menu', G.ui.panel === null && G.paused && !!d.menu.rects()['PAUSE:RESUME']);
+      await click('PAUSE:RESUME');
+      ok('RESUME unpauses', !G.paused);
       d.god(false);
+    }
+
+    // ------------------------------------- 0b. slots: confirm and continue ---
+    // Two more review findings: a click meant for the delete confirmation
+    // must not reach the row underneath, and CONTINUE must follow the slot
+    // the player last chose, not the one that happened to be written last.
+    {
+      const click = async (key) => {
+        const r = d.menu.rects()[key];
+        if (!r) return false;
+        d.mouseMove(r.x + r.w / 2, r.y + r.h / 2);
+        await frames(2);
+        d.mouseDown(); d.mouseUp();
+        await frames(3);
+        return true;
+      };
+      d.toTitle(false);
+      await frames(3);
+      await click('NEW GAME'); d.menu.setText('Older run'); await click('START'); await frames(4);
+      const older = G.slotId;
+      d.toTitle(true); await frames(3);
+      await click('NEW GAME'); d.menu.setText('Newer run'); await click('START'); await frames(4);
+      const newer = G.slotId;
+      d.toTitle(true); await frames(3);
+      ok('two fresh games, the newer written last', !!older && !!newer && d.saves.latestSlot().id === newer);
+
+      await click('LOAD GAME');
+      await click(`LOAD:${older}`);
+      await frames(4);
+      ok('LOAD opens the older game', G.scene === 'game' && G.slotId === older);
+      d.toTitle(false);   // leave without saving, as a browser refresh would
+      await frames(3);
+      ok('CONTINUE follows the game last chosen, not the one last written', d.saves.latestSlot().id === older,
+        d.saves.latestSlot().name);
+
+      await click('LOAD GAME');
+      await click(`DELETE:${newer}`);
+      ok('the delete confirmation is up', !!d.menu.rects().KEEP);
+      const loaded = await click(`LOAD:${older}`);
+      await frames(3);
+      ok('a click on a row behind the confirmation does nothing', loaded && G.scene === 'title' && !!d.menu.rects().KEEP && G.menu.confirmDelete === newer,
+        `scene=${G.scene} confirm=${G.menu.confirmDelete === newer}`);
+      await click('KEEP');
+      d.saves.deleteSlot(older); d.saves.deleteSlot(newer);
+      G.slotId = null;
+      d.toTitle(false);
+      await frames(2);
     }
 
     // ---------------------------------------------------------- 1. boot ----
