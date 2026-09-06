@@ -91,14 +91,37 @@
     return G.structures.length;
   };
 
+  /**
+   * Walks the player one second back towards the base on foot. Without this the
+   * harness silently stops measuring after the first death: the player respawns
+   * across the map, never finds a target within 250px again, and every
+   * remaining sample is a flat line that looks like a stalled raid.
+   */
+  async function walkTowards(d, G, x, y) {
+    const p = G.player;
+    const dx = x - p.x, dy = y - p.y;
+    const keys = [];
+    if (Math.abs(dx) > 40) keys.push(dx > 0 ? 'KeyD' : 'KeyA');
+    if (Math.abs(dy) > 40) keys.push(dy > 0 ? 'KeyS' : 'KeyW');
+    if (!keys.length) { await wait(1000); return; }
+    for (const k of keys) d.key(k, true);
+    d.key('ShiftLeft', true);
+    await wait(1000);
+    for (const k of keys) d.key(k, false);
+    d.key('ShiftLeft', false);
+  }
+
   /** Plays the raid out, shooting the nearest in-range enemy each tick. */
   window.playRaid = async function playRaid(maxSeconds = 120) {
-    const d = D(), G = d.G, p = G.player;
+    const d = D(), G = d.G;
+    let p = G.player;
     const startStructures = G.structures.length;
+    const home = G.raid ? { x: G.raid.cx, y: G.raid.cy } : { x: p.x, y: p.y };
     const log = [];
     let sec = 0;
 
     for (let i = 0; i < maxSeconds; i++) {
+      p = G.player;
       const target = G.enemies
         .filter((e) => !e.dead && Math.hypot(e.x - p.x, e.y - p.y) < 250)
         .sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y))[0];
@@ -109,6 +132,9 @@
         await wait(700);
         d.mouseUp();
         await wait(250);
+      } else if (!p.dead && Math.hypot(p.x - home.x, p.y - home.y) > 200) {
+        // Died and respawned somewhere else — head back to the fight.
+        await walkTowards(d, G, home.x, home.y);
       } else {
         await wait(1000);
       }
