@@ -11,8 +11,14 @@ import { initAudio, resumeAudio } from './core/audio.js';
 import { primeSprites, buildSprites } from './core/sprites.js';
 import { render } from './render/renderer.js';
 import { drawHUD, pauseActions } from './ui/hud.js';
-import { update, newGame, startGame, api } from './game/game.js';
-import { saveGame, clearSave } from './game/save.js';
+import { drawMenu, menuDebug } from './ui/menu.js';
+import { update, newGame, toTitle, api } from './game/game.js';
+import {
+  saveGame, migrateLegacy, listSlots, createSlot, deleteSlot, loadSlot, saveToSlot, latestSlot,
+} from './game/saves.js';
+import {
+  ACTIONS, codesFor, rebind, resetBinds, keyLabel, actionLabel, conflictsFor, loadBinds,
+} from './core/bindings.js';
 import { notify } from './game/state.js';
 
 const canvas = document.getElementById('game');
@@ -40,7 +46,10 @@ primeSprites({ ENEMIES });
 buildSprites();
 initInput(canvas);
 resize();
-startGame(true);
+// The single pre-slot save, if there is one, becomes slot 1. Then the title
+// screen: nothing runs until the player picks a game.
+migrateLegacy();
+G.scene = 'title';
 
 // Audio contexts need a gesture; wire it to the first interaction of any kind.
 const unlock = () => { initAudio(); resumeAudio(); };
@@ -70,6 +79,15 @@ function frame(now) {
   if (fpsAcc > 0.5) { G.fps = fpsFrames / fpsAcc; fpsAcc = 0; fpsFrames = 0; }
 
   resize();
+
+  // On the title there is no world to step: draw the menu, resolve its clicks,
+  // and spend this frame's edges so a click cannot repeat.
+  if (G.scene === 'title') {
+    acc = 0;
+    drawMenu(ctx, canvas.width, canvas.height);
+    endFrame();
+    return;
+  }
 
   // Brief hitstop on heavy impacts.
   let scale = 1;
@@ -103,11 +121,9 @@ function frame(now) {
     pauseActions.save = false;
     notify(saveGame() ? 'Game saved' : 'Save failed', '#b7e08a');
   }
-  if (pauseActions.restart) {
-    pauseActions.restart = false;
-    clearSave();
-    newGame(Math.floor(Math.random() * 0x7fffffff));
-    G.paused = false;
+  if (pauseActions.quit) {
+    pauseActions.quit = false;
+    toTitle(true);
   }
 
   // Only discard the edges once a simulation step has actually seen them.
@@ -138,6 +154,12 @@ window.DEADLINE = {
     G.player.vx = 0; G.player.vy = 0;
   },
   god: (on = true, p = G.player) => { p.godMode = on; },
+
+  // The title screen, save slots and key bindings, for the browser suite.
+  menu: menuDebug,
+  toTitle,
+  saves: { listSlots, createSlot, deleteSlot, loadSlot, saveToSlot, latestSlot },
+  binds: { ACTIONS, codesFor, rebind, resetBinds, keyLabel, actionLabel, conflictsFor, loadBinds },
 
   // Synthetic input, so the test drives the same code path a human does.
   key(code, down = true) {

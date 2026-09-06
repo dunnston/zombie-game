@@ -4,6 +4,7 @@
 import { TILE, TERRAIN, T, WEAPONS, STRUCTURES, ENEMIES } from '../game/config.js';
 import { G, isLocal } from '../game/state.js';
 import { driverOf } from '../game/vehicles.js';
+import { primaryLabel } from '../core/bindings.js';
 import { Sprites, structureSprite } from '../core/sprites.js';
 import { FX } from '../core/particles.js';
 import { hash2, clamp, TAU } from '../core/util.js';
@@ -1126,7 +1127,7 @@ function drawInteractPrompt(ctx) {
   ctx.save();
   ctx.textAlign = 'center';
   ctx.font = 'bold 11px "Courier New", monospace';
-  const label = `E — ${h.label}`;
+  const label = `${primaryLabel('interact')} — ${h.label}`;
   const wpx = ctx.measureText(label).width + 12;
   // Sits well clear of the target so it never covers the player standing beside it.
   const y = ref.y - 46;

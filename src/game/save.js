@@ -1,7 +1,12 @@
-// LocalStorage save/load. The world is regenerated from its seed, so a save is
-// just the deltas: what's been looted, what's been built, and who you are.
+// Save format. The world is regenerated from its seed, so a save is just the
+// deltas: what's been looted, what's been built, and who you are.
+//
+// This file only turns the game into data and data back into the game —
+// serialiseGame() and applySaveData(). Where that data lives (which slot,
+// which key) is saves.js's business, and a guest joining a hosted game will
+// come in through applySaveData too, so the two can never drift.
 
-import { G, notify, structAt } from './state.js';
+import { G, structAt } from './state.js';
 import { createWorld, removeProp } from './world.js';
 import { createPlayer, pickRandomSpawn } from './player.js';
 import { makeStructure } from './building.js';
@@ -39,7 +44,8 @@ import { serialisePressure, loadPressure } from './pressure.js';
 // parallel collections (bag/items/weapons/armors) a v6 save records. There is
 // no sensible way to place a v6 player's belongings into slots without
 // guessing, so those saves are retired rather than half-restored.
-const KEY = 'deadline.save.v7';
+// The single pre-slot save lived here. saves.js migrates it into slot 1.
+export const LEGACY_KEY = 'deadline.save.v7';
 
 /** Where a dead player would come back, and at what health. */
 function resolveRespawn(p) {
@@ -50,24 +56,22 @@ function resolveRespawn(p) {
   return { x: spot.x, y: spot.y, hp: p.maxHp };
 }
 
-export function hasSave() {
-  try { return !!localStorage.getItem(KEY); } catch { return false; }
-}
-
-export function saveGame() {
-  try {
+/** The whole game as plain data. Throws only if there is no game to describe. */
+export function serialiseGame() {
+  {
     const p = G.player;
     // An autosave can land inside the death countdown. Persisting hp: 0 with no
     // death state would restore a player who is walking around dead, so resolve
     // the pending respawn at save time exactly as respawnPlayer would. The
     // backpack has already been dropped and is saved separately, so no
     // consequence is skipped.
-    const resolved = p.dead ? resolveRespawn(p) : { x: p.x, y: p.y, hp: p.hp };
+    const resolved = p.dead || p.downed ? resolveRespawn(p) : { x: p.x, y: p.y, hp: p.hp };
 
     const data = {
       v: G.version,
       seed: G.world.seed,
       time: G.time,
+      playtime: G.playtime || 0,
       threat: G.threat,
       raidsDone: G.raidsDone,
       benchTier: G.benchTier,
@@ -127,25 +131,12 @@ export function saveGame() {
         spawn: p.spawnStructure ? { tx: p.spawnStructure.tx, ty: p.spawnStructure.ty } : null,
       },
     };
-    localStorage.setItem(KEY, JSON.stringify(data));
-    return true;
-  } catch (err) {
-    console.warn('[save] failed', err);
-    return false;
+    return data;
   }
 }
 
-/** Rebuilds G from a save. Returns false if there was nothing usable. */
-export function loadGame() {
-  let data;
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return false;
-    data = JSON.parse(raw);
-  } catch (err) {
-    console.warn('[save] unreadable', err);
-    return false;
-  }
+/** Rebuilds G from save data. Returns false if the data is not usable. */
+export function applySaveData(data) {
   if (!data || data.v !== G.version) return false;
 
   try {
@@ -293,13 +284,12 @@ export function loadGame() {
 
     G.camera.x = p.x;
     G.camera.y = p.y;
+    G.playtime = data.playtime || 0;
+    G.scene = 'game';
+    G.paused = false;
     return true;
   } catch (err) {
     console.warn('[save] load failed', err);
     return false;
   }
-}
-
-export function clearSave() {
-  try { localStorage.removeItem(KEY); notify('Save cleared', '#d9c46a'); } catch { /* ignore */ }
 }

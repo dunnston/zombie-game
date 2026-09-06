@@ -25,107 +25,22 @@ import { dangerAtPx } from '../game/world.js';
 import { clamp, TAU, clock } from '../core/util.js';
 import { sfx } from '../core/audio.js';
 import { drawInventoryPanel } from './inventory.js';
+import { drawControlsPanel } from './menu.js';
 import { ITEMS } from '../game/items.js';
+// The palette, panels, buttons and cursor live in kit.js so the title screen
+// draws in the same style without importing the HUD.
+import {
+  C, panel, bar, uiMouse, inside, clicked, claim, UI_KIT, beginUiFrame, button, drawCursor,
+} from './kit.js';
+import { primaryLabel } from '../core/bindings.js';
 
-const C = {
-  bg: 'rgba(12,16,10,0.92)',
-  bgSoft: 'rgba(12,16,10,0.72)',
-  border: '#4a5a38',
-  borderHi: '#8fae6a',
-  text: '#d5e4c2',
-  dim: '#7d8f68',
-  accent: '#b7e08a',
-  gold: '#e8c86a',
-  warn: '#e05a4a',
-  blue: '#9fd0ff',
-};
+export { uiMouse };
 
 let minimapImg = null;
 let minimapSeed = -1;
 const hitboxes = [];
 
 // ------------------------------------------------------------------ helpers --
-
-function panel(ctx, x, y, w, h, title = null) {
-  ctx.fillStyle = C.bg;
-  ctx.fillRect(x, y, w, h);
-  ctx.strokeStyle = C.border;
-  ctx.lineWidth = 2;
-  ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
-  ctx.fillStyle = 'rgba(143,174,106,0.10)';
-  ctx.fillRect(x + 2, y + 2, w - 4, 22);
-  if (title) {
-    ctx.font = 'bold 13px "Courier New", monospace';
-    ctx.fillStyle = C.borderHi;
-    ctx.fillText(title, x + 10, y + 17);
-  }
-}
-
-function bar(ctx, x, y, w, h, frac, color, bg = '#1a2016') {
-  ctx.fillStyle = bg;
-  ctx.fillRect(x, y, w, h);
-  ctx.fillStyle = color;
-  ctx.fillRect(x, y, w * clamp(frac, 0, 1), h);
-  ctx.strokeStyle = '#00000066';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
-}
-
-/** Mouse position in CSS pixels — the space every UI element is laid out in. */
-export const uiMouse = () => {
-  const s = G.dpr || 1;
-  return { x: Input.mouse.x / s, y: Input.mouse.y / s };
-};
-
-const inside = (x, y, w, h) => {
-  const m = uiMouse();
-  return m.x >= x && m.x <= x + w && m.y >= y && m.y <= y + h;
-};
-
-// False on frames that ran no simulation step: the edges are being held over
-// for the next one, so the UI must draw without consuming them.
-let uiInteractive = true;
-const clicked = () => uiInteractive && Input.mousePressed;
-
-/** Records a screen-space region that swallows clicks from the world. */
-function claim(x, y, w, h) {
-  G.ui.hudRects.push({ x, y, w, h });
-}
-
-// Handed to panels that live in their own module, so they draw in this file's
-// style without importing it — and so `uiInteractive` still gates their input.
-const UI_KIT = {
-  panel: (...a) => panel(...a),
-  button: (...a) => button(...a),
-  claim: (...a) => claim(...a),
-  uiMouse: () => uiMouse(),
-  mouseDown: () => uiInteractive && Input.mousePressed,
-  mouseUp: () => uiInteractive && Input.mouseReleased,
-};
-
-/** Immediate-mode button. Returns true on the frame it is clicked. */
-function button(ctx, x, y, w, h, label, opts = {}) {
-  const { enabled = true, sub = null, color = C.text, small = false } = opts;
-  const hot = inside(x, y, w, h);
-  const hit = hot && enabled && clicked();
-
-  ctx.fillStyle = !enabled ? 'rgba(30,34,26,0.7)' : hot ? 'rgba(90,120,66,0.45)' : 'rgba(30,40,24,0.75)';
-  ctx.fillRect(x, y, w, h);
-  ctx.strokeStyle = !enabled ? '#333d2a' : hot ? C.borderHi : C.border;
-  ctx.lineWidth = 1.5;
-  ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
-
-  ctx.font = `bold ${small ? 11 : 12}px "Courier New", monospace`;
-  ctx.fillStyle = enabled ? color : '#5c6650';
-  ctx.fillText(label, x + 9, y + (sub ? 16 : h / 2 + 4));
-  if (sub) {
-    ctx.font = '10px "Courier New", monospace';
-    ctx.fillStyle = enabled ? C.dim : '#4c5544';
-    ctx.fillText(sub, x + 9, y + 29);
-  }
-  if (hit) sfx('ui');
-  return hit;
-}
 
 function costString(cost) {
   return Object.entries(cost)
@@ -141,16 +56,9 @@ function costAffordable(cost) {
 
 export function drawHUD(ctx, deviceW, deviceH, interactive = true) {
   hitboxes.length = 0;
-  uiInteractive = interactive;
-  G.ui.hudRects = [];
   // The whole UI is authored in CSS pixels and scaled up for HiDPI displays,
   // so text stays legible regardless of devicePixelRatio.
-  const S = G.dpr || 1;
-  ctx.setTransform(S, 0, 0, S, 0, 0);
-  ctx.imageSmoothingEnabled = true;
-  const W = deviceW / S, H = deviceH / S;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'alphabetic';
+  const { W, H } = beginUiFrame(ctx, deviceW, deviceH, interactive);
 
   const p = G.player;
   G.ui.dangerTier = dangerAtPx(G.world, p.x, p.y);
@@ -170,9 +78,11 @@ export function drawHUD(ctx, deviceW, deviceH, interactive = true) {
   else if (G.ui.panel === 'inv') drawInventoryPanel(ctx, W, H, UI_KIT);
   else if (G.ui.panel === 'craft') drawCraftPanel(ctx, W, H);
   else if (G.ui.panel === 'map') drawMapPanel(ctx, W, H);
+  else if (G.ui.panel === 'controls') drawControlsPanel(ctx, W, H, () => { G.ui.panel = null; });
 
   if (p.dead || p.downed) drawDeath(ctx, W, H);
-  if (G.paused) drawPause(ctx, W, H);
+  // The controls panel opened from the pause menu sits in front of it.
+  if (G.paused && G.ui.panel !== 'controls') drawPause(ctx, W, H);
 
   drawCursor(ctx);
 }
@@ -229,7 +139,7 @@ function drawVitals(ctx, W, H) {
   const held = (id) => countRes(p.bag, id) + countRes(p.hotbar, id);
   const bandages = held('bandage'), kits = held('medkit');
   ctx.fillStyle = bandages + kits > 0 ? C.text : C.dim;
-  ctx.fillText(`Q  HEAL   bandage ${bandages}   medkit ${kits}`, x, y + 74);
+  ctx.fillText(`${primaryLabel('useHeal').toUpperCase()}  HEAL   bandage ${bandages}   medkit ${kits}`, x, y + 74);
 
   if (p.skillPoints > 0) {
     ctx.fillStyle = C.gold;
@@ -680,7 +590,11 @@ function drawTopCentre(ctx, W, H) {
   if (!G.ui.panel && !G.ui.buildMode) {
     ctx.font = '10px "Courier New", monospace';
     ctx.fillStyle = 'rgba(125,143,104,0.75)';
-    ctx.fillText('B BUILD   ·   C CRAFT   ·   TAB CHARACTER   ·   M MAP   ·   E INTERACT   ·   Q HEAL   ·   ESC MENU', cx, H - 14);
+    const K = (id) => primaryLabel(id).toUpperCase();
+    ctx.fillText(
+      `${K('build')} BUILD   ·   ${K('craft')} CRAFT   ·   ${K('character')} CHARACTER   ·   ${K('map')} MAP   ·   ${K('interact')} INTERACT   ·   ${K('useHeal')} HEAL   ·   ESC MENU`,
+      cx, H - 14,
+    );
   }
   ctx.textAlign = 'left';
 }
@@ -1268,7 +1182,7 @@ function drawCraftPanel(ctx, W, H) {
 
   const bench = nearWorkbench(G.player.x, G.player.y);
   const tier = bench ? bench.tier : 0;
-  panel(ctx, x, y, w, h, `CRAFTING  —  ${bench ? `Workbench ${tier === 2 ? 'II' : 'I'} in range` : 'no workbench nearby'}  —  C to close`);
+  panel(ctx, x, y, w, h, `CRAFTING  —  ${bench ? `Workbench ${tier === 2 ? 'II' : 'I'} in range` : 'no workbench nearby'}  —  ${primaryLabel('craft')} to close`);
 
   ctx.font = '11px "Courier New", monospace';
   ctx.fillStyle = C.dim;
@@ -1429,7 +1343,7 @@ function drawDeath(ctx, W, H) {
     ctx.fillText('YOU ARE DOWN', W / 2, H / 2 - 20);
     ctx.font = '15px "Courier New", monospace';
     ctx.fillStyle = C.text;
-    ctx.fillText('A teammate can hold E beside you to get you up.', W / 2, H / 2 + 16);
+    ctx.fillText(`A teammate can hold ${primaryLabel('interact')} beside you to get you up.`, W / 2, H / 2 + 16);
     ctx.fillStyle = C.dim;
     ctx.font = '13px "Courier New", monospace';
     ctx.fillText(`${Math.ceil(p.downT)}s before you bleed out`, W / 2, H / 2 + 44);
@@ -1458,12 +1372,14 @@ function drawDeath(ctx, W, H) {
 
 // -------------------------------------------------------------------- pause --
 
-export const pauseActions = { restart: false, clear: false };
+// Resolved by main.js after the UI has drawn, so saving and quitting happen
+// outside the draw pass.
+export const pauseActions = { save: false, quit: false };
 
 function drawPause(ctx, W, H) {
   ctx.fillStyle = 'rgba(6,8,5,0.82)';
   ctx.fillRect(0, 0, W, H);
-  const w = 380, h = 300;
+  const w = 380, h = 344;
   const x = (W - w) / 2, y = (H - h) / 2;
   panel(ctx, x, y, w, h, 'PAUSED');
 
@@ -1478,39 +1394,26 @@ function drawPause(ctx, W, H) {
 
   const bw = w - 60, bx = x + 30;
   let by = y + 106;
+  // Each button's rectangle is recorded for the browser suite, like the menu's.
+  const rec = (key) => { G.menu.rects[`PAUSE:${key}`] = { x: bx, y: by, w: bw, h: 34 }; };
+  rec('RESUME');
   if (button(ctx, bx, by, bw, 34, 'RESUME  (ESC)')) { G.paused = false; }
   by += 44;
-  if (button(ctx, bx, by, bw, 34, 'SAVE GAME  (F5)')) { pauseActions.save = true; }
+  rec('SAVE');
+  if (button(ctx, bx, by, bw, 34, `SAVE GAME  (${primaryLabel('save').toUpperCase()})`)) { pauseActions.save = true; }
   by += 44;
-  if (button(ctx, bx, by, bw, 34, 'NEW GAME — abandons this run', { color: C.warn })) { pauseActions.restart = true; }
+  // Opens the controls panel *over* the pause: the world stays stopped, and
+  // BACK returns here. Unpausing to show it let enemies act on a player who
+  // could not answer.
+  rec('CONTROLS');
+  if (button(ctx, bx, by, bw, 34, 'CONTROLS')) { G.ui.panel = 'controls'; }
   by += 44;
+  rec('QUIT');
+  if (button(ctx, bx, by, bw, 34, 'QUIT TO TITLE', { sub: 'saves first', color: C.gold })) { pauseActions.quit = true; }
+  by += 48;
   ctx.font = '10px "Courier New", monospace';
   ctx.fillStyle = C.dim;
   ctx.textAlign = 'center';
-  ctx.fillText('P mutes audio  ·  autosaves every 25s', W / 2, by + 16);
+  ctx.fillText(G.slotId ? 'autosaves every 25s' : 'this game has no save slot yet — SAVE GAME makes one', W / 2, by + 16);
   ctx.textAlign = 'left';
-}
-
-// ------------------------------------------------------------------- cursor --
-
-function drawCursor(ctx) {
-  const { x, y } = uiMouse();
-  const p = G.player;
-  const spread = p && !p.dead ? clamp((currentWeapon(p).spread || 0) * p.spreadMul * 260 + p.recoil * 200, 4, 46) : 8;
-
-  ctx.save();
-  ctx.strokeStyle = G.ui.buildMode ? '#b7e08a' : 'rgba(232,240,216,0.9)';
-  ctx.lineWidth = 1.6;
-  ctx.beginPath();
-  ctx.arc(x, y, 2.5, 0, TAU);
-  ctx.stroke();
-  const s = spread;
-  ctx.globalAlpha = 0.75;
-  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-    ctx.beginPath();
-    ctx.moveTo(x + dx * s, y + dy * s);
-    ctx.lineTo(x + dx * (s + 7), y + dy * (s + 7));
-    ctx.stroke();
-  }
-  ctx.restore();
 }

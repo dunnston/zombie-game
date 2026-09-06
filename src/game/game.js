@@ -64,19 +64,23 @@ import { cancelDrag, lastZones, isDragging } from '../ui/inventory.js';
 import { updateFX, clearFX } from '../core/particles.js';
 import * as FX from '../core/particles.js';
 // Only UI keys are read here — panels, build mode, pause. Everything the
-// simulation acts on goes through intent.js.
+// simulation acts on goes through intent.js. Both ask for actions, not keys.
 import { Input, keyTap } from '../core/input.js';
+import { actTap, primaryLabel } from '../core/bindings.js';
 import { sfx, resumeAudio, toggleMute } from '../core/audio.js';
-import { saveGame, loadGame, hasSave, clearSave } from './save.js';
+import { saveGame, loadGame, hasSave, clearSave } from './saves.js';
 import { clamp, dist2, smooth, lerp } from '../core/util.js';
 
+// Hints name keys through the bindings, so they follow whatever the player
+// has set. `text` is a function for that reason.
+const k = primaryLabel;
 export const TUTORIAL = [
-  { id: 'move', text: 'WASD to move  ·  SHIFT to sprint  ·  mouse to aim' },
-  { id: 'attack', text: 'LEFT CLICK to swing your pipe' },
-  { id: 'loot', text: 'Find a container and hold E to search it' },
-  { id: 'build', text: 'Press B to build  ·  place a BEDROLL to set your respawn' },
-  { id: 'bench', text: 'Build a WORKBENCH, then press C beside it to craft' },
-  { id: 'threat', text: 'Watch the THREAT bar — activity draws a horde to your base' },
+  { id: 'move', text: () => `${k('moveUp')}${k('moveLeft')}${k('moveDown')}${k('moveRight')} to move  ·  ${k('sprint').toUpperCase()} to sprint  ·  mouse to aim` },
+  { id: 'attack', text: () => 'LEFT CLICK to swing your pipe' },
+  { id: 'loot', text: () => `Find a container and hold ${k('interact')} to search it` },
+  { id: 'build', text: () => `Press ${k('build')} to build  ·  place a BEDROLL to set your respawn` },
+  { id: 'bench', text: () => `Build a WORKBENCH, then press ${k('craft')} beside it to craft` },
+  { id: 'threat', text: () => 'Watch the THREAT bar — activity draws a horde to your base' },
 ];
 
 export function newGame(seed = 20240917) {
@@ -115,6 +119,12 @@ export function newGame(seed = 20240917) {
     levelChoices: null, tab: 0, hudRects: [],
   };
   G.paused = false;
+  G.scene = 'game';
+  G.playtime = 0;
+  G.mode = 'solo';
+  // The slot is the caller's decision: the title screen makes one, the tests
+  // do not, and a slotless game gets one the first time it saves.
+  G.slotId = null;
 
   const spot = pickRandomSpawn();
   G.player = createPlayer(spot.x, spot.y);
@@ -204,13 +214,27 @@ export function spawnVehicles() {
   return G.vehicles.length;
 }
 
+/** CONTINUE: the most recently played slot, or a fresh game if there is none. */
 export function startGame(preferSave = true) {
   if (preferSave && hasSave() && loadGame()) {
     seedLoot((G.world.seed ^ 0x9E3779B9) >>> 0);
     notify('Save loaded', '#b7e08a', true);
     return;
   }
-  newGame();
+  newGame(Math.floor(Math.random() * 0x7fffffff));
+}
+
+/** Back to the title screen. The game in progress is saved first if it has a slot. */
+export function toTitle(save = true) {
+  if (save && G.scene === 'game' && G.slotId && G.world && G.player) saveGame();
+  cancelDrag();
+  G.paused = false;
+  G.ui.panel = null;
+  G.ui.buildMode = false;
+  G.scene = 'title';
+  G.menu.screen = 'main';
+  G.menu.pendingRebind = null;
+  G.menu.confirmDelete = null;
 }
 
 // ------------------------------------------------------------- interaction --
@@ -282,8 +306,8 @@ export function findInteractable(p = G.player) {
     if (s.destroyed) continue;
     const d = dist2(p.x, p.y, s.x, s.y);
     if (d >= bestD) continue;
-    if (s.type === 'stash') { bestD = d; best = { kind: 'stash', ref: s, label: 'Deposit all  ·  F: take ammo' }; }
-    else if (s.type === 'workbench') { bestD = d; best = { kind: 'bench', ref: s, label: s.tier >= 2 ? 'Workbench II  ·  C: craft' : 'Upgrade Workbench  ·  C: craft' }; }
+    if (s.type === 'stash') { bestD = d; best = { kind: 'stash', ref: s, label: `Deposit all  ·  ${k('withdraw')}: take ammo` }; }
+    else if (s.type === 'workbench') { bestD = d; best = { kind: 'bench', ref: s, label: s.tier >= 2 ? `Workbench II  ·  ${k('craft')}: craft` : `Upgrade Workbench  ·  ${k('craft')}: craft` }; }
     else if (s.type === 'gate') { bestD = d; best = { kind: 'gate', ref: s, label: s.open ? 'Close gate' : 'Open gate' }; }
     else if (s.type === 'generator') {
       bestD = d;
@@ -406,8 +430,10 @@ function updateBuildMode(p) {
     G.ui.buildIndex = (G.ui.buildIndex + Input.wheel + menu.length) % menu.length;
     sfx('ui');
   }
+  // 1–6 follow the hotbar bindings; 7–9 have no action of their own.
   for (let i = 0; i < 9; i++) {
-    if (keyTap(`Digit${i + 1}`) && i < menu.length) { G.ui.buildIndex = i; sfx('ui'); }
+    const tapped = i < 6 ? actTap(`slot${i + 1}`) : keyTap(`Digit${i + 1}`);
+    if (tapped && i < menu.length) { G.ui.buildIndex = i; sfx('ui'); }
   }
   // B and Escape are handled by the caller; only right-click exits from here.
   if (Input.rightPressed) {
@@ -471,7 +497,7 @@ export function completeTutorial(id) {
 function updateTutorial(dt) {
   const p = G.player;
   const step = TUTORIAL[G.tutorial.step];
-  G.tutorial.hint = step ? step.text : null;
+  G.tutorial.hint = step ? step.text() : null;
   if (!step) return;
   if (step.id === 'move') {
     G.tutorial.moved = (G.tutorial.moved || 0) + Math.hypot(p.vx, p.vy) * dt;
@@ -595,27 +621,32 @@ export function update(dt) {
   G.ui.placeCd = Math.max(0, (G.ui.placeCd || 0) - dt);
 
   // -------------------------------------------------------- global input --
-  if (keyTap('KeyI')) { setPanel(G.ui.panel === 'inv' ? null : 'inv'); }
-  if (keyTap('KeyM')) { setPanel(G.ui.panel === 'map' ? null : 'map'); }
-  if (keyTap('Tab')) { setPanel(G.ui.panel === 'char' ? null : 'char'); }
-  if (keyTap('KeyP')) { const m = toggleMute(); notify(m ? 'Audio muted' : 'Audio on', '#8a8f84'); }
-  if (keyTap('F5')) { saveGame() ? notify('Game saved', '#b7e08a') : notify('Save failed', '#c96a5a'); }
+  // The controls panel is capturing a key: nothing else may read the keyboard.
+  const rebinding = G.ui.panel === 'controls' && !!G.menu.pendingRebind;
+  if (!rebinding) {
+    if (actTap('inventory')) { setPanel(G.ui.panel === 'inv' ? null : 'inv'); }
+    if (actTap('map')) { setPanel(G.ui.panel === 'map' ? null : 'map'); }
+    if (actTap('character')) { setPanel(G.ui.panel === 'char' ? null : 'char'); }
+    if (actTap('mute')) { const m = toggleMute(); notify(m ? 'Audio muted' : 'Audio on', '#8a8f84'); }
+    if (actTap('save')) { saveGame() ? notify('Game saved', '#b7e08a') : notify('Save failed', '#c96a5a'); }
+  }
 
   if (keyTap('Escape')) {
-    if (G.ui.panel) { setPanel(null); }
+    if (rebinding) { G.menu.pendingRebind = null; sfx('ui'); }
+    else if (G.ui.panel) { setPanel(null); }
     else if (G.ui.buildMode) { G.ui.buildMode = false; sfx('ui'); }
     else { G.paused = !G.paused; sfx('ui'); }
   }
 
   if (G.paused) { updateFX(dt); return; }
+  G.playtime += dt;
 
-  const craftKey = keyTap('KeyC');
-  if (craftKey) { setPanel(G.ui.panel === 'craft' ? null : 'craft'); }
+  if (!rebinding && actTap('craft')) { setPanel(G.ui.panel === 'craft' ? null : 'craft'); }
 
   // Build mode is toggled in exactly one place. Handling B here *and* inside
   // updateBuildMode() meant the same edge-triggered press opened and then
   // immediately closed it, so the advertised key never worked.
-  if (keyTap('KeyB') && !G.ui.panel) {
+  if (!rebinding && actTap('build') && !G.ui.panel) {
     G.ui.buildMode = !G.ui.buildMode;
     sfx('ui');
   }
@@ -690,13 +721,15 @@ export function update(dt) {
   // step. The local intent is rebuilt from the keys at the top of update().
   for (const q of G.players) if (!isLocal(q)) consumeEdges(q.intent);
 
+  // Autosave, into this game's slot. A game with no slot (the tests start
+  // straight through newGame) is not quietly given one every 25 seconds.
   autosaveT += dt;
-  if (autosaveT > 25) { autosaveT = 0; saveGame(); }
+  if (autosaveT > 25) { autosaveT = 0; if (G.slotId) saveGame(); }
 }
 
 // Exposed for the UI layer and for the browser smoke test.
 export const api = {
-  newGame, startGame, saveGame, loadGame, clearSave, hasSave,
+  newGame, startGame, saveGame, loadGame, clearSave, hasSave, toTitle,
   buildMenu, structureCost, isUnlocked, currentWeapon, selectSlot,
   startRaid, addXp, addRes, countRes, dangerAtPx, solidPx, shake,
   findInteractable, placeStructure, canPlace, spawnEnemy, forceEndRaid,

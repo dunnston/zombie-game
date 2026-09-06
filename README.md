@@ -39,8 +39,9 @@ npm test
 npm run build
 ```
 
-`npm test` runs 52 Node assertions over the pure logic (world generation, loot
-tables, balance invariants, progression curves, perk trees, the day curve).
+`npm test` runs 69 Node assertions over the pure logic (world generation, loot
+tables, balance invariants, progression curves, perk trees, the day curve, save
+slots and key bindings).
 `npm run build` produces a static bundle in `dist/` that can be opened from any
 static host.
 
@@ -73,6 +74,12 @@ runtime.
 | `Esc` | Close a panel, or open the pause menu |
 | `F5` | Save now (the game also autosaves every 25 seconds) |
 | `P` | Mute / unmute |
+
+Every key above can be changed: **CONTROLS** on the title screen or the pause
+menu lists each action — click a row, press the key you want. Conflicts are
+shown rather than refused, and RESET TO DEFAULTS puts everything back. Mouse
+buttons, the wheel and `Esc` are fixed. Bindings are kept in the browser, not in
+a save.
 
 Melee swings also chop trees and give **Wood** — that's the main early supply,
 and felling trees clears firing lines for your turrets.
@@ -352,11 +359,17 @@ labour rather than a bug you have to babysit.
 
 ### Saving
 
-### Saving
+The game opens on a title screen. **NEW GAME** asks for a name and gives the run
+its own save slot; **LOAD GAME** lists every slot with its day, level, kills,
+play time and when you last played, and lets you load or delete any of them
+(delete asks first). **CONTINUE** reopens the one you played most recently.
+Keep as many games as you like — two solo runs and a co-op world side by side.
 
-Autosaves to LocalStorage every 25 seconds and on demand with `F5`. The world is
-regenerated from its seed, so the save only stores the deltas: what you've
-looted, what you've chopped, what you've built, and who you are.
+A game autosaves to its slot every 25 seconds and on demand with `F5`, and
+**QUIT TO TITLE** on the pause menu saves first. The world is regenerated from
+its seed, so a save only stores the deltas: what you've looted, what you've
+chopped, what you've built, and who you are. Saves live in the browser's
+LocalStorage. A save from before slots existed is picked up as "Game 1".
 
 ---
 
@@ -431,20 +444,22 @@ nearest-neighbour filtering.
 npm test
 ```
 
-52 Node assertions covering world generation determinism, spawn-point safety,
+69 Node assertions covering world generation determinism, spawn-point safety,
 danger tiers, loot-table integrity and theming, weapon/enemy/wall tier ordering,
 recipe gating, the XP curve, raid escalation, threat thresholds, every attribute
 and perk actually changing a stat, perk gating by rank and cost, recompute
 idempotency, the day/night curve and clock, and survivor scaling.
 
 `tests/browser-smoke.js` is injected into the running dev server and drives the
-live game through 211 assertions using synthetic input events — movement, aiming,
+live game through 340 assertions using synthetic input events — the title
+screen, save slots and key rebinding driven by real clicks, movement, aiming,
 melee, gunfire, ammo, reloading, enemy pursuit, taking damage, searching
 containers, carry-capacity overflow, structure placement and cost, walls
 blocking, enemies attacking structures, workbench upgrades, tier-gated crafting,
 bedroll respawn, turret power, dying, dropping and recovering a pack, threat
 accumulation, raid trigger and completion, raid rewards, levelling and the
-upgrade draft, save/load round trips, and a 90-enemy performance check.
+upgrade draft, save/load round trips, a second player driven by intent (enemy targeting,
+no friendly fire, downed and revive), and a 90-enemy performance check.
 
 `tests/raid-harness.js` builds a standard walled compound, forces a raid of a
 given tier and plays it out, reporting duration, structures lost and player

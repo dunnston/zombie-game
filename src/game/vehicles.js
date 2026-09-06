@@ -17,6 +17,7 @@ import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
 import { addXp } from './progression.js';
 import { addThreat } from './threat.js';
+import { primaryLabel } from '../core/bindings.js';
 import { clamp, angleDelta, dist2, makeRng } from '../core/util.js';
 
 const rng = makeRng(0xCA125);
@@ -200,7 +201,9 @@ export function enterVehicle(p, v) {
   v.vx = 0; v.vy = 0; v.speed = 0;
   releaseTiles(v);                 // it is no longer scenery in the way
   sfx('build');
-  notify(v.fuel > 0.5 ? 'W/S to drive, A/D to steer, E to get out' : 'No fuel. You will need some.', '#d8e8c0');
+  notify(v.fuel > 0.5
+    ? `${primaryLabel('moveUp')}/${primaryLabel('moveDown')} to drive, ${primaryLabel('moveLeft')}/${primaryLabel('moveRight')} to steer, ${primaryLabel('interact')} to get out`
+    : 'No fuel. You will need some.', '#d8e8c0');
   return true;
 }
 
