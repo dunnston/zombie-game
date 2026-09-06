@@ -12,9 +12,13 @@ host's save (→ v8). Full plan: `~/.claude/plans/compiled-soaring-harp.md`.
 
 Delivered as two PRs off `main`.
 
-### PR A — foundation, no networking  (branch `feat/multi-player-foundation`)
+### PR A — foundation, no networking  (PR #9, branch `feat/multi-player-foundation`)
 
 Gate: the game plays identically in solo. Both suites green. Raid figures unchanged.
+Met: npm test 60/60, smoke 305/305, raid indices 1–3 in range. Codex review found
+four defects (remote edge intents repeating, two drivers per car, a leaver's car
+left running, roadkill XP shared); each reproduced live, fixed, and given an
+assertion.
 
 - [x] `state.js`: `G.players[]`, `G.player` as a getter/setter alias for the local
       player, `addPlayer`/`removePlayer`/`nearestPlayer`/`baseOwner`/`isLocal`

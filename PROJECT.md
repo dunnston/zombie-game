@@ -72,7 +72,7 @@ multiplayer.** Six rounds merged; the co-op foundation is in review.
 | --- | --- |
 | Source | 33 modules, ~12,700 lines, no dependencies but Vite |
 | Assets | Zero. Every sprite is drawn in code at boot; every sound is WebAudio. |
-| Tests | 60 Node assertions; browser suite 301 |
+| Tests | 60 Node assertions; browser suite 305 |
 | Save format | **v7** |
 | Performance | ~60fps with 90 active enemies |
 
@@ -89,8 +89,9 @@ revive a downed teammate, guests remembered in the host's save. Two PRs:
 
 | PR | State | What |
 | --- | --- | --- |
-| A — foundation | **in review** | `G.players[]`, intent split from simulation, actor parameters everywhere, downed/revive. No visible change in solo. |
-| B — online co-op | next | Broker, WebRTC transport, host/client sessions, title and lobby, save v8. |
+| A — foundation | [#9](https://github.com/dunnston/zombie-game/pull/9) | `G.players[]`, intent split from simulation, actor parameters everywhere, downed/revive. No visible change in solo. |
+| A2 — menu and saves | next | Title screen on boot (Continue / New Game / Multiplayer / Controls), several save slots with delete, rebindable keys. Asked for by the owner while A was in review. |
+| B — online co-op | after A2 | Broker, WebRTC transport, host/client sessions, lobby, save v8. |
 
 The full plan is in `tasks/todo.md`.
 
@@ -105,6 +106,7 @@ The full plan is in `tasks/todo.md`.
 | [#6](https://github.com/dunnston/zombie-game/pull/6) | Raids break off instead of stranding the player |
 | [#7](https://github.com/dunnston/zombie-game/pull/7) | The quiet field; steeper XP curve |
 | [#8](https://github.com/dunnston/zombie-game/pull/8) | Slot inventory, equipment slots, hotbar. Save → v7. |
+| [#9](https://github.com/dunnston/zombie-game/pull/9) | Multiplayer foundation: players array, intent split, downed and revive |
 
 ### What the first playtest said
 
@@ -298,6 +300,8 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | Downed, not dead, when a teammate is up | Death in co-op with no revive is a walk back from a random spawn while your friend fights alone. Thirty seconds down, revive by holding E, 40% health back. Alone — or when nobody comes — the old death path runs unchanged. Enemies ignore the downed. |
 | No friendly fire, no player collision | Bullets already ignore your own walls (pillar 3); a teammate is not a better reason to make you flinch. And a player who can block a doorway is a griefing tool nobody asked for. |
 | Cull enemies far from *every* player, spawn around *each* | One player's ring would starve the other's district of a crowd, or cull the horde their teammate was fighting. Each living player is the centre of their own ring; the quiet field is read where each of them stands. |
+| A remote player's edge intents are consumed after one step | The local intent is rebuilt from the keys every step, so its edges last one step by construction. A remote intent is a packet that stays put until the next one — held as data, "E was pressed" toggled a gate 17 times in 300ms. `consumeEdges()` runs at the end of every update for everyone but the local player; held states (movement, fire, E still down) are left alone. Found by the first Codex review of PR #9. |
+| One seat per car; a leaver parks; a roadkill is the driver's | Two players could hold the same `drivingId`, the second stranded with movement disabled and nobody reading their controls. A guest leaving at the wheel left the car engine-on with its collision tiles released forever. Roadkills paid everyone. All three from the same review, all reproduced before fixing. |
 
 ---
 
@@ -437,7 +441,7 @@ round. Current expected totals:
 | Suite | Expected |
 | --- | --- |
 | `npm test` (Node, pure logic) | 60 |
-| `tests/browser-smoke.js` | 301 |
+| `tests/browser-smoke.js` | 305 |
 
 **Run the browser suite with the page visible and focused.** Its waits are
 counted in animation frames. A backgrounded tab throttles
@@ -534,9 +538,12 @@ Newest first. One line per meaningful change.
 - **2026-09-06** — Multiplayer foundation (PR A): `G.players[]` with
   `G.player` as the local alias, the intent/simulation split, actor parameters
   through damage, XP, threat, cost, building, crafting, vehicles and survivors,
-  per-player enemy spawning and targeting, downed/revive. Twenty-two new smoke
+  per-player enemy spawning and targeting, downed/revive. Twenty-six new smoke
   assertions; solo unchanged. The raid harness caught a TypeError on every
-  player kill that the smoke suite had no case for. The owner reversed "no
+  player kill that the smoke suite had no case for; the Codex review found
+  four more (remote edge intents repeating at 60Hz, two drivers in one car, a
+  leaver's car left running, roadkills paid to everyone), each reproduced
+  against the running game before the fix. The owner reversed "no
   multiplayer".
 - **2026-09-06** — Slot inventory: a 30-slot pack grid, six-slot hotbar, five
   equipment slots (head/body/hands/legs/feet) with fifteen gear pieces, drag

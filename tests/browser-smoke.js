@@ -2069,8 +2069,70 @@
       await seconds(api.PLAYER.respawnTime + 0.6);
       ok('the second player respawns on their own', !p2.dead && !p2.downed, `dead=${p2.dead}`);
 
+      // The four things the first code review found, each reproduced against
+      // the running game before it was fixed.
+      //
+      // A remote player's intent is a packet that stays put until the next one.
+      // Holding "E was pressed" as data toggled a gate 17 times in 300ms.
+      {
+        G.stash.wood = (G.stash.wood || 0) + 200; G.stash.scrap = (G.stash.scrap || 0) + 200;
+        const gtx = Math.floor(p2.x / 32), gty = Math.floor(p2.y / 32);
+        let gate = null;
+        for (let dx = 2; dx < 7 && !gate; dx++) {
+          if (api.canPlace('gate', gtx + dx, gty, p2).ok) gate = api.placeStructure('gate', gtx + dx, gty, p2);
+        }
+        if (gate) {
+          p2.x = gate.x - 40; p2.y = gate.y; p2.vx = 0; p2.vy = 0;
+          const wasOpen = gate.open;
+          let flips = 0, last = gate.open;
+          p2.intent.interact = true;
+          for (let i = 0; i < 30; i++) { await frames(1); if (gate.open !== last) { flips++; last = gate.open; } }
+          ok('a remote edge intent acts exactly once', flips === 1 && gate.open !== wasOpen, `gate flipped ${flips} times in 30 steps`);
+          api.demolishStructure(gate, p2);
+        } else {
+          ok('a remote edge intent acts exactly once', false, 'nowhere to place a gate');
+        }
+      }
+
+      // Cars: one seat, a leaver parks, and a roadkill is the driver's kill.
+      {
+        const clear = (v) => {
+          const ax = v.x + Math.cos(v.angle) * 110, ay = v.y + Math.sin(v.angle) * 110;
+          return !v.destroyed && !api.solidPx(ax, ay) && !api.solidPx(v.x + Math.cos(v.angle) * 60, v.y + Math.sin(v.angle) * 60);
+        };
+        const car = G.vehicles.find(clear) || G.vehicles.find((v) => !v.destroyed);
+        car.locked = false; car.fuel = 50;
+        p.x = car.x + 30; p.y = car.y; p.vx = 0; p.vy = 0;
+        p2.x = car.x - 30; p2.y = car.y; p2.vx = 0; p2.vy = 0;
+        api.enterVehicle(p, car);
+        const second = api.enterVehicle(p2, car);
+        ok('a car has one seat', second === false && !p2.drivingId && p.drivingId === car.id,
+          `second entry ${second}, p2.drivingId=${p2.drivingId}`);
+        api.exitVehicle(p);
+
+        api.enterVehicle(p2, car);
+        const w = api.spawnEnemy('walker', car.x + Math.cos(car.angle) * 110, car.y + Math.sin(car.angle) * 110);
+        w.hp = 1;
+        const xpLocal = p.xp + p.level * 100000, xpDriver = p2.xp + p2.level * 100000;
+        p2.intent.drive.forward = true;
+        await seconds(1.5);
+        p2.intent.drive.forward = false;
+        ok('a roadkill is the driver\'s kill, not everyone\'s',
+          w.dead && p2.xp + p2.level * 100000 > xpDriver && p.xp + p.level * 100000 === xpLocal,
+          `dead=${w.dead} driver xp +${Math.round(p2.xp + p2.level * 100000 - xpDriver)} local +${Math.round(p.xp + p.level * 100000 - xpLocal)}`);
+
+        // Leave at the wheel.
+        api.leavePlayer(p2);
+        await frames(2);
+        ok('a player who leaves while driving parks the car',
+          !car.engineOn && car.tiles.length > 0 && !G.players.includes(p2),
+          `engineOn=${car.engineOn} tiles=${car.tiles.length}`);
+        G.enemies.length = 0;
+        d.teleport(spot2.x, spot2.y);
+        await frames(2);
+      }
+
       // And once they leave, dying alone is instant again.
-      api.leavePlayer(p2);
       await frames(2);
       ok('a player can leave', G.players.length === 1 && G.player === p, `${G.players.length} players`);
       const deaths2 = G.stats.deaths;

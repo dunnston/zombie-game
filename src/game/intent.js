@@ -47,6 +47,27 @@ export function clearIntent(it) {
 }
 
 /**
+ * Spends the edge-triggered half of an intent. The local player's intent is
+ * rebuilt from the keyboard every step, so its edges last exactly one step by
+ * construction. A remote player's intent arrives as a packet and stays put
+ * until the next one — so "E was pressed" would open and close a gate sixty
+ * times a second unless the step that acted on it also consumes it. Held
+ * states (movement, fire, sprint, E still down) are left alone.
+ */
+export function consumeEdges(it) {
+  it.firePressed = false;
+  it.reload = false;
+  it.interact = false;
+  it.use = false;
+  it.slot = -1;
+  it.wheel = 0;
+  it.stow = false;
+  it.unstow = false;
+  it.withdrawAmmo = false;
+  return it;
+}
+
+/**
  * Reads the keyboard and mouse into the local player's intent.
  *
  * A panel over the world swallows everything but aim. Build mode owns the

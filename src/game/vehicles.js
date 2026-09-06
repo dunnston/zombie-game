@@ -183,6 +183,15 @@ export function finishHotwire(p, v) {
 
 export function enterVehicle(p, v) {
   if (v.destroyed) { sfx('deny'); return false; }
+  // One seat. A second "driver" would share the car's id, be treated as
+  // driving by updatePlayer and be read by nobody — stranded until the first
+  // driver got out.
+  const other = driverOf(v);
+  if (other && other !== p) {
+    sfx('deny');
+    if (isLocal(p)) notify(`${other.name} is driving that one`, '#c96a5a');
+    return false;
+  }
   if (v.locked && !v.hotwired) return tryUnlock(p, v) ? enterVehicle(p, v) : false;
 
   p.drivingId = v.id;
@@ -309,8 +318,9 @@ function driveCar(v, dt, input, p) {
       if (e.dead) continue;
       if (dist2(v.x, v.y, e.x, e.y) > (CAR.r + e.def.r) ** 2) continue;
       const force = Math.abs(v.speed) / CAR.maxSpeed;
+      // The driver made this kill — their XP, their Luck on the drop.
       damageEnemy(e, CAR.rammeDamage * force * 2, {
-        fromX: v.x, fromY: v.y, knock: 340 * force, crit: true, source: 'car',
+        fromX: v.x, fromY: v.y, knock: 340 * force, crit: true, source: p,
       });
       damageVehicle(v, CAR.ramSelfDamage * (1 + force), 'ram');
       v.speed *= 0.86;

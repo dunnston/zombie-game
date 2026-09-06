@@ -13,7 +13,7 @@ import {
   createPlayer, updatePlayer, movePlayer, pickRandomSpawn, currentWeapon, selectSlot,
   heldId, carriedWeight, revivePlayer,
 } from './player.js';
-import { makeIntent, gatherLocalIntent } from './intent.js';
+import { makeIntent, gatherLocalIntent, consumeEdges } from './intent.js';
 import {
   equipFromBag, unequip, equipBest, moveStack, dropStack, dropEquipped,
 } from './equipment.js';
@@ -162,7 +162,16 @@ export function joinPlayer(opts = {}) {
 }
 
 export function leavePlayer(p) {
-  if (!removePlayer(p)) return false;
+  if (!G.players.includes(p)) return false;
+  // Park the car first: a driver who vanishes would leave it engine-on with its
+  // collision tiles released, and nothing would ever put them back.
+  if (p.drivingId) exitVehicle(p);
+  p.searching = null;
+  p.using = null;
+  p.reviving = null;
+  // Anyone mid-revive on this player sees them gone, not a ghost that stays downed.
+  p.away = true;
+  removePlayer(p);
   notify(`${p.name} left`, '#8a8f84');
   return true;
 }
@@ -676,6 +685,10 @@ export function update(dt) {
 
   updateFX(dt);
   updateTutorial(dt);
+
+  // Edge-triggered intent from anyone but this keyboard has now had its one
+  // step. The local intent is rebuilt from the keys at the top of update().
+  for (const q of G.players) if (!isLocal(q)) consumeEdges(q.intent);
 
   autosaveT += dt;
   if (autosaveT > 25) { autosaveT = 0; saveGame(); }
