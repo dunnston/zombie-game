@@ -668,6 +668,15 @@ export const PLAYER = {
   searchTime: 1.05,
   invulnAfterHit: 0.32,
   respawnTime: 3.0,
+  // With a teammate present, going down is a countdown rather than a death:
+  // they have this long to reach you and hold E for reviveTime.
+  downedTime: 30,
+  reviveTime: 2.5,
+  reviveHpFrac: 0.4,
+  // Ground-ring tints, one per seat. Readability first: each has to be
+  // tellable from the others and from anything hostile at a glance.
+  colors: ['#dff0ff', '#ffd27a', '#9fe8a0', '#f0a0e8'],
+  names: ['Survivor', 'Ash', 'Bex', 'Cole', 'Dee'],
 };
 
 // viewHeight is measured in CSS pixels of world height on screen; the camera

@@ -6,12 +6,14 @@ import {
 } from './config.js';
 import {
   G, notify, structAtPx, solidPx, shake, addRes, countRes, pointerOverHud,
+  addPlayer, removePlayer, isLocal, presentPlayers, nearestPlayer, baseOwner,
 } from './state.js';
 import { createWorld, dangerAtPx, locationAtPx } from './world.js';
 import {
-  createPlayer, updatePlayer, pickRandomSpawn, currentWeapon, selectSlot,
-  heldId, carriedWeight,
+  createPlayer, updatePlayer, movePlayer, pickRandomSpawn, currentWeapon, selectSlot,
+  heldId, carriedWeight, revivePlayer,
 } from './player.js';
+import { makeIntent, gatherLocalIntent } from './intent.js';
 import {
   equipFromBag, unequip, equipBest, moveStack, dropStack, dropEquipped,
 } from './equipment.js';
@@ -31,7 +33,7 @@ import {
   updateGenerators, updateFloodlights, useGenerator, generatorRunning,
   upgradeBench, nearestStructure, nearWorkbench,
   stashDepositAll, stashWithdrawAmmo, structureCost, isUnlocked, BUILD_RANGE,
-  baseCenter,
+  baseCenter, refreshBedrolls,
 } from './building.js';
 import { updateThreat, addThreat, raidReady } from './threat.js';
 import {
@@ -61,7 +63,9 @@ import {
 import { cancelDrag, lastZones, isDragging } from '../ui/inventory.js';
 import { updateFX, clearFX } from '../core/particles.js';
 import * as FX from '../core/particles.js';
-import { Input, key, keyTap, consumeKey, endFrame } from '../core/input.js';
+// Only UI keys are read here — panels, build mode, pause. Everything the
+// simulation acts on goes through intent.js.
+import { Input, keyTap } from '../core/input.js';
 import { sfx, resumeAudio, toggleMute } from '../core/audio.js';
 import { saveGame, loadGame, hasSave, clearSave } from './save.js';
 import { clamp, dist2, smooth, lerp } from '../core/util.js';
@@ -114,10 +118,7 @@ export function newGame(seed = 20240917) {
 
   const spot = pickRandomSpawn();
   G.player = createPlayer(spot.x, spot.y);
-  // A small leg-up so the first two minutes are about fighting, not scrounging.
-  addRes(G.player.bag, 'wood', 20);
-  addRes(G.player.bag, 'scrap', 10);
-  addRes(G.player.bag, 'cloth', 8);
+  giveStarterKit(G.player);
 
   G.camera.x = spot.x;
   G.camera.y = spot.y;
@@ -127,6 +128,43 @@ export function newGame(seed = 20240917) {
   seedArea(spot.x, spot.y, 1100, 5);
   notify('You wake up on the roadside. Find shelter before dark.', '#d8e8c0', true);
   return G;
+}
+
+/** A small leg-up so the first two minutes are about fighting, not scrounging. */
+function giveStarterKit(p) {
+  addRes(p.bag, 'wood', 20);
+  addRes(p.bag, 'scrap', 10);
+  addRes(p.bag, 'cloth', 8);
+}
+
+/**
+ * Brings another person into the world, beside whoever is already here. This
+ * is what a guest joining does; the smoke test uses it to stand up a second
+ * survivor and drive them by intent.
+ */
+export function joinPlayer(opts = {}) {
+  const anchor = opts.near || baseOwner();
+  let spot = null;
+  if (anchor) {
+    for (let i = 0; i < 24 && !spot; i++) {
+      const a = (i / 24) * Math.PI * 2 + 0.3;
+      const r = 48 + Math.floor(i / 8) * 28;
+      const x = anchor.x + Math.cos(a) * r, y = anchor.y + Math.sin(a) * r;
+      if (!solidPx(x, y)) spot = { x, y };
+    }
+  }
+  if (!spot) spot = pickRandomSpawn();
+  const p = createPlayer(spot.x, spot.y, { ...opts, seat: opts.seat ?? G.players.length });
+  giveStarterKit(p);
+  addPlayer(p);
+  notify(`${p.name} joined`, '#9fd0ff', true);
+  return p;
+}
+
+export function leavePlayer(p) {
+  if (!removePlayer(p)) return false;
+  notify(`${p.name} left`, '#8a8f84');
+  return true;
 }
 
 /**
@@ -168,8 +206,7 @@ export function startGame(preferSave = true) {
 
 // ------------------------------------------------------------- interaction --
 
-export function findInteractable() {
-  const p = G.player;
+export function findInteractable(p = G.player) {
   const R = PLAYER.interactRange;
   let best = null, bestD = R * R;
 
@@ -183,10 +220,21 @@ export function findInteractable() {
   if (packBest) return packBest;
 
   // While driving, E is how you get out — nothing else competes for it.
-  if (isDriving()) {
-    const car = drivenCar();
+  if (isDriving(p)) {
+    const car = drivenCar(p);
     return { kind: 'exitCar', ref: car, label: 'Get out' };
   }
+
+  // A teammate on the ground outranks everything else in the world.
+  for (const q of G.players) {
+    if (q === p || !q.downed || q.dead || q.away) continue;
+    const d = dist2(p.x, p.y, q.x, q.y);
+    if (d < bestD) {
+      bestD = d;
+      best = { kind: 'revivePlayer', ref: q, label: `Help ${q.name} up  (${Math.ceil(q.downT)}s)` };
+    }
+  }
+  if (best) return best;
 
   // A downed survivor is the next most urgent thing in the world.
   for (const s of G.survivors) {
@@ -238,14 +286,14 @@ export function findInteractable() {
       };
     } else if (s.type === 'bedroll') {
       bestD = d;
-      best = { kind: 'bedroll', ref: s, label: G.player.spawnStructure === s ? 'Respawn point (active)' : 'Set as respawn point' };
+      best = { kind: 'bedroll', ref: s, label: p.spawnStructure === s ? 'Respawn point (active)' : 'Set as respawn point' };
     }
   }
   return best;
 }
 
-function beginInteract(target) {
-  const p = G.player;
+/** `p` presses E on `target`. */
+export function beginInteract(p, target) {
   if (!target) return;
 
   switch (target.kind) {
@@ -260,7 +308,7 @@ function beginInteract(target) {
       collectBackpack(p, target.ref);
       break;
     case 'rescue':
-      recruit(target.ref);
+      recruit(target.ref, p);
       break;
     case 'car':
       enterVehicle(p, target.ref);
@@ -269,32 +317,36 @@ function beginInteract(target) {
       exitVehicle(p);
       break;
     case 'salvageCar':
-      salvageVehicle(target.ref);
+      salvageVehicle(target.ref, p);
       break;
     case 'revive':
-      reviveSurvivor(target.ref);
+      reviveSurvivor(target.ref, p);
+      break;
+    case 'revivePlayer':
+      // A channel, like searching: hold E beside them until it completes.
+      p.reviving = { target: target.ref, t: 0, dur: PLAYER.reviveTime };
+      sfx('ui');
       break;
     case 'stash':
-      stashDepositAll();
+      stashDepositAll(p);
       break;
     case 'bench':
-      if (target.ref.tier < 2) upgradeBench(target.ref);
-      else { G.ui.panel = 'craft'; sfx('ui'); }
+      if (target.ref.tier < 2) upgradeBench(target.ref, p);
+      else if (isLocal(p)) { G.ui.panel = 'craft'; sfx('ui'); }
       break;
     case 'gate':
       target.ref.open = !target.ref.open;
       sfx('build');
       break;
     case 'generator':
-      useGenerator(target.ref);
+      useGenerator(target.ref, p);
       break;
     case 'bedroll': {
       const s = target.ref;
-      for (const o of G.structures) if (o.type === 'bedroll') o.active = false;
-      s.active = true;
       p.spawnStructure = s;
       p.spawnPoint = { x: s.x, y: s.y + TILE };
-      notify('Respawn point set', '#b7e08a');
+      refreshBedrolls();
+      if (isLocal(p)) notify('Respawn point set', '#b7e08a');
       sfx('ui');
       break;
     }
@@ -302,8 +354,7 @@ function beginInteract(target) {
   }
 }
 
-function finishSearch() {
-  const p = G.player;
+function finishSearch(p) {
   const c = p.searching.c;
   p.searching = null;
   if (c.looted) return;
@@ -320,9 +371,9 @@ function finishSearch() {
   for (const l of lines) { FX.text(c.x, y, l.text, l.color, 12, -34, 1.1); y -= 15; }
   sfx('loot');
   FX.ring(c.x, c.y, 4, 34, 0.4, anyMajor ? '#ffe08a' : '#c9a227', 2);
-  addXp(6 + (c.rolls[1] * 3));
-  addThreat(THREAT.perLoot);
-  completeTutorial('loot');
+  addXp(p, 6 + (c.rolls[1] * 3));
+  addThreat(THREAT.perLoot, '', p);
+  if (isLocal(p)) completeTutorial('loot');
 }
 
 /**
@@ -338,8 +389,8 @@ function setPanel(name) {
 
 // ------------------------------------------------------------- build input --
 
-function updateBuildMode() {
-  const p = G.player;
+/** Build mode is a local UI: the ghost, the bar and the mouse belong to `p`. */
+function updateBuildMode(p) {
   const menu = buildMenu();
 
   if (Input.wheel !== 0) {
@@ -369,15 +420,15 @@ function updateBuildMode() {
     G.ui.ghost.target = s;
     G.ui.ghost.valid = !!s && dist2(s.x, s.y, p.x, p.y) < BUILD_RANGE * BUILD_RANGE;
     if (Input.mousePressed && !overBar && G.ui.ghost.valid) {
-      if (sel === 'repair') repairStructure(s);
-      else demolishStructure(s);
+      if (sel === 'repair') repairStructure(s, p);
+      else demolishStructure(s, p);
     } else if (Input.mousePressed && !overBar) {
       sfx('deny');
     }
     return;
   }
 
-  const check = canPlace(sel, tx, ty);
+  const check = canPlace(sel, tx, ty, p);
   G.ui.ghost.valid = check.ok;
   G.ui.ghost.reason = check.reason;
 
@@ -385,7 +436,7 @@ function updateBuildMode() {
   const repeatable = !!STRUCTURES[sel].wall;
   const wantPlace = (repeatable ? Input.mouseDown : Input.mousePressed) && !overBar;
   if (wantPlace && (G.ui.placeCd || 0) <= 0) {
-    if (placeStructure(sel, tx, ty)) {
+    if (placeStructure(sel, tx, ty, p)) {
       G.ui.placeCd = repeatable ? 0.07 : 0.16;
       if (sel === 'bedroll') completeTutorial('build');
       if (sel === 'workbench') completeTutorial('bench');
@@ -403,7 +454,7 @@ export function completeTutorial(id) {
   const i = TUTORIAL.findIndex((t) => t.id === id);
   if (i === G.tutorial.step) {
     G.tutorial.step++;
-    addXp(10);
+    addXp(G.player, 10);
     sfx('ui');
   }
 }
@@ -422,14 +473,13 @@ function updateTutorial(dt) {
 
 // -------------------------------------------------------------- discovery --
 
-function updateDiscovery() {
-  const p = G.player;
+function updateDiscovery(p) {
   const loc = locationAtPx(G.world, p.x, p.y);
-  G.ui.location = loc;
+  if (isLocal(p)) G.ui.location = loc;
   if (loc && !loc.discovered) {
     loc.discovered = true;
     const xp = 25 * loc.tier;
-    addXp(xp);
+    addXp(p, xp);
     notify(`${loc.name} — ${loc.desc}`, '#9fd0ff', true);
     FX.text(p.x, p.y - 40, `DISCOVERED  +${xp} XP`, '#9fd0ff', 14, -30, 1.4);
     sfx('levelUp');
@@ -468,6 +518,66 @@ function updateCamera(dt) {
 
 // ------------------------------------------------------------------ update --
 
+/** One player's simulation step: the refuel-before-reload claim, then updatePlayer. */
+function stepPlayer(p, dt) {
+  // Refuelling claims R before updatePlayer can read it as a reload. Without
+  // this one press did both — reloading the weapon and quietly spending fuel.
+  if (!p.dead && !p.downed && p.intent.reload) {
+    const car = drivenCar(p) || nearestVehicle(p.x, p.y, PLAYER.interactRange);
+    const canFuel = car && !car.destroyed && car.fuel < CAR.fuelMax - 1 &&
+      countRes(p.bag, 'fuel') + countRes(G.stash, 'fuel') > 0;
+    if (canFuel) {
+      p.intent.reload = false;
+      refuelVehicle(car, p);
+    }
+  }
+  updatePlayer(p, dt);
+}
+
+/** E, F and G for one player, plus the channels they hold: searching and reviving. */
+function interactPlayer(p, dt) {
+  const it = p.intent;
+  if (it.interact) beginInteract(p, findInteractable(p));
+  if (it.withdrawAmmo) {
+    const st = nearestStructure(p.x, p.y, PLAYER.interactRange, (s) => s.type === 'stash');
+    if (st) stashWithdrawAmmo(p);
+  }
+  // The boot: G stows your pack into it, shift+G takes it back out. Works from
+  // the driver's seat or standing beside the car.
+  if (it.stow || it.unstow) {
+    const car = drivenCar(p) || nearestVehicle(p.x, p.y, PLAYER.interactRange);
+    if (car && !car.destroyed) {
+      if (it.unstow) takeFromTrunk(car, p);
+      else stowInTrunk(car, p);
+    }
+  }
+
+  if (p.searching) {
+    // Letting go of E or drifting out of reach aborts the search.
+    const c = p.searching.c;
+    const outOfReach = dist2(p.x, p.y, c.x, c.y) > (PLAYER.interactRange + 24) ** 2;
+    if ((!it.interactHeld && p.searching.t > 0.12) || outOfReach) { p.searching = null; }
+    else {
+      p.searching.t += dt;
+      if (p.searching.t >= p.searching.dur) finishSearch(p);
+    }
+  }
+
+  if (p.reviving) {
+    const q = p.reviving.target;
+    const gone = !q.downed || q.dead || q.away;
+    const outOfReach = dist2(p.x, p.y, q.x, q.y) > (PLAYER.interactRange + 24) ** 2;
+    if (gone || (!it.interactHeld && p.reviving.t > 0.12) || outOfReach) { p.reviving = null; }
+    else {
+      p.reviving.t += dt;
+      if (p.reviving.t >= p.reviving.dur) {
+        p.reviving = null;
+        if (revivePlayer(p, q)) addXp(p, 20);
+      }
+    }
+  }
+}
+
 let autosaveT = 0;
 
 export function update(dt) {
@@ -505,68 +615,30 @@ export function update(dt) {
   // ------------------------------------------------------------- systems --
   rebuildSpatial();
 
-  // Refuelling claims R before updatePlayer can read it as a reload. keyTap is
-  // non-consuming, so without this one press did both — reloading the weapon
-  // and quietly spending fuel.
-  if (!G.ui.panel && !G.ui.buildMode && !p.dead && keyTap('KeyR')) {
-    const car = drivenCar() || nearestVehicle(p.x, p.y, PLAYER.interactRange);
-    const canFuel = car && !car.destroyed && car.fuel < CAR.fuelMax - 1 &&
-      countRes(p.bag, 'fuel') + countRes(G.stash, 'fuel') > 0;
-    if (canFuel) {
-      consumeKey('KeyR');
-      refuelVehicle(car);
-    }
+  // The person at this keyboard says what they want; anyone else's intent has
+  // already arrived from wherever they are.
+  if (p) gatherLocalIntent(p);
+
+  for (const q of G.players) {
+    if (q.away) continue;
+    stepPlayer(q, dt);
   }
 
-  updatePlayer(dt);
-
-  // Driving takes over movement entirely: the player rides in the car.
-  const driving = isDriving();
-  updateVehicles(dt, driving && !G.ui.panel ? {
-    forward: key('KeyW') || key('ArrowUp'),
-    back: key('KeyS') || key('ArrowDown'),
-    left: key('KeyA') || key('ArrowLeft'),
-    right: key('KeyD') || key('ArrowRight'),
-    brake: key('Space'),
-  } : {});
+  // Driving takes over movement entirely: the driver rides in the car.
+  updateVehicles(dt);
 
   updateCamera(dt);
 
-  if (!p.dead) {
-    updateDiscovery();
-    G.ui.hover = findInteractable();
+  for (const q of G.players) {
+    if (q.away || q.dead || q.downed) continue;
+    updateDiscovery(q);
+    interactPlayer(q, dt);
+  }
 
-    if (G.ui.buildMode) {
-      updateBuildMode();
-    } else if (!G.ui.panel) {
-      if (keyTap('KeyE')) beginInteract(G.ui.hover);
-      if (keyTap('KeyF')) {
-        const st = nearestStructure(p.x, p.y, PLAYER.interactRange, (s) => s.type === 'stash');
-        if (st) stashWithdrawAmmo();
-      }
-      // The boot: G stows your pack into it, shift+G takes it back out. Works
-      // from the driver's seat or standing beside the car.
-      if (keyTap('KeyG')) {
-        const car = drivenCar() || nearestVehicle(p.x, p.y, PLAYER.interactRange);
-        if (car && !car.destroyed) {
-          if (key('ShiftLeft') || key('ShiftRight')) takeFromTrunk(car);
-          else stowInTrunk(car);
-        }
-      }
-      // Refuelling is handled earlier in the frame, before updatePlayer can
-      // read the same R press as a reload.
-    }
-
-    if (p.searching) {
-      // Letting go of E or drifting out of reach aborts the search.
-      const c = p.searching.c;
-      const outOfReach = dist2(p.x, p.y, c.x, c.y) > (PLAYER.interactRange + 24) ** 2;
-      if ((!key('KeyE') && p.searching.t > 0.12) || outOfReach) { p.searching = null; }
-      else {
-        p.searching.t += dt;
-        if (p.searching.t >= p.searching.dur) finishSearch();
-      }
-    }
+  // Local UI: the interact prompt and build mode belong to this keyboard.
+  if (p && !p.dead && !p.downed) {
+    G.ui.hover = findInteractable(p);
+    if (G.ui.buildMode) updateBuildMode(p);
   } else {
     G.ui.hover = null;
     G.ui.buildMode = false;
@@ -617,8 +689,12 @@ export const api = {
   findInteractable, placeStructure, canPlace, spawnEnemy, forceEndRaid,
   visibleRecipes, craft, craftStatus, nearWorkbench, upgradeBench, baseCenter,
   spawnEntryPickup, RECIPES,
-  grantLoot, rollContainer, spawnPickup, repairStructure, demolishStructure, killPlayer,
+  grantLoot, rollContainer, spawnPickup, repairStructure, demolishStructure,
+  killPlayer: (p = G.player, force = false) => killPlayer(p, force),
   killEnemy,
+  // Players beyond the first — a second survivor for the test to drive by intent.
+  joinPlayer, leavePlayer, makeIntent, revivePlayer, beginInteract, movePlayer,
+  isLocal, presentPlayers, nearestPlayer, baseOwner,
   raiseAttribute, buyPerk, recomputeStats, ATTRS, PERKS, perkStatus,
   cancelDrag, isDragging, invZones: () => lastZones,
   equipFromBag, unequip, equipBest, moveStack, dropStack, dropEquipped,

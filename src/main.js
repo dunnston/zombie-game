@@ -137,7 +137,7 @@ window.DEADLINE = {
     G.camera.x = x; G.camera.y = y;
     G.player.vx = 0; G.player.vy = 0;
   },
-  god: (on = true) => { G.player.godMode = on; },
+  god: (on = true, p = G.player) => { p.godMode = on; },
 
   // Synthetic input, so the test drives the same code path a human does.
   key(code, down = true) {

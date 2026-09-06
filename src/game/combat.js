@@ -8,6 +8,7 @@
 import { WEAPONS, STRUCTURES, THREAT, TILE } from './config.js';
 import {
   G, terrainBlocksPx, hasTerrainLineOfSight, notify, shake, takeRes, countRes,
+  isLocal, baseOwner, presentPlayers,
 } from './state.js';
 import { damageEnemy, destroyStructure } from './damage.js';
 import { sfx } from '../core/audio.js';
@@ -34,7 +35,8 @@ export function spawnBullet(x, y, angle, opts) {
     color: opts.color || '#ffe6a8',
     size: opts.size || 2.2,
     trail: opts.trail ?? 8,
-    owner: opts.owner || 'player',
+    // The player object for a player's shot, or a tag for anything automated.
+    owner: opts.owner || null,
     crit: opts.crit || false,
   });
 }
@@ -109,15 +111,16 @@ export function meleeAttack(p, w) {
 
   if (hits.length) {
     sfx('meleeHit');
-    shake(w.shake || 1.6);
+    if (isLocal(p)) shake(w.shake || 1.6);
     for (const e of hits) {
       const crit = Math.random() < p.critChance + 0.06;
       damageEnemy(e, dmg * (crit ? 1.9 : 1), {
-        fromX: p.x, fromY: p.y, knock: w.knock, crit,
+        fromX: p.x, fromY: p.y, knock: w.knock, crit, source: p,
       });
     }
-    // Brief hitstop makes a heavy swing land hard.
-    if (w.id === 'sledge') G.slowmo = Math.max(G.slowmo, 0.06);
+    // Brief hitstop makes a heavy swing land hard. It is a feel effect for the
+    // person swinging — slowing the whole world for someone else's hit is not.
+    if (w.id === 'sledge' && isLocal(p)) G.slowmo = Math.max(G.slowmo, 0.06);
   } else {
     // Nothing to fight? Chop whatever scenery is in front of you instead.
     chopProp(p, w, dmg);
@@ -148,7 +151,7 @@ function chopProp(p, w, dmg) {
   prop.hitAt = G.time;          // renderer reads this; avoids a per-frame prop loop
   FX.debris(prop.x, prop.y, 5, '#4a3a22');
   sfx('meleeHit');
-  shake(1.2);
+  if (isLocal(p)) shake(1.2);
 
   if (prop.hp <= 0) {
     const yield_ = 6 + Math.round(Math.random() * 5 * p.lootMul);
@@ -159,7 +162,7 @@ function chopProp(p, w, dmg) {
     for (let i = 0; i < Math.min(4, Math.ceil(yield_ / 3)); i++) {
       spawnPickup(prop.x, prop.y, 'res', 'wood', Math.ceil(yield_ / Math.min(4, Math.ceil(yield_ / 3))));
     }
-    addXp(4);
+    addXp(p, 4);
   }
   return true;
 }
@@ -194,19 +197,20 @@ export function fireGun(p, w) {
       color: w.id === 'shotgun' ? '#ffd08a' : '#ffe6a8',
       size: w.id === 'rifle' ? 3 : 2.2,
       crit,
+      owner: p,
     });
   }
 
   FX.muzzle(mx, my, p.angle, w.id === 'shotgun' ? 1.9 : w.id === 'rifle' ? 1.5 : 1);
   FX.smoke(mx, my, w.id === 'shotgun' ? 4 : 1, '#7a756a');
-  shake(w.shake);
+  if (isLocal(p)) shake(w.shake);
   // Recoil kick, so rapid fire visibly pushes the aim around.
   p.recoil = Math.min(0.16, (p.recoil || 0) + spread * 1.4 + 0.012);
   p.vx -= Math.cos(p.angle) * (w.id === 'shotgun' ? 90 : 22);
   p.vy -= Math.sin(p.angle) * (w.id === 'shotgun' ? 90 : 22);
 
   sfx(w.id === 'smg' ? 'smg' : w.id === 'shotgun' ? 'shotgun' : w.id === 'rifle' ? 'rifle' : 'pistol');
-  addThreat(THREAT.perGunshot * w.threat);
+  addThreat(THREAT.perGunshot * w.threat, '', p);
   alertEnemies(p.x, p.y, w.noise * p.noiseMul);
   return true;
 }
@@ -273,25 +277,31 @@ export function alertEnemies(x, y, radius) {
 // ------------------------------------------------------------------ turrets --
 
 export function updateTurrets(dt) {
+  // Turret reach and punch are base-wide — the base owner's perks.
+  const owner = baseOwner();
+  if (!owner) return;
   for (const s of G.structures) {
     if (s.type !== 'turret' || s.destroyed) continue;
     const def = STRUCTURES.turret;
-    const p = G.player;
-    const range = def.range * (1 + (p.turretMul - 1) * 0.5);
-    const dmg = def.dmg * p.turretMul;
+    const range = def.range * (1 + (owner.turretMul - 1) * 0.5);
+    const dmg = def.dmg * owner.turretMul;
 
     s.powered = turretPowered(s);
     s.cd = Math.max(0, (s.cd || 0) - dt);
 
     if (!s.powered) { s.targetE = null; continue; }
 
-    // Reload from stash ammo.
+    // Reload from stash ammo, falling back to whatever anyone present carries.
     if ((s.ammo || 0) <= 0) {
       s.reloadT = (s.reloadT || 0) + dt;
       if (s.reloadT >= def.turretReload) {
         s.reloadT = 0;
         const want = def.turretMag;
-        const got = takeRes(G.stash, 'ammoP', want) || takeRes(p.bag, 'ammoP', want);
+        let got = takeRes(G.stash, 'ammoP', want);
+        for (const q of presentPlayers()) {
+          if (got > 0) break;
+          got = takeRes(q.bag, 'ammoP', want);
+        }
         s.ammo = got;
         if (got > 0) sfx('reloadDone');
         else s.starved = true;
@@ -339,6 +349,8 @@ export function updateTurrets(dt) {
 
 /** Spike traps chew anything standing on them and slowly wear out. */
 export function updateTraps(dt) {
+  const owner = baseOwner();
+  if (!owner) return;
   for (const s of G.structures) {
     if (s.type !== 'spike' || s.destroyed) continue;
     s.cd = Math.max(0, (s.cd || 0) - dt);
@@ -349,7 +361,7 @@ export function updateTraps(dt) {
     for (const e of scratch) {
       if (e.dead) continue;
       if (Math.abs(e.x - s.x) < TILE * 0.62 && Math.abs(e.y - s.y) < TILE * 0.62) {
-        damageEnemy(e, def.trapDmg * (1 + (G.player.structHpMul - 1) * 0.4), {
+        damageEnemy(e, def.trapDmg * (1 + (owner.structHpMul - 1) * 0.4), {
           fromX: s.x, fromY: s.y, knock: 30, source: 'trap',
         });
         e.slowT = 0.5;

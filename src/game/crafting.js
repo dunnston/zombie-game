@@ -27,11 +27,10 @@ export function visibleRecipes(benchTier) {
   return RECIPES.filter((r) => r.bench <= benchTier);
 }
 
-export function craftStatus(r, benchTier) {
+export function craftStatus(r, benchTier, p = G.player) {
   if (r.bench > benchTier) {
     return { ok: false, reason: r.bench === 1 ? 'Needs a Workbench' : 'Needs Workbench II' };
   }
-  const p = G.player;
   // Duplicates are allowed now that gear and guns are ordinary items you can
   // carry, drop, stash or hand to the next respawn. What limits you is space —
   // and the check has to name the *same* container the craft will actually use,
@@ -46,7 +45,7 @@ export function craftStatus(r, benchTier) {
   if (r.give.item && !roomForStack(p, r.give.item, r.give.n)) {
     return { ok: false, reason: 'No room in your pack' };
   }
-  if (!canAfford(r.cost)) return { ok: false, reason: 'Missing materials' };
+  if (!canAfford(r.cost, 1, p)) return { ok: false, reason: 'Missing materials' };
   return { ok: true, reason: '' };
 }
 
@@ -63,11 +62,10 @@ function roomForStack(p, id, n) {
   return packAllowance(p) - slotsWeight(p.bag) >= itemWeight(id) * n - 1e-9;
 }
 
-export function craft(r, benchTier) {
-  const st = craftStatus(r, benchTier);
+export function craft(r, benchTier, p = G.player) {
+  const st = craftStatus(r, benchTier, p);
   if (!st.ok) { sfx('deny'); notify(st.reason, '#c96a5a'); return false; }
-  const p = G.player;
-  spend(r.cost);
+  spend(r.cost, 1, p);
 
   // Belt and braces behind the checks above: whatever a slotsAdd cannot take
   // lands at the player's feet. The cost has already been spent by this point,
@@ -108,8 +106,8 @@ export function craft(r, benchTier) {
 
   G.stats.crafted++;
   sfx('craft');
-  addXp(r.xp);
-  addThreat(THREAT.perCraft);
+  addXp(p, r.xp);
+  addThreat(THREAT.perCraft, '', p);
   FX.text(p.x, p.y - 34, label, '#b7e08a', 12, -40, 1.0);
   notify(label, '#b7e08a');
   return true;

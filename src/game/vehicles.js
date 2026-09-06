@@ -9,14 +9,15 @@ import { TILE, RES } from './config.js';
 import { ITEMS, slotsEntries, packAllowance } from './items.js';
 import {
   G, notify, terrainBlocksPx, solidPx, addResCapped, addRes, takeRes, countRes,
-  shake, screenFlash,
+  shake, screenFlash, isLocal,
 } from './state.js';
 import { damageEnemy } from './damage.js';
+import { spawnPickup } from './loot.js';
 import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
 import { addXp } from './progression.js';
 import { addThreat } from './threat.js';
-import { clamp, angleDelta, dist2, TAU, makeRng } from '../core/util.js';
+import { clamp, angleDelta, dist2, makeRng } from '../core/util.js';
 
 const rng = makeRng(0xCA125);
 const scratch = [];
@@ -80,11 +81,15 @@ export function makeVehicle(prop, seedRng) {
   };
 }
 
-export const drivenCar = () => (G.player && G.player.drivingId
-  ? G.vehicles.find((v) => v.id === G.player.drivingId && !v.destroyed)
+/** The car `p` is at the wheel of, if any. */
+export const drivenCar = (p = G.player) => (p && p.drivingId
+  ? G.vehicles.find((v) => v.id === p.drivingId && !v.destroyed)
   : null);
 
-export const isDriving = () => !!drivenCar();
+export const isDriving = (p = G.player) => !!drivenCar(p);
+
+/** Whoever is at the wheel of `v`, or null if it is parked. */
+export const driverOf = (v) => G.players.find((q) => q.drivingId === v.id && !q.away) || null;
 
 export function nearestVehicle(x, y, range = CAR.enterRange) {
   let best = null, bd = range * range;
@@ -131,7 +136,7 @@ export function tryUnlock(p, v) {
     p.carKeys = p.carKeys.filter((k) => k !== v.keyId);
     sfx('reloadDone');
     notify('The key turns. It is yours.', '#b7e08a', true);
-    addXp(25);
+    addXp(p, 25);
     return true;
   }
 
@@ -141,7 +146,7 @@ export function tryUnlock(p, v) {
       v.locked = false;
       sfx('reloadDone');
       notify('The lock gives', '#b7e08a');
-      addXp(30);
+      addXp(p, 30);
       return true;
     }
     // A failed pick snaps the tool and makes noise.
@@ -149,7 +154,7 @@ export function tryUnlock(p, v) {
     FX.text(v.x, v.y - 26, 'PICK SNAPPED', '#c96a5a', 12, -32, 1.0);
     notify('The pick snaps. Something heard that.', '#c96a5a');
     makeNoise(v.x, v.y, 260);
-    addThreat(0.6);
+    addThreat(0.6, '', p);
     return false;
   }
 
@@ -172,8 +177,8 @@ export function finishHotwire(p, v) {
   FX.ring(v.x, v.y, 8, 70, 0.5, '#d0c46a', 3);
   notify('Engine catches. Loud, but it runs.', '#b7e08a', true);
   makeNoise(v.x, v.y, 420);
-  addThreat(2);
-  addXp(45);
+  addThreat(2, '', p);
+  addXp(p, 45);
 }
 
 export function enterVehicle(p, v) {
@@ -197,7 +202,7 @@ export function enterVehicle(p, v) {
  * player with neither walking nor combat.
  */
 export function exitVehicle(p, which = null) {
-  const v = which || drivenCar();
+  const v = which || drivenCar(p);
   if (!v) return false;
   p.drivingId = null;
   v.engineOn = false;
@@ -217,33 +222,29 @@ export function exitVehicle(p, which = null) {
 
 // ------------------------------------------------------------------- driving
 
-export function updateVehicles(dt, input) {
-  const p = G.player;
-  const car = drivenCar();
-
+/** Every car takes a step; the ones with a driver take theirs from the driver's intent. */
+export function updateVehicles(dt) {
   for (const v of G.vehicles) {
     if (v.destroyed) continue;
     v.flash = Math.max(0, v.flash - dt);
-    if (v !== car) {
+    const driver = driverOf(v);
+    if (!driver) {
       // Parked cars coast to a stop if they were shoved.
       v.vx *= Math.exp(-4 * dt);
       v.vy *= Math.exp(-4 * dt);
       v.speed *= Math.exp(-4 * dt);
       continue;
     }
-    driveCar(v, dt, input);
-  }
-
-  if (car && p) {
-    // The player rides along with the car.
-    p.x = car.x;
-    p.y = car.y;
-    p.angle = car.angle;
+    driveCar(v, dt, driver.intent.drive, driver);
+    // The driver rides along with the car.
+    driver.x = v.x;
+    driver.y = v.y;
+    driver.angle = v.angle;
   }
 }
 
-function driveCar(v, dt, input) {
-  const p = G.player;
+function driveCar(v, dt, input, p) {
+  const local = isLocal(p);
   const dry = v.fuel <= 0;
 
   // ------------------------------------------------------------ throttle --
@@ -289,7 +290,7 @@ function driveCar(v, dt, input) {
     if (impact > CAR.crashSpeed) {
       const dmg = (impact - CAR.crashSpeed) * 0.14;
       damageVehicle(v, dmg, 'crash');
-      shake(clamp(impact * 0.02, 2, 8));
+      if (local) shake(clamp(impact * 0.02, 2, 8));
       sfx('structureHit');
       FX.debris(v.x + Math.cos(v.angle) * 20, v.y + Math.sin(v.angle) * 20, 8, '#9aa2ab');
       makeNoise(v.x, v.y, 380);
@@ -313,8 +314,7 @@ function driveCar(v, dt, input) {
       });
       damageVehicle(v, CAR.ramSelfDamage * (1 + force), 'ram');
       v.speed *= 0.86;
-      shake(3);
-      screenFlash('#5a1010', 0.16);
+      if (local) { shake(3); screenFlash('#5a1010', 0.16); }
       FX.blood(e.x, e.y, Math.cos(v.angle), Math.sin(v.angle), 12);
     }
   }
@@ -325,7 +325,7 @@ function driveCar(v, dt, input) {
     if (v.fuel <= 0) notify('Out of fuel', '#d98a4a', true);
   }
   if (Math.abs(v.speed) > 30) {
-    addThreat(CAR.threatPerSec * dt * (Math.abs(v.speed) / CAR.maxSpeed));
+    addThreat(CAR.threatPerSec * dt * (Math.abs(v.speed) / CAR.maxSpeed), '', p);
     v.noiseT = (v.noiseT || 0) - dt;
     if (v.noiseT <= 0) {
       v.noiseT = 0.5;
@@ -335,7 +335,6 @@ function driveCar(v, dt, input) {
       FX.smoke(v.x - Math.cos(v.angle) * 22, v.y - Math.sin(v.angle) * 22, 1, '#6a6a62');
     }
   }
-  void p;
 }
 
 /** Gunfire-style alert, reused for engines, crashes and snapped picks. */
@@ -359,12 +358,12 @@ export function damageVehicle(v, dmg, cause = 'hit') {
 }
 
 function wreckVehicle(v, cause) {
-  const p = G.player;
+  const p = driverOf(v);
   // Get the driver out *before* the car is marked destroyed — see exitVehicle.
-  if (p && p.drivingId === v.id) {
+  if (p) {
     exitVehicle(p, v);
     // Getting out of a car as it dies costs you.
-    if (cause === 'crash') screenFlash('#8c1a1a', 0.5);
+    if (cause === 'crash' && isLocal(p)) screenFlash('#8c1a1a', 0.5);
   }
   v.destroyed = true;
   v.hp = 0;
@@ -382,14 +381,7 @@ function wreckVehicle(v, cause) {
 }
 
 function spillTrunk(v, id, n) {
-  // Lazy import avoided: pickups are cheap to construct through loot's API.
-  G.pickups.push({
-    x: v.x + (Math.random() - 0.5) * 40,
-    y: v.y + (Math.random() - 0.5) * 40,
-    kind: 'res', id, n,
-    vx: (Math.random() - 0.5) * 60, vy: (Math.random() - 0.5) * 60,
-    t: 0, bob: Math.random() * TAU, life: 600,
-  });
+  spawnPickup(v.x + (Math.random() - 0.5) * 40, v.y + (Math.random() - 0.5) * 40, 'res', id, n);
 }
 
 // ---------------------------------------------------------------- the boot
@@ -397,8 +389,7 @@ function spillTrunk(v, id, n) {
 export const trunkLoad = (v) => Object.values(v.trunk).reduce((a, b) => a + b, 0);
 
 /** Moves the player's carried resources into the boot. */
-export function stowInTrunk(v) {
-  const p = G.player;
+export function stowInTrunk(v, p = G.player) {
   let moved = 0;
   // Raw materials only — the boot is for the haul, not for your rifle or the
   // bandages you are about to need.
@@ -419,8 +410,7 @@ export function stowInTrunk(v) {
   return moved;
 }
 
-export function takeFromTrunk(v) {
-  const p = G.player;
+export function takeFromTrunk(v, p = G.player) {
   let moved = 0;
   for (const id in v.trunk) {
     const got = addResCapped(p.bag, id, v.trunk[id], packAllowance(p));
@@ -433,8 +423,7 @@ export function takeFromTrunk(v) {
   return moved;
 }
 
-export function refuelVehicle(v) {
-  const p = G.player;
+export function refuelVehicle(v, p = G.player) {
   const need = Math.ceil(CAR.fuelMax - v.fuel);
   if (need <= 0) { notify('Tank is full', '#8a8f84'); return false; }
   let take = takeRes(p.bag, 'fuel', need);
@@ -447,9 +436,8 @@ export function refuelVehicle(v) {
 }
 
 /** Stripping a wreck for parts, so a dead car is still worth something. */
-export function salvageVehicle(v) {
+export function salvageVehicle(v, p = G.player) {
   if (!v.destroyed) return false;
-  const p = G.player;
   const scrap = 14 + Math.floor(Math.random() * 14 * p.lootMul);
   const parts = Math.random() < 0.45 ? 1 : 0;
   addRes(G.stash, 'scrap', scrap);
@@ -460,7 +448,7 @@ export function salvageVehicle(v) {
   sfx('build');
   FX.debris(v.x, v.y, 16, '#8a8f84');
   notify(`Stripped the wreck — ${scrap} scrap${parts ? ' and a part' : ''} to your stash`, '#b7e08a');
-  addXp(12);
+  addXp(p, 12);
   return true;
 }
 

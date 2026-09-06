@@ -1,40 +1,84 @@
 # tasks/todo.md
 
-## Current round — playtest response (pacing, inventory, survival)
+## Current round — online co-op multiplayer
 
-Owner played for the first time. Could only fight; could not establish a base
-or find crafting. Plan approved covering three PRs.
+Owner asked for multiplayer on 2026-09-06. Agreed shape after two rounds of
+questions: online co-op for up to four, one player hosts and the host's browser
+runs the authoritative sim; a tiny signalling broker (not a game server) swaps
+WebRTC connection details for a six-character room code; optional password
+checked by the host; shared base and stash, separate inventories and
+progression, no friendly fire, revive a downed teammate; guests persist in the
+host's save (→ v8). Full plan: `~/.claude/plans/compiled-soaring-harp.md`.
 
-### PR 1 — Pacing  (done, PR #7)
+Delivered as two PRs off `main`.
 
-- [x] `src/game/pressure.js` — quiet field, 256px cells, decay over ~4-5 min
-- [x] Kills add quiet to their cell and neighbours
-- [x] Player structures add standing quiet within ~400px
-- [x] `updateSpawning` scales density by quiet and refuses quiet cells
-- [x] Tier-1 density 5 -> 4
-- [x] XP curve: 55 + 45*(L-1)^2.35
-- [x] Persist the quiet field through save/load
-- [x] Tests: unit (curve steepening), browser (suppression + decay)
-- [x] Measured pacing check: time-to-level and longest quiet gap near base
+### PR A — foundation, no networking  (branch `feat/multi-player-foundation`)
 
-### PR 2 — Slot inventory, equipment, hotbar  (done, PR #8)
+Gate: the game plays identically in solo. Both suites green. Raid figures unchanged.
 
-Done. 30-slot pack grid, 6-slot hotbar, five equipment slots (head/body/hands/
-legs/feet), 15 gear pieces across three tiers, drag and drop everywhere,
-capacity by weight. Save -> v7.
+- [x] `state.js`: `G.players[]`, `G.player` as a getter/setter alias for the local
+      player, `addPlayer`/`removePlayer`/`nearestPlayer`/`baseOwner`/`isLocal`
+- [x] `intent.js`: per-player intent struct; `gatherLocalIntent(p)` is the only
+      place simulation input is read from `Input`
+- [x] `player.js`: `updatePlayer(p, dt)` reads only `p.intent`; `movePlayer(p, dt)`
+      extracted for client prediction later; `respawnPlayer(p)`
+- [x] Actor parameters: `damagePlayer/killPlayer/healPlayer(p, …)`, `addXp(p, …)`,
+      `addThreat(amount, reason, actor)`, `canAfford/spend(cost, mul, p)`,
+      building/crafting/vehicle/survivor functions take the acting player
+- [x] Enemies target the nearest live player; spawning runs per player; cull is
+      "far from every player"; `e.id` and pickup `id` sequence numbers
+- [x] Base-wide multipliers (turret, trap, structure hp, upkeep, roster) read the
+      base owner — `G.players[0]`
+- [x] Kill XP goes to the killer; automated kills (turret, trap, survivor) to
+      every present player
+- [x] Downed/revive: with a teammate present, death becomes `downed` for 30s;
+      hold E on them to revive at 40% hp; alone, the old death path
+- [x] Renderer draws every player; downed look; HUD death screen knows "down"
+- [x] `api.joinPlayer/leavePlayer` for tests; tests in both suites
+- [x] Docs: PROJECT.md §3 §5 §6 §7 §11, tasks/lessons.md
 
-- [x] Slot model behind the existing addRes/takeRes/countRes API
-- [x] Five equipment slots, gear DR summed by recomputeStats
-- [x] Hotbar decides what you are holding; keys 1-6
-- [x] Drag to move, equip, unequip; right click to wear or shuttle
-- [x] Weight bar counts pack + hotbar; packAllowance() is the one check
-- [x] Save v7 round-trips slots, hotbar and worn gear
-- [ ] Crafting folded in as a tab (owner never found it on C)
+### PR A2 — title screen, save slots, key bindings  (branch `feat/menu-and-saves`)
 
-### PR 3 — Storage tiers, hunger and thirst  (not started)
+Owner, 2026-09-06, while PR A was in verification: "When the player loads
+should have a menu. Should include controls and key binds and allow them to
+change. Continue, new single player game, multiplayer. I envision being able
+to play multiple games at once — maybe I have a multiplayer save and two
+different single player saves. I should be able to delete saves as well."
 
-Crate / Supply Stash / Steel Locker aggregating into one stash view.
-Light hunger and thirst: soft debuffs, no health damage.
+- [ ] Boot lands on a title screen, not straight into a game: CONTINUE (most
+      recent slot), NEW GAME, MULTIPLAYER (host / join — wired in PR B), CONTROLS
+- [ ] Save slots: `deadline.slots` index + one entry per slot. Each shows name,
+      mode (solo / multiplayer world), day, level, kills, play time, last played.
+      Several solo saves side by side; a hosted world is a slot too.
+- [ ] Delete a slot, behind a confirm. Rename a slot.
+- [ ] Migrate the single `deadline.save.v7` into slot 1 so nobody loses a run.
+- [ ] Key bindings: `src/core/bindings.js` maps actions → key codes, stored in
+      `deadline.binds`; `intent.js` reads actions, never codes. Controls screen
+      lists every action, click a row and press a key to rebind, RESET TO DEFAULTS.
+      Mouse buttons stay fixed. Conflicts shown, not silently allowed.
+- [ ] Pause menu: SAVE, CONTROLS, QUIT TO TITLE (saves first)
+- [ ] Tests: slot round-trip and deletion under Node; smoke drives the title
+      screen by synthetic click, rebinds a key and moves with it
+- [ ] Docs: PROJECT.md §3 §4 §6 §7 §9 §11, README controls section notes rebinding
+
+### PR B — online co-op  (branch `feat/online-coop`)
+
+- [ ] `server/signal.js` broker (`ws`, `npm run signal`)
+- [ ] `src/net/transport.js` WebRTC, two DataChannels
+- [ ] `src/net/host.js`, `client.js`, `events.js`, `actions.js`, `protocol.js`
+- [ ] Title/lobby screens, overlay inputs
+- [ ] Save v8 with per-identity player records; v7 migration
+- [ ] Teammate readability: colours, name tags, edge markers, minimap
+- [ ] Tests: Node protocol/save; smoke with a fake in-page guest; `tests/net-e2e.js`
+- [ ] Docs, measured wire rate in PROJECT.md §9
+
+## Previous round — playtest response (pacing, inventory, survival)
+
+PR 1 (pacing, #7) and PR 2 (slot inventory, #8) are merged. Still open from it:
+
+- [ ] Crafting folded into the inventory screen as a tab (owner never found it on `C`)
+- [ ] Storage tiers: Crate / Supply Stash / Steel Locker aggregating into one view
+- [ ] Light hunger and thirst: soft debuffs, no health damage
 
 ## Review
 

@@ -2,7 +2,8 @@
 // transform; the HUD layer draws afterwards in screen space.
 
 import { TILE, TERRAIN, T, WEAPONS, STRUCTURES, ENEMIES } from '../game/config.js';
-import { G } from '../game/state.js';
+import { G, isLocal } from '../game/state.js';
+import { driverOf } from '../game/vehicles.js';
 import { Sprites, structureSprite } from '../core/sprites.js';
 import { FX } from '../core/particles.js';
 import { hash2, clamp, TAU } from '../core/util.js';
@@ -74,7 +75,10 @@ export function render(ctx, W, H) {
     if (r.x < view.x0 - 60 || r.x > view.x1 + 60 || r.y < view.y0 - 60 || r.y > view.y1 + 60) continue;
     drawList.push({ y: r.y, kind: 'rescue', ref: r });
   }
-  if (!G.player.dead) drawList.push({ y: G.player.y, kind: 'player', ref: G.player });
+  for (const q of G.players) {
+    if (q.dead || q.away) continue;
+    drawList.push({ y: q.y, kind: 'player', ref: q });
+  }
 
   drawList.sort((a, b) => a.y - b.y);
   for (const d of drawList) {
@@ -154,8 +158,9 @@ function drawNight(ctx, W, H) {
 
   // No light source clears the dark completely — even a floodlit yard should
   // still read as night, or the whole cycle stops mattering.
-  const p = G.player;
-  if (!p.dead) hole(p.x, p.y, 175, 0.72);
+  for (const q of G.players) {
+    if (!q.dead && !q.away) hole(q.x, q.y, q.downed ? 90 : 175, 0.72);
+  }
 
   for (const s of G.structures) {
     if (s.destroyed) continue;
@@ -173,7 +178,7 @@ function drawNight(ctx, W, H) {
   // Headlights carve a long cone out of the dark ahead of a moving car.
   for (const v of G.vehicles) {
     if (v.destroyed || !v.headlights) continue;
-    const driven = G.player && G.player.drivingId === v.id;
+    const driven = !!driverOf(v);
     if (!driven && !v.engineOn) continue;
     hole(v.x, v.y, 130, 0.7);
     for (let i = 1; i <= 5; i++) {
@@ -503,6 +508,8 @@ function drawEnemy(ctx, e) {
 // ------------------------------------------------------------------ player --
 
 function drawPlayer(ctx, p) {
+  if (p.downed) { drawDownedPlayer(ctx, p); return; }
+
   const w = currentWeapon(p);
   const moving = Math.hypot(p.vx, p.vy) > 20;
   const t = G.time;
@@ -510,7 +517,8 @@ function drawPlayer(ctx, p) {
 
   // A ring on the ground. In a crowd of similarly-sized zombies this is the
   // single most important readability cue. Drawn as a dark ring under a light
-  // one so it stays visible on both grass and pale shop floors.
+  // one so it stays visible on both grass and pale shop floors. Each player
+  // has their own tint, so teammates read apart from you at a glance.
   ctx.save();
   const ringA = p.sneaking ? 0.22 : 0.42;
   ctx.globalAlpha = ringA * 0.8;
@@ -520,12 +528,14 @@ function drawPlayer(ctx, p) {
   ctx.ellipse(p.x, p.y + 3, 19, 12, 0, 0, TAU);
   ctx.stroke();
   ctx.globalAlpha = ringA;
-  ctx.strokeStyle = '#dff0ff';
+  ctx.strokeStyle = p.color || '#dff0ff';
   ctx.lineWidth = 1.5;
   ctx.beginPath();
   ctx.ellipse(p.x, p.y + 3, 19, 12, 0, 0, TAU);
   ctx.stroke();
   ctx.restore();
+
+  if (!isLocal(p)) drawNameTag(ctx, p);
 
   ctx.save();
   ctx.translate(p.x, p.y);
@@ -628,15 +638,82 @@ function drawPlayer(ctx, p) {
     ctx.restore();
   }
 
-  // Channel bars (searching / bandaging)
-  const chan = p.searching || p.using;
+  // Channel bars (searching / bandaging / reviving)
+  const chan = p.searching || p.using || p.reviving;
   if (chan) {
     const frac = clamp(chan.t / chan.dur, 0, 1);
     ctx.fillStyle = '#00000099';
     ctx.fillRect(p.x - 20, p.y - 30, 40, 6);
-    ctx.fillStyle = p.using ? '#7ce08a' : '#e8d488';
+    ctx.fillStyle = (p.using || p.reviving) ? '#7ce08a' : '#e8d488';
     ctx.fillRect(p.x - 19, p.y - 29, 38 * frac, 4);
   }
+}
+
+/** A teammate's name, sitting just above their head. */
+function drawNameTag(ctx, p) {
+  ctx.save();
+  ctx.font = 'bold 10px "Courier New", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#000000aa';
+  ctx.fillText(p.name, p.x + 1, p.y - 25);
+  ctx.fillStyle = p.color || '#dff0ff';
+  ctx.fillText(p.name, p.x, p.y - 26);
+  ctx.restore();
+}
+
+/**
+ * Down but not out. Lying where they fell, with a pulsing ring in their colour
+ * and the countdown over them so a teammate knows how long they have.
+ */
+function drawDownedPlayer(ctx, p) {
+  const pulse = 0.5 + Math.sin(G.time * 5) * 0.5;
+  ctx.save();
+  ctx.globalAlpha = 0.35 + pulse * 0.4;
+  ctx.strokeStyle = '#05070a';
+  ctx.lineWidth = 3.5;
+  ctx.beginPath();
+  ctx.ellipse(p.x, p.y + 3, 22, 14, 0, 0, TAU);
+  ctx.stroke();
+  ctx.strokeStyle = '#e05a4a';
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  ctx.ellipse(p.x, p.y + 3, 22, 14, 0, 0, TAU);
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.rotate(p.angle + Math.PI / 2);
+  ctx.globalAlpha = 0.5;
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.ellipse(0, 3, 16, 8, 0, 0, TAU);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  // Body, laid out flat.
+  ctx.fillStyle = '#15190f';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 15, 8, 0, 0, TAU);
+  ctx.fill();
+  ctx.fillStyle = '#7f8a66';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 13, 6.5, 0, 0, TAU);
+  ctx.fill();
+  ctx.fillStyle = '#e0c49c';
+  ctx.beginPath();
+  ctx.arc(-13, 0, 5.5, 0, TAU);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.save();
+  ctx.font = 'bold 11px "Courier New", monospace';
+  ctx.textAlign = 'center';
+  const label = `${p.name.toUpperCase()}  ${Math.ceil(p.downT)}s`;
+  ctx.fillStyle = '#000000aa';
+  ctx.fillText(label, p.x + 1, p.y - 23);
+  ctx.fillStyle = '#ff8a7a';
+  ctx.fillText(label, p.x, p.y - 24);
+  ctx.restore();
 }
 
 function drawWeapon(ctx, w, p) {
@@ -1044,7 +1121,7 @@ function drawBuildGhost(ctx) {
 
 function drawInteractPrompt(ctx) {
   const h = G.ui.hover;
-  if (!h || G.ui.buildMode || G.player.searching) return;
+  if (!h || G.ui.buildMode || G.player.searching || G.player.reviving) return;
   const ref = h.ref;
   ctx.save();
   ctx.textAlign = 'center';

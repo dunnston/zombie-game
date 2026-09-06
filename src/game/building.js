@@ -5,7 +5,7 @@
 import { STRUCTURES, BUILD_ORDER, TILE, THREAT, BENCH_UPGRADE_COST } from './config.js';
 import {
   G, structAt, addStructure, removeStructure, canAfford, spend, scaledCost,
-  notify, addRes, addResCapped, takeRes, countRes,
+  notify, addRes, addResCapped, takeRes, countRes, baseOwner, presentPlayers,
 } from './state.js';
 import { isBlockedTile } from './world.js';
 import { ITEMS, slotsEntries, packAllowance } from './items.js';
@@ -29,16 +29,18 @@ export function isUnlocked(type) {
   return G.benchTier >= 2;
 }
 
-export function structureCost(type) {
+/** What `p` would pay for a piece, after their building perks. */
+export function structureCost(type, p = G.player) {
   const def = STRUCTURES[type];
   if (!def) return {};
-  return scaledCost(def.cost, G.player.buildCostMul);
+  return scaledCost(def.cost, p.buildCostMul);
 }
 
 /**
+ * @param p  the builder — range and cost are theirs
  * @returns {{ok: boolean, reason: string}}
  */
-export function canPlace(type, tx, ty) {
+export function canPlace(type, tx, ty, p = G.player) {
   const def = STRUCTURES[type];
   if (!def) return { ok: false, reason: 'Unknown' };
   if (!isUnlocked(type)) return { ok: false, reason: 'Needs upgraded workbench' };
@@ -49,12 +51,16 @@ export function canPlace(type, tx, ty) {
   if (structAt(tx, ty)) return { ok: false, reason: 'Occupied' };
 
   const cx = tx * TILE + TILE / 2, cy = ty * TILE + TILE / 2;
-  const p = G.player;
   if (dist2(cx, cy, p.x, p.y) > BUILD_RANGE * BUILD_RANGE) return { ok: false, reason: 'Too far' };
 
-  // Never let a solid piece trap the player inside its own tile.
-  if (def.solid && Math.abs(cx - p.x) < TILE * 0.5 + p.r && Math.abs(cy - p.y) < TILE * 0.5 + p.r) {
-    return { ok: false, reason: 'You are standing there' };
+  // Never let a solid piece trap anyone inside its own tile.
+  if (def.solid) {
+    for (const q of presentPlayers()) {
+      if (q.dead) continue;
+      if (Math.abs(cx - q.x) < TILE * 0.5 + q.r && Math.abs(cy - q.y) < TILE * 0.5 + q.r) {
+        return { ok: false, reason: q === p ? 'You are standing there' : `${q.name} is standing there` };
+      }
+    }
   }
   // Don't bury loot containers.
   for (const c of w.containers) {
@@ -68,7 +74,7 @@ export function canPlace(type, tx, ty) {
       }
     }
   }
-  if (!canAfford(def.cost, p.buildCostMul)) return { ok: false, reason: 'Not enough resources' };
+  if (!canAfford(def.cost, p.buildCostMul, p)) return { ok: false, reason: 'Not enough resources' };
   return { ok: true, reason: '' };
 }
 
@@ -95,27 +101,31 @@ export function makeStructure(type, tx, ty, hpMul = 1) {
   return addStructure(s);
 }
 
-export function placeStructure(type, tx, ty) {
-  const check = canPlace(type, tx, ty);
+/** Marks the bedrolls that are somebody's respawn point, for the renderer. */
+export function refreshBedrolls() {
+  for (const s of G.structures) {
+    if (s.type === 'bedroll') s.active = G.players.some((q) => q.spawnStructure === s);
+  }
+}
+
+export function placeStructure(type, tx, ty, p = G.player) {
+  const check = canPlace(type, tx, ty, p);
   if (!check.ok) {
     sfx('deny');
     notify(check.reason, '#c96a5a');
     return null;
   }
   const def = STRUCTURES[type];
-  const p = G.player;
-  spend(def.cost, p.buildCostMul);
+  spend(def.cost, p.buildCostMul, p);
 
-  const s = makeStructure(type, tx, ty, p.structHpMul);
+  // How tough the base is belongs to the base, not to whoever laid the brick.
+  const s = makeStructure(type, tx, ty, (baseOwner() || p).structHpMul);
 
   // Only the newest bedroll is your respawn point.
   if (type === 'bedroll') {
-    for (const other of G.structures) {
-      if (other !== s && other.type === 'bedroll') other.active = false;
-    }
-    s.active = true;
     p.spawnStructure = s;
     p.spawnPoint = { x: s.x, y: s.y + TILE };
+    refreshBedrolls();
     notify('Respawn point set', '#b7e08a', true);
   }
   if (type === 'workbench') G.benchTier = Math.max(G.benchTier, 1);
@@ -124,37 +134,37 @@ export function placeStructure(type, tx, ty) {
   sfx('build');
   FX.debris(s.x, s.y, 8, '#9a8256');
   FX.ring(s.x, s.y, 4, 26, 0.3, '#b7e08a', 2);
-  addThreat(THREAT.perBuild * def.threat);
-  addXp(Math.max(2, Math.round(def.threat * 4 + 3)));
+  addThreat(THREAT.perBuild * def.threat, '', p);
+  addXp(p, Math.max(2, Math.round(def.threat * 4 + 3)));
   return s;
 }
 
 // ------------------------------------------------------------------- repair --
 
-export function repairCost(s) {
+export function repairCost(s, p = G.player) {
   const frac = 1 - s.hp / s.maxHp;
   if (frac <= 0.001) return null;
   const out = {};
-  for (const id in s.def.cost) out[id] = Math.max(1, Math.ceil(s.def.cost[id] * frac * 0.45 * G.player.buildCostMul));
+  for (const id in s.def.cost) out[id] = Math.max(1, Math.ceil(s.def.cost[id] * frac * 0.45 * p.buildCostMul));
   return out;
 }
 
-export function repairStructure(s) {
-  const cost = repairCost(s);
+export function repairStructure(s, p = G.player) {
+  const cost = repairCost(s, p);
   if (!cost) { notify('Already intact', '#8a8f84'); return false; }
-  if (!canAfford(cost)) { sfx('deny'); notify('Not enough materials to repair', '#c96a5a'); return false; }
-  spend(cost);
+  if (!canAfford(cost, 1, p)) { sfx('deny'); notify('Not enough materials to repair', '#c96a5a'); return false; }
+  spend(cost, 1, p);
   s.hp = s.maxHp;
   sfx('build');
   FX.ring(s.x, s.y, 4, 26, 0.35, '#7ce08a', 2);
   FX.text(s.x, s.y - 16, 'REPAIRED', '#7ce08a', 11, -32, 0.7);
-  addXp(3);
+  addXp(p, 3);
   return true;
 }
 
-export function demolishStructure(s) {
+export function demolishStructure(s, p = G.player) {
   const refundMul = 0.5 * (s.hp / s.maxHp);
-  const cost = scaledCost(s.def.cost, G.player.buildCostMul);
+  const cost = scaledCost(s.def.cost, p.buildCostMul);
   const lines = [];
   for (const id in cost) {
     const n = Math.floor(cost[id] * refundMul);
@@ -162,9 +172,11 @@ export function demolishStructure(s) {
   }
   removeStructure(s);
   s.destroyed = true;
-  if (s.type === 'bedroll' && G.player.spawnStructure === s) {
-    G.player.spawnStructure = null;
-    G.player.spawnPoint = null;
+  for (const q of G.players) {
+    if (s.type === 'bedroll' && q.spawnStructure === s) {
+      q.spawnStructure = null;
+      q.spawnPoint = null;
+    }
   }
   sfx('build');
   FX.debris(s.x, s.y, 12, '#8a7350');
@@ -217,7 +229,7 @@ export const generatorRunning = (s) => !!s.on && s.fuel > 0;
  * no spare fuel could never be shut down — it just burned on, broadcasting
  * Threat, which directly contradicts being able to lie low.
  */
-export function useGenerator(s) {
+export function useGenerator(s, p = G.player) {
   if (generatorRunning(s)) {
     s.on = false;
     s.running = false;
@@ -230,7 +242,7 @@ export function useGenerator(s) {
   const need = Math.ceil(s.def.fuelMax - s.fuel);
   let take = 0;
   if (need > 0) {
-    take = takeRes(G.player.bag, 'fuel', need);
+    take = takeRes(p.bag, 'fuel', need);
     if (take < need) take += takeRes(G.stash, 'fuel', need - take);
     if (take > 0) {
       s.fuel = Math.min(s.def.fuelMax, s.fuel + take);
@@ -251,21 +263,21 @@ export function useGenerator(s) {
 
 // ---------------------------------------------------------------- workbench --
 
-export function upgradeBench(s) {
+export function upgradeBench(s, p = G.player) {
   if (s.tier >= 2) { notify('Already upgraded', '#8a8f84'); return false; }
-  if (!canAfford(BENCH_UPGRADE_COST)) {
+  if (!canAfford(BENCH_UPGRADE_COST, 1, p)) {
     sfx('deny');
     notify('Need 55 Scrap, 20 Electronics, 5 Parts', '#c96a5a');
     return false;
   }
-  spend(BENCH_UPGRADE_COST);
+  spend(BENCH_UPGRADE_COST, 1, p);
   s.tier = 2;
   G.benchTier = 2;
   sfx('levelUp');
   FX.ring(s.x, s.y, 6, 90, 0.6, '#59b8c4', 3);
   notify('WORKBENCH II — advanced weapons and steel unlocked', '#59b8c4', true);
-  addXp(60);
-  addThreat(4);
+  addXp(p, 60);
+  addThreat(4, '', p);
   return true;
 }
 
@@ -292,7 +304,10 @@ export function baseCenter() {
     const w = s.def.protect ? 3 : 1;
     sx += s.x * w; sy += s.y * w; n += w;
   }
-  if (n === 0) return G.player ? { x: G.player.x, y: G.player.y, hasBase: false } : { x: 0, y: 0, hasBase: false };
+  if (n === 0) {
+    const o = baseOwner();
+    return o ? { x: o.x, y: o.y, hasBase: false } : { x: 0, y: 0, hasBase: false };
+  }
   return { x: sx / n, y: sy / n, hasBase: true };
 }
 
@@ -313,8 +328,7 @@ export function raidTarget(from) {
   return best;
 }
 
-export function stashDepositAll() {
-  const p = G.player;
+export function stashDepositAll(p = G.player) {
   let moved = 0;
   // Deposits raw materials and ammunition. Weapons, gear and medical supplies
   // stay on you: the stash is for the haul, and a deposit-all that stripped
@@ -343,8 +357,7 @@ export function stashDepositAll() {
 }
 
 /** Pulls ammo and consumables back out of the stash before heading out. */
-export function stashWithdrawAmmo() {
-  const p = G.player;
+export function stashWithdrawAmmo(p = G.player) {
   let moved = 0;
   for (const id of ['ammoP', 'ammoS', 'ammoR', 'med', 'fuel']) {
     const have = countRes(G.stash, id);
