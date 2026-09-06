@@ -10,6 +10,7 @@ import { addXp } from './progression.js';
 import { addThreat } from './threat.js';
 import { enemyDrop, dropBackpack } from './loot.js';
 import { creditSurvivorKill } from './survivors.js';
+import { exitVehicle } from './vehicles.js';
 import { clamp } from '../core/util.js';
 
 // ------------------------------------------------------------------ enemies --
@@ -114,6 +115,12 @@ export function damagePlayer(amount, fromX, fromY, label = '') {
 export function killPlayer() {
   const p = G.player;
   if (p.dead) return;
+
+  // Get out of the car first. Leaving drivingId set means updateVehicles keeps
+  // syncing the corpse to the car through the death countdown, and then snaps
+  // the respawned player straight back to it — ignoring their bedroll.
+  if (p.drivingId) exitVehicle(p);
+
   p.dead = true;
   p.hp = 0;
   p.respawnT = PLAYER.respawnTime;

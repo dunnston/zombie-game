@@ -61,6 +61,10 @@ export function render(ctx, W, H) {
     if (e.x < view.x0 - 60 || e.x > view.x1 + 60 || e.y < view.y0 - 60 || e.y > view.y1 + 60) continue;
     drawList.push({ y: e.y, kind: 'enemy', ref: e });
   }
+  for (const v of G.vehicles) {
+    if (v.x < view.x0 - 80 || v.x > view.x1 + 80 || v.y < view.y0 - 80 || v.y > view.y1 + 80) continue;
+    drawList.push({ y: v.y, kind: 'vehicle', ref: v });
+  }
   for (const b of G.backpacks) drawList.push({ y: b.y, kind: 'backpack', ref: b });
   for (const s of G.survivors) {
     if (s.dead) continue;
@@ -79,6 +83,7 @@ export function render(ctx, W, H) {
       case 'container': drawContainer(ctx, d.ref); break;
       case 'structure': drawStructure(ctx, d.ref); break;
       case 'enemy': drawEnemy(ctx, d.ref); break;
+      case 'vehicle': drawVehicle(ctx, d.ref); break;
       case 'backpack': drawBackpack(ctx, d.ref); break;
       case 'survivor': drawSurvivor(ctx, d.ref); break;
       case 'rescue': drawRescue(ctx, d.ref); break;
@@ -163,6 +168,18 @@ function drawNight(ctx, W, H) {
   // Your people carry torches too.
   for (const s of G.survivors) {
     if (!s.dead && !s.downed) hole(s.x, s.y, 110, 0.5);
+  }
+
+  // Headlights carve a long cone out of the dark ahead of a moving car.
+  for (const v of G.vehicles) {
+    if (v.destroyed || !v.headlights) continue;
+    const driven = G.player && G.player.drivingId === v.id;
+    if (!driven && !v.engineOn) continue;
+    hole(v.x, v.y, 130, 0.7);
+    for (let i = 1; i <= 5; i++) {
+      const d = i * 52;
+      hole(v.x + Math.cos(v.angle) * d, v.y + Math.sin(v.angle) * d, 90 + i * 12, 0.85 - i * 0.09);
+    }
   }
 
   // Muzzle flashes briefly light the world around them.
@@ -646,6 +663,77 @@ function drawWeapon(ctx, w, p) {
     }
   }
   ctx.restore();
+}
+
+function drawVehicle(ctx, v) {
+  const spr = v.destroyed
+    ? Sprites.wrecks[v.si % Sprites.wrecks.length]
+    : Sprites.cars[v.si % Sprites.cars.length];
+
+  ctx.save();
+  ctx.translate(v.x, v.y);
+  ctx.globalAlpha = 0.42;
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.ellipse(3, 6, 30, 16, v.angle, 0, TAU);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.rotate(v.angle);
+  ctx.drawImage(spr, -spr.width / 2, -spr.height / 2);
+
+  if (v.flash > 0) {
+    ctx.globalAlpha = v.flash * 4;
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(-spr.width / 2, -spr.height / 2, spr.width, spr.height);
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+
+  if (v.destroyed) return;
+
+  // A locked car reads as locked without needing the prompt.
+  if (v.locked && !v.hotwired) {
+    ctx.save();
+    ctx.globalAlpha = 0.55 + Math.sin(G.time * 2) * 0.15;
+    ctx.fillStyle = '#e8c86a';
+    ctx.font = 'bold 12px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('🔒', v.x, v.y - 26);
+    ctx.textAlign = 'left';
+    ctx.restore();
+  }
+
+  const driven = G.player && G.player.drivingId === v.id;
+  if (driven) {
+    // Condition and fuel, right on the car, so you never look away from the road.
+    const w = 46;
+    ctx.fillStyle = '#00000099';
+    ctx.fillRect(v.x - w / 2, v.y - 40, w, 8);
+    ctx.fillStyle = v.hp / v.maxHp > 0.4 ? '#7ec46a' : '#e05a4a';
+    ctx.fillRect(v.x - w / 2 + 1, v.y - 39, (w - 2) * clamp(v.hp / v.maxHp, 0, 1), 3);
+    ctx.fillStyle = v.fuel > 8 ? '#d2762c' : '#c94a3a';
+    ctx.fillRect(v.x - w / 2 + 1, v.y - 35, (w - 2) * clamp(v.fuel / 60, 0, 1), 2);
+  }
+
+  // Headlight cones at night — drawn here so they sit under the darkness pass
+  // and are punched through it by drawNight().
+  if (v.headlights && darkness().alpha > 0.25 && (driven || v.engineOn)) {
+    ctx.save();
+    ctx.translate(v.x, v.y);
+    ctx.rotate(v.angle);
+    const g = ctx.createLinearGradient(20, 0, 300, 0);
+    g.addColorStop(0, 'rgba(255,246,205,0.30)');
+    g.addColorStop(1, 'rgba(255,246,205,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(18, -10);
+    ctx.lineTo(300, -95);
+    ctx.lineTo(300, 95);
+    ctx.lineTo(18, 10);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
 }
 
 function drawSurvivor(ctx, s) {

@@ -1076,6 +1076,325 @@
       G.structGrid.clear();
     }
 
+    // -------------------------------------------------- 11f. drivable cars --
+    {
+      d.god(true);
+      G.enemies.length = 0;
+      G.survivors.length = 0;
+
+      ok('the town is full of cars', G.vehicles.length > 15, `${G.vehicles.length}`);
+      const lockedCars = G.vehicles.filter((v) => v.locked);
+      ok('most cars are locked', lockedCars.length > G.vehicles.length * 0.3,
+        `${lockedCars.length} of ${G.vehicles.length}`);
+      ok('locked cars have their key hidden somewhere',
+        G.vehicles.filter((v) => v.keyId).length > 0,
+        `${G.vehicles.filter((v) => v.keyId).length} with keys`);
+      const planted = G.world.containers.filter((c) => c.extra && c.extra.length);
+      ok('keys are planted in real containers', planted.length > 0, `${planted.length}`);
+      ok('a planted key names the car it opens',
+        planted[0].extra.some((e) => e.id.startsWith('key:')), planted[0].extra[0].id);
+
+      // ------------------------------------------------------- getting in --
+      const car = lockedCars.find((v) => v.keyId) || G.vehicles[0];
+      d.teleport(car.x + 40, car.y);
+      await frames(3);
+      p.items = {};
+      p.carKeys = [];
+      p.hotwire = false;
+      car.locked = true; car.hotwired = false;
+      ok('a locked car refuses you with nothing to open it with',
+        api.enterVehicle(p, car) === false && !p.drivingId);
+
+      p.carKeys = [car.keyId];
+      ok('the right key opens it', api.tryUnlock(p, car) === true && !car.locked);
+      ok('the key is used up', !p.carKeys.includes(car.keyId));
+
+      // Lockpicking: chance scales with Perception, and picks are consumed.
+      const car2 = lockedCars.find((v) => v !== car && v.locked) || G.vehicles[1];
+      car2.locked = true; car2.hotwired = false;
+      p.carKeys = [];
+      p.attrs.per = 1; api.recomputeStats(p);
+      const lowOdds = api.pickChance(p);
+      p.attrs.per = 10; api.recomputeStats(p);
+      const highOdds = api.pickChance(p);
+      ok('Perception improves the odds of picking a lock', highOdds > lowOdds + 0.2,
+        `${lowOdds.toFixed(2)} -> ${highOdds.toFixed(2)}`);
+      ok('the odds are never a certainty', highOdds < 1, `${highOdds.toFixed(2)}`);
+
+      p.items.lockpick = 60;
+      const picksBefore = p.items.lockpick;
+      let opened = false;
+      for (let i = 0; i < 50 && !opened; i++) opened = api.tryUnlock(p, car2);
+      ok('a lock can be picked open', opened && !car2.locked);
+      ok('picks are consumed whether they work or not', (p.items.lockpick || 0) < picksBefore,
+        `${picksBefore} -> ${p.items.lockpick || 0}`);
+
+      // Hotwiring: the Intelligence perk, slow but universal.
+      const car3 = G.vehicles.find((v) => v.locked && v !== car && v !== car2);
+      if (car3) {
+        p.items = {}; p.carKeys = [];
+        p.hotwire = true; p.hotwireSpeedMul = 1;
+        d.teleport(car3.x + 40, car3.y);
+        await frames(3);
+        api.tryUnlock(p, car3);
+        ok('hotwiring starts a channel', !!(p.using && p.using.id === 'hotwire'));
+        await seconds(4);
+        ok('hotwiring opens any car', car3.hotwired && !car3.locked,
+          `hotwired=${car3.hotwired}`);
+      }
+
+      // ---------------------------------------------------------- driving --
+      const plot = clearOpenPlot(G, 6);
+      const ride = G.vehicles[0];
+      ride.locked = false; ride.destroyed = false;
+      ride.fuel = 60; ride.hp = ride.maxHp;
+      api.releaseTiles(ride);
+      ride.x = plot.x; ride.y = plot.y; ride.angle = 0; ride.speed = 0;
+      api.occupyTiles(ride);
+      ok('a parked car blocks the tiles it sits on', (ride.tiles || []).length > 0);
+
+      d.teleport(plot.x + 40, plot.y);
+      await frames(3);
+      d.tap('KeyE');
+      await frames(4);
+      ok('E gets you into a car', !!p.drivingId, `driving=${p.drivingId}`);
+      ok('driving releases the car\'s tiles', (ride.tiles || []).length === 0);
+
+      const startX = ride.x, startFuel = ride.fuel;
+      d.key('KeyW', true);
+      await seconds(1.5);
+      ok('the car accelerates', ride.speed > 100, `${Math.round(ride.speed)}`);
+      ok('the car actually moves', Math.abs(ride.x - startX) > 80,
+        `${Math.round(Math.abs(ride.x - startX))}px`);
+      ok('driving burns fuel', ride.fuel < startFuel, `${startFuel.toFixed(1)} -> ${ride.fuel.toFixed(1)}`);
+      ok('the player rides along', Math.hypot(p.x - ride.x, p.y - ride.y) < 4);
+
+      const angleBefore = ride.angle;
+      d.key('KeyD', true);
+      await seconds(0.7);
+      d.key('KeyD', false);
+      ok('the car steers while moving', Math.abs(ride.angle - angleBefore) > 0.3,
+        `${Math.abs(ride.angle - angleBefore).toFixed(2)} rad`);
+      d.key('KeyW', false);
+
+      await seconds(1.4);
+      d.key('KeyS', true);
+      await seconds(1.2);
+      d.key('KeyS', false);
+      ok('the car reverses', ride.speed < -20, `${Math.round(ride.speed)}`);
+      await seconds(1.5);
+
+      // Running someone over.
+      G.enemies.length = 0;
+      ride.speed = 0;
+      const victim = api.spawnEnemy('walker',
+        ride.x + Math.cos(ride.angle) * 200, ride.y + Math.sin(ride.angle) * 200, {});
+      const victimHp = victim.hp, bodyBefore = ride.hp;
+      d.key('KeyW', true);
+      await seconds(1.8);
+      d.key('KeyW', false);
+      ok('running someone over hurts them', victim.dead || victim.hp < victimHp,
+        victim.dead ? 'dead' : `${Math.round(victim.hp)}`);
+      ok('and it costs you paint', ride.hp < bodyBefore,
+        `${Math.round(bodyBefore)} -> ${Math.round(ride.hp)}`);
+      await seconds(1.2);
+
+      // ------------------------------------------------------------ boot --
+      p.bag = { wood: 90, scrap: 40 };
+      const stowed = api.stowInTrunk(ride);
+      ok('the boot takes your haul', stowed > 0 && api.trunkLoad(ride) > 0,
+        `${api.trunkLoad(ride)} in the boot`);
+      ok('stowing empties your pack', Object.keys(p.bag).length === 0);
+      ok('the boot holds far more than you can carry', api.CAR.trunkCap > p.carryCap,
+        `${api.CAR.trunkCap} vs ${p.carryCap}`);
+      api.takeFromTrunk(ride);
+      ok('you can take it back out', Object.keys(p.bag).length > 0);
+
+      // ---------------------------------------------------------- getting out
+      d.tap('KeyE');
+      await frames(4);
+      ok('E gets you out again', !p.drivingId);
+      ok('parking reclaims tiles', (ride.tiles || []).length > 0);
+      ok('you step out beside the car, not inside it',
+        !api.solidPx(p.x, p.y) && Math.hypot(p.x - ride.x, p.y - ride.y) < 70,
+        `${Math.round(Math.hypot(p.x - ride.x, p.y - ride.y))}px away`);
+
+      // ------------------------------------------------------- destruction --
+      ride.trunk = { scrap: 30 };
+      G.pickups.length = 0;
+      api.damageVehicle(ride, ride.hp + 10, 'test');
+      ok('a car can be wrecked', ride.destroyed);
+      ok('a wrecked car spills its boot rather than eating it', G.pickups.length > 0,
+        `${G.pickups.length} spilled`);
+      const scrapBefore = G.stash.scrap || 0;
+      const carsBefore = G.vehicles.length;
+      api.salvageVehicle(ride);
+      ok('a wreck can be stripped for materials', (G.stash.scrap || 0) > scrapBefore,
+        `${scrapBefore} -> ${G.stash.scrap || 0}`);
+      ok('stripping removes the wreck', G.vehicles.length === carsBefore - 1);
+
+      G.pickups.length = 0;
+      G.enemies.length = 0;
+      p.hotwire = false;
+
+      // ------------------------- vehicle state regressions -----------------
+      // Wrecking the car you are driving must let go of you. Resolving the car
+      // through drivenCar() after marking it destroyed silently failed, leaving
+      // the player unable to walk or fight — a permanent soft-lock.
+      {
+        const doomedCar = G.vehicles.find((v) => !v.destroyed);
+        doomedCar.locked = false; doomedCar.fuel = 40; doomedCar.hp = doomedCar.maxHp;
+        api.releaseTiles(doomedCar);
+        doomedCar.x = plot.x; doomedCar.y = plot.y;
+        api.occupyTiles(doomedCar);
+        d.teleport(plot.x + 40, plot.y);
+        await frames(3);
+        api.enterVehicle(p, doomedCar);
+        await frames(2);
+        ok('driving the car about to be wrecked', !!p.drivingId);
+        api.damageVehicle(doomedCar, doomedCar.hp + 50, 'test');
+        await frames(3);
+        ok('wrecking your car does not strand you', !p.drivingId,
+          `drivingId=${p.drivingId}`);
+        ok('you can move again after your car is wrecked', !api.isDriving());
+      }
+
+      // Dying at the wheel must respect your respawn point, not snap you back.
+      {
+        const deathCar = G.vehicles.find((v) => !v.destroyed);
+        if (deathCar) {
+          deathCar.locked = false; deathCar.fuel = 40; deathCar.hp = deathCar.maxHp;
+          api.releaseTiles(deathCar);
+          deathCar.x = plot.x + 120; deathCar.y = plot.y;
+          api.occupyTiles(deathCar);
+          d.teleport(deathCar.x + 40, deathCar.y);
+          await frames(3);
+          api.enterVehicle(p, deathCar);
+          await frames(2);
+          ok('driving before the death test', !!p.drivingId);
+          G.backpacks.length = 0;
+          api.killPlayer();
+          await frames(3);
+          ok('dying at the wheel gets you out of the car', !p.drivingId);
+          await seconds(4.5);
+          ok('you respawn away from the car you died in',
+            !p.dead && Math.hypot(p.x - deathCar.x, p.y - deathCar.y) > 60,
+            `${Math.round(Math.hypot(p.x - deathCar.x, p.y - deathCar.y))}px from it`);
+          d.god(true);
+          G.backpacks.length = 0;
+          G.enemies.length = 0;
+        }
+      }
+
+      // Cars must not drive through the base you built. Collision used the
+      // terrain-only helper, so a car sailed straight through walls and closed
+      // gates — which would make a perimeter pointless.
+      {
+        d.giveAll();
+        G.benchTier = 2;
+        // Well clear of the base the earlier build test left standing, or the
+        // car crashes into old scenery and the test proves nothing.
+        const arena = clearOfStructures(G, plot.x, plot.y);
+        d.teleport(arena.x, arena.y);
+        await frames(3);
+        const blockWall = placeNear('metalWall');
+        const wallCar = G.vehicles.find((v) => !v.destroyed);
+        // Run-up must be genuinely empty, otherwise a stray tree does the
+        // stopping and the wall is never actually tested.
+        const runUp = blockWall && (() => {
+          for (let d2 = 24; d2 <= 160; d2 += 8) {
+            if (api.solidPx(blockWall.x - d2, blockWall.y)) return false;
+          }
+          return true;
+        })();
+        if (blockWall && wallCar && runUp) {
+          wallCar.locked = false; wallCar.fuel = 40; wallCar.hp = wallCar.maxHp;
+          api.releaseTiles(wallCar);
+          // Line the car up four tiles west of the wall, pointed straight at it.
+          wallCar.x = blockWall.x - 128; wallCar.y = blockWall.y;
+          wallCar.angle = 0; wallCar.speed = 0;
+          const carStartX = wallCar.x;
+          d.teleport(wallCar.x, wallCar.y - 48);
+          await frames(3);
+          api.enterVehicle(p, wallCar);
+          await frames(2);
+          d.key('KeyW', true);
+          await seconds(1.4);
+          d.key('KeyW', false);
+          await frames(4);
+          const gap = blockWall.x - wallCar.x;
+          ok('the car reaches the wall it is aimed at', gap < 40,
+            `stopped ${Math.round(gap)}px short after ${Math.round(wallCar.x - carStartX)}px`);
+          ok('a car cannot drive through your own wall', gap > 12,
+            `car at ${Math.round(wallCar.x)}, wall at ${Math.round(blockWall.x)}`);
+          api.exitVehicle(p);
+          await frames(2);
+          api.demolishStructure(blockWall);
+        } else {
+          ok('wall-collision arena was usable', false,
+            `wall=${!!blockWall} car=${!!wallCar} runUp=${!!runUp}`);
+        }
+      }
+
+      // One R press must not both reload and refuel.
+      {
+        const fuelCar = G.vehicles.find((v) => !v.destroyed);
+        fuelCar.fuel = 5;
+        fuelCar.locked = false;
+        d.teleport(fuelCar.x + 40, fuelCar.y);
+        await frames(3);
+        p.weapons = ['fists', 'pipe', 'pistol'];
+        p.mag.pistol = 3;
+        api.selectSlot(p, 2);
+        p.bag.ammoP = 50;
+        p.bag.fuel = 60;
+        await frames(2);
+        const magBefore = p.mag.pistol;
+        const fuelBefore = fuelCar.fuel;
+        d.tap('KeyR');
+        await frames(4);
+        ok('R beside a thirsty car refuels it', fuelCar.fuel > fuelBefore,
+          `${fuelBefore.toFixed(1)} -> ${fuelCar.fuel.toFixed(1)}`);
+        ok('...and does not also start a reload', p.mag.pistol === magBefore && !p.reloading,
+          `mag ${magBefore} -> ${p.mag.pistol}, reloading=${!!p.reloading}`);
+      }
+
+      // Saved cars must reconcile their collision footprint on load.
+      {
+        const moved = G.vehicles.find((v) => !v.destroyed);
+        const spawn = (G.world.vehicleSpawns || [])[0];
+        moved.locked = false;
+        api.releaseTiles(moved);
+        moved.x = plot.x + 200; moved.y = plot.y + 200;
+        api.occupyTiles(moved);
+        const movedTo = { x: moved.x, y: moved.y };
+        api.saveGame();
+        api.loadGame();
+        p = G.player;
+        await frames(3);
+        const after = G.vehicles.find((v) => v.id === moved.id);
+        ok('a moved car reloads where you parked it', after &&
+          Math.hypot(after.x - movedTo.x, after.y - movedTo.y) < 8,
+          after ? `${Math.round(after.x)},${Math.round(after.y)}` : 'gone');
+        ok('a parked car is solid where it now stands',
+          after && api.solidPx(after.x, after.y),
+          after ? `solid=${api.solidPx(after.x, after.y)}` : 'car gone');
+        if (spawn && spawn.tiles && spawn.tiles.length) {
+          const [tx, ty] = spawn.tiles[0];
+          const stillBlocked = G.world.blocked[ty * G.world.w + tx] === 1;
+          const someoneThere = G.vehicles.some((v) =>
+            !v.destroyed && (v.tiles || []).some(([a, b]) => a === tx && b === ty));
+          ok('no invisible obstacle is left at an old car spawn',
+            !stillBlocked || someoneThere,
+            `tile ${tx},${ty} blocked=${stillBlocked} occupied=${someoneThere}`);
+        }
+        d.god(true);
+      }
+
+      G.pickups.length = 0;
+      G.enemies.length = 0;
+    }
+
     // ----------------------------------------------------- 12. stability ---
     d.god(true);
     G.enemies.length = 0;

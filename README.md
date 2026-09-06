@@ -58,10 +58,12 @@ runtime.
 | Left click | Attack / fire / place structure |
 | `Shift` | Sprint (drains stamina) |
 | `Ctrl` | Crouch — slower, much harder to notice |
-| `R` | Reload |
+| `R` | Reload · refuel a car you are in or standing beside |
 | `1`–`6` | Select weapon slot |
 | Mouse wheel | Cycle weapons (or build pieces in build mode) |
-| `E` | Interact — hold to search containers |
+| `E` | Interact — hold to search containers; get in and out of a car |
+| `G` | Stow your pack in a car's boot (`Shift`+`G` takes it back out) |
+| Driving | `W`/`S` throttle · `A`/`D` steer · `Space` brake |
 | `F` | At a stash: withdraw ammo and supplies |
 | `Q` | Use a bandage or medkit |
 | `B` | Build mode (right click or `B` again to exit) |
@@ -236,6 +238,36 @@ Raiders that get hung up on terrain are relocated to a fresh approach lane, and
 no raid may outlast a hard ceiling — a raid can never become unwinnable and
 block your progression.
 
+### Cars
+
+There are around thirty cars in the town and most of them can be driven. A car
+is the answer to the two things that most limit a run — how much you can carry
+and how far the good districts are.
+
+**Getting in.** Roughly two thirds are locked, and there are three ways past
+that:
+
+| | How |
+| --- | --- |
+| **Keys** | Every locked car's key is hidden in a container near it. Find the house, find the keys. |
+| **Lockpick** | Craftable at a workbench. Consumed whether it works or not, and the odds scale with **Perception** — 41% at PER 1, 92% at PER 10. A snapped pick makes noise. |
+| **Hotwire** | An **Intelligence** perk. Works on anything, no key needed, but it takes a few seconds standing still and the engine catching is loud. |
+
+**Driving.** Throttle, reverse, and steering that only bites once you are
+actually moving. `Space` brakes. You cannot shoot from the driver's seat.
+
+**What it costs.** Fuel, which you already need for generators. Bodywork, from
+every wall you clip and every zombie you flatten. And noise — speed feeds
+Threat, so a fast trip home has a bill attached.
+
+**What it gives.** A **400-unit boot**, roughly double your best on-foot
+capacity, so a run to Checkpoint Delta can come back with everything.
+Headlights that carve a real cone out of the night. And the option to drive
+through a crowd rather than around it.
+
+Wrecked cars can be stripped for scrap, and a car destroyed with cargo aboard
+spills the boot onto the road rather than eating it.
+
 ### Day and night
 
 A full day runs about nine minutes. Dawn, day, dusk, night — the light fades on
@@ -406,7 +438,7 @@ and perk actually changing a stat, perk gating by rank and cost, recompute
 idempotency, the day/night curve and clock, and survivor scaling.
 
 `tests/browser-smoke.js` is injected into the running dev server and drives the
-live game through 175 assertions using synthetic input events — movement, aiming,
+live game through 211 assertions using synthetic input events — movement, aiming,
 melee, gunfire, ammo, reloading, enemy pursuit, taking damage, searching
 containers, carry-capacity overflow, structure placement and cost, walls
 blocking, enemies attacking structures, workbench upgrades, tier-gated crafting,

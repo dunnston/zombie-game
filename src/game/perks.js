@@ -173,6 +173,11 @@ export const PERKS = [
     desc: '+35% turret damage and range per rank.',
     apply: (p, r) => { p.turretMul += 0.35 * r; },
   },
+  {
+    id: 'hotwire', attr: 'int', req: 5, max: 2, name: 'Hotwire',
+    desc: 'Start any locked car without a key. Rank 2 does it twice as fast.',
+    apply: (p, r) => { p.hotwire = true; p.hotwireSpeedMul *= Math.pow(0.5, r - 1); },
+  },
 
   // ----------------------------------------------------------------- LUCK --
   {
@@ -227,6 +232,7 @@ export function baseStats() {
     upkeepMul: 1,
 
     adrenaline: false, secondWind: false,
+    hotwire: false, hotwireSpeedMul: 1,
   };
 }
 

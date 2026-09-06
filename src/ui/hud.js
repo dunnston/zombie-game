@@ -19,6 +19,7 @@ import {
   JOBS, JOB_IDS, rosterLimits, freeTowers, assignJob,
 } from '../game/survivors.js';
 import { clockString, darkness, phaseAt } from '../game/daynight.js';
+import { drivenCar, trunkLoad, CAR } from '../game/vehicles.js';
 import { threatLabel, threatColor } from '../game/threat.js';
 import { dangerAtPx } from '../game/world.js';
 import { clamp, TAU, clock } from '../core/util.js';
@@ -276,6 +277,9 @@ function drawClock(ctx, W, H) {
 
 function drawWeaponBar(ctx, W, H) {
   const p = G.player;
+  const car = drivenCar();
+  if (car) { drawDrivingBar(ctx, W, H, car); return; }
+
   const w = currentWeapon(p);
   const y = H - 68;
   const x = 16;
@@ -331,6 +335,46 @@ function drawWeaponBar(ctx, W, H) {
     sx += 26;
     if (sx > x + 300) break;
   }
+}
+
+/** Replaces the weapon strip while you are behind the wheel. */
+function drawDrivingBar(ctx, W, H, car) {
+  const x = 16, y = H - 68;
+  ctx.fillStyle = C.bgSoft;
+  ctx.fillRect(x - 8, y - 8, 340, 62);
+  ctx.strokeStyle = C.border;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x - 7.5, y - 7.5, 339, 61);
+
+  ctx.font = 'bold 15px "Courier New", monospace';
+  ctx.fillStyle = C.text;
+  ctx.fillText(car.hotwired ? 'HOTWIRED CAR' : 'CAR', x, y + 12);
+
+  const kph = Math.round(Math.abs(car.speed) * 0.34);
+  ctx.font = 'bold 20px "Courier New", monospace';
+  ctx.fillStyle = car.speed < -1 ? C.gold : C.text;
+  ctx.fillText(`${kph}`, x + 122, y + 14);
+  ctx.font = '11px "Courier New", monospace';
+  ctx.fillStyle = C.dim;
+  ctx.fillText('km/h', x + 122 + ctx.measureText(`${kph}`).width + 22, y + 14);
+
+  ctx.font = '10px "Courier New", monospace';
+  ctx.fillStyle = C.dim;
+  ctx.fillText('FUEL', x, y + 26);
+  bar(ctx, x + 34, y + 19, 110, 8, car.fuel / CAR.fuelMax, car.fuel > 8 ? '#d2762c' : '#c94a3a');
+  ctx.fillStyle = C.dim;
+  ctx.fillText('BODY', x + 156, y + 26);
+  bar(ctx, x + 192, y + 19, 110, 8, car.hp / car.maxHp,
+    car.hp / car.maxHp > 0.4 ? '#7ec46a' : '#e05a4a');
+
+  const load = trunkLoad(car);
+  ctx.fillStyle = C.dim;
+  ctx.fillText(`BOOT ${Math.round(load)} / ${CAR.trunkCap}`, x, y + 42);
+  ctx.fillStyle = car.fuel <= 0 ? C.warn : C.dim;
+  ctx.fillText(
+    car.fuel <= 0 ? 'OUT OF FUEL' : 'W/S drive · A/D steer · SPACE brake · E out · G stow',
+    x + 118, y + 42,
+  );
 }
 
 // ------------------------------------------------------------------ threat --

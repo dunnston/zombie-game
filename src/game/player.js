@@ -6,6 +6,7 @@ import { G, moveCircle, notify, unstick } from './state.js';
 import { Input, key, keyTap } from '../core/input.js';
 import { meleeAttack, fireGun, startReload, updateReload } from './combat.js';
 import { healPlayer } from './damage.js';
+import { finishHotwire } from './vehicles.js';
 import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
 import { clamp, smooth, makeRng } from '../core/util.js';
@@ -46,6 +47,8 @@ export function createPlayer(x, y) {
     secondWindCd: 0,
 
     spawnPoint: null, spawnStructure: null,
+    drivingId: null,
+    carKeys: [],
     godMode: false,
   };
   recomputeStats(p);
@@ -87,6 +90,13 @@ export function useHealing(p) {
 }
 
 function finishUse(p) {
+  // Hotwiring borrows the same channel as healing — it is the only other thing
+  // that roots you in place for a couple of seconds.
+  if (p.using.id === 'hotwire') {
+    finishHotwire(p, p.using.vehicle);
+    p.using = null;
+    return;
+  }
   const c = CONSUMABLES[p.using.id];
   p.items[p.using.id]--;
   if (p.items[p.using.id] <= 0) delete p.items[p.using.id];
@@ -104,8 +114,10 @@ export function updatePlayer(dt) {
     return;
   }
 
-  // Never let the player end up sealed inside geometry.
-  unstick(p, p.r);
+  // While driving, the car owns your position — skip the on-foot movement and
+  // collision entirely rather than fighting it for control.
+  const driving = !!p.drivingId;
+  if (!driving) unstick(p, p.r);
 
   p.invuln = Math.max(0, p.invuln - dt);
   p.hurtFlash = Math.max(0, p.hurtFlash - dt);
@@ -131,7 +143,7 @@ export function updatePlayer(dt) {
   p.angle = aimTarget + p.recoil * (p.recoilDir || 1);
   if (p.recoil < 0.001) p.recoilDir = rng.chance(0.5) ? 1 : -1;
 
-  const uiBlocked = !!G.ui.panel;
+  const uiBlocked = !!G.ui.panel || driving;
 
   // ------------------------------------------------------------- movement --
   let ix = 0, iy = 0;
@@ -170,10 +182,12 @@ export function updatePlayer(dt) {
   const load = bagLoad(p);
   if (load > 1) speed *= clamp(1.25 - load * 0.25, 0.55, 1);
 
-  p.vx += (ix * speed - p.vx) * smooth(18, dt);
-  p.vy += (iy * speed - p.vy) * smooth(18, dt);
-  if (!moving) { p.vx *= Math.exp(-11 * dt); p.vy *= Math.exp(-11 * dt); }
-  moveCircle(p, p.vx * dt, p.vy * dt, p.r);
+  if (!driving) {
+    p.vx += (ix * speed - p.vx) * smooth(18, dt);
+    p.vy += (iy * speed - p.vy) * smooth(18, dt);
+    if (!moving) { p.vx *= Math.exp(-11 * dt); p.vy *= Math.exp(-11 * dt); }
+    moveCircle(p, p.vx * dt, p.vy * dt, p.r);
+  }
 
   // ---------------------------------------------------------- channelling --
   if (p.using) {
@@ -183,7 +197,8 @@ export function updatePlayer(dt) {
 
   // --------------------------------------------------------------- combat --
   updateReload(p, dt);
-  if (!uiBlocked && !G.ui.buildMode && !rooted) {
+  // Two hands on the wheel: no shooting while driving.
+  if (!uiBlocked && !driving && !G.ui.buildMode && !rooted) {
     const w = currentWeapon(p);
     if (keyTap('KeyR')) startReload(p, w);
 
