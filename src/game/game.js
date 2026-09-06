@@ -24,6 +24,7 @@ import {
 import { updateBullets, updateTurrets, updateTraps } from './combat.js';
 import {
   updatePickups, rollContainer, grantLoot, collectBackpack, seedLoot, spawnPickup,
+  spawnEntryPickup,
 } from './loot.js';
 import {
   buildMenu, canPlace, placeStructure, repairStructure, demolishStructure,
@@ -38,7 +39,7 @@ import {
   addQuiet, CELL,
 } from './pressure.js';
 import { startRaid, updateRaid, forceEndRaid } from './raid.js';
-import { visibleRecipes, craft } from './crafting.js';
+import { visibleRecipes, craft, craftStatus } from './crafting.js';
 import { addXp, raiseAttribute, buyPerk } from './progression.js';
 import { killPlayer, killEnemy } from './damage.js';
 import { initClock, updateClock, nightFactors, clockString, darkness } from './daynight.js';
@@ -614,7 +615,8 @@ export const api = {
   buildMenu, structureCost, isUnlocked, currentWeapon, selectSlot,
   startRaid, addXp, addRes, countRes, dangerAtPx, solidPx, shake,
   findInteractable, placeStructure, canPlace, spawnEnemy, forceEndRaid,
-  visibleRecipes, craft, nearWorkbench, upgradeBench, baseCenter,
+  visibleRecipes, craft, craftStatus, nearWorkbench, upgradeBench, baseCenter,
+  spawnEntryPickup, RECIPES,
   grantLoot, rollContainer, spawnPickup, repairStructure, demolishStructure, killPlayer,
   killEnemy,
   raiseAttribute, buyPerk, recomputeStats, ATTRS, PERKS, perkStatus,

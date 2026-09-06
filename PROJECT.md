@@ -72,7 +72,7 @@ feedback driving the work.** Five rounds merged.
 | --- | --- |
 | Source | 32 modules, ~12,300 lines, no dependencies but Vite |
 | Assets | Zero. Every sprite is drawn in code at boot; every sound is WebAudio. |
-| Tests | 60 Node assertions; browser suite 266 |
+| Tests | 60 Node assertions; browser suite 279 |
 | Save format | **v7** |
 | Performance | ~57fps with 90 active enemies |
 
@@ -239,6 +239,8 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | Killing buys local, temporary quiet | The spawner keeps a standing population near the player and refills it every 0.6s, so there was no lull anywhere, ever — the first playtest could not get a base up. Quiet is earned by clearing and decays in ~4.5 minutes, so the world is still hostile (pillar 6); it is just no longer uniformly hostile everywhere at once. Raid spawning ignores it and raid kills do not earn it, so raids stay exactly as dangerous. |
 | One slot model behind the existing resource API | `addRes`/`takeRes`/`countRes` kept their signatures and learned to tell a slot container from a plain id->count map. That is what let the pack become a drag-and-drop grid while building, crafting, survivor upkeep, car boots and raid rewards went untouched. |
 | The stash, car boots and survivor cargo stay plain maps | Nothing addresses an individual slot in them, so a grid would be cost without benefit. Revisit when tiered storage containers land. |
+| Loot entry ids have exactly one encoder and one decoder | The prefixed grammar (`weapon:`/`item:`/`gear:`) was decoded by three hand-written if-chains. Adding `gear:` updated one of them, and the other two turned a scavenged helmet into a pickup nothing could read, which was then deleted on contact. `entryToPickup`/`pickupEntryId` in loot.js are now the only pair. |
+| Anything that will not fit lands on the ground | A full inventory is a normal state, and "make room and come back" only works if the item is still there. No loot path may destroy something for want of a slot. |
 | Nothing equips itself any more | `bestArmor()` silently wore whatever had the highest damage reduction, so the player could neither choose nor even see what they had on. Gear now goes to the pack and waits. |
 | `carryCap` is a budget for the pack *and* the hotbar | The weight bar counts both, so the capacity check has to as well — otherwise loot keeps fitting after the bar reads 100%. `packAllowance()` is the single place that nets it off. |
 | The quiet field is sampled bilinearly | Reading the containing cell made the payoff depend on where inside a 256px square you stood: measured, the same six kills bought 40 seconds of calm or none. |
@@ -344,7 +346,7 @@ round. Current expected totals:
 | Suite | Expected |
 | --- | --- |
 | `npm test` (Node, pure logic) | 60 |
-| `tests/browser-smoke.js` | 266 |
+| `tests/browser-smoke.js` | 279 |
 
 **Run the browser suite with the page focused.** Its waits are counted in
 animation frames, and a backgrounded tab throttles `requestAnimationFrame` to

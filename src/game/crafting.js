@@ -7,7 +7,20 @@ import * as FX from '../core/particles.js';
 import { addXp } from './progression.js';
 import { addThreat } from './threat.js';
 import { GEAR } from './config.js';
-import { slotsAdd, firstEmpty, packAllowance } from './items.js';
+import {
+  ITEMS, slotsAdd, firstEmpty, packAllowance, stackLimit, slotsWeight, itemWeight,
+} from './items.js';
+import { spawnEntryPickup } from './loot.js';
+
+/** The prefixed entry id for an item, so it can be spawned as a ground pickup. */
+function entryIdFor(id) {
+  const it = ITEMS[id];
+  if (!it) return id;
+  if (it.kind === 'weapon') return `weapon:${id}`;
+  if (it.kind === 'gear') return `gear:${id}`;
+  if (it.kind === 'consumable') return `item:${id}`;
+  return id;
+}
 
 /** Recipes visible at the player's current bench access level. */
 export function visibleRecipes(benchTier) {
@@ -20,12 +33,34 @@ export function craftStatus(r, benchTier) {
   }
   const p = G.player;
   // Duplicates are allowed now that gear and guns are ordinary items you can
-  // carry, drop, stash or hand to the next respawn. What limits you is space.
-  if ((r.give.weapon || r.give.armor) && firstEmpty(p.bag) < 0 && firstEmpty(p.hotbar) < 0) {
+  // carry, drop, stash or hand to the next respawn. What limits you is space —
+  // and the check has to name the *same* container the craft will actually use,
+  // or the cost is spent and the output falls on the floor. Weapons prefer the
+  // hotbar and fall back to the pack; gear only ever goes to the pack.
+  if (r.give.weapon && firstEmpty(p.bag) < 0 && firstEmpty(p.hotbar) < 0) {
+    return { ok: false, reason: 'No room for it' };
+  }
+  if (r.give.armor && firstEmpty(p.bag) < 0) {
+    return { ok: false, reason: 'No room in your pack' };
+  }
+  if (r.give.item && !roomForStack(p, r.give.item, r.give.n)) {
     return { ok: false, reason: 'No room in your pack' };
   }
   if (!canAfford(r.cost)) return { ok: false, reason: 'Missing materials' };
   return { ok: true, reason: '' };
+}
+
+/** Whether the pack can take `n` of `id`, by slot space and by weight. */
+function roomForStack(p, id, n) {
+  const max = stackLimit(id);
+  let room = 0;
+  for (const s of p.bag.slots) {
+    if (!s) room += max;
+    else if (s.id === id) room += max - s.n;
+    if (room >= n) break;
+  }
+  if (room < n) return false;
+  return packAllowance(p) - slotsWeight(p.bag) >= itemWeight(id) * n - 1e-9;
 }
 
 export function craft(r, benchTier) {
@@ -34,18 +69,29 @@ export function craft(r, benchTier) {
   const p = G.player;
   spend(r.cost);
 
+  // Belt and braces behind the checks above: whatever a slotsAdd cannot take
+  // lands at the player's feet. The cost has already been spent by this point,
+  // so the one outcome that must be impossible is the output disappearing.
+  const orGround = (id, wanted, got) => {
+    if (got >= wanted) return;
+    spawnEntryPickup(p.x, p.y, entryIdFor(id), wanted - got);
+    notify('No room — it is on the ground at your feet', '#d9c46a');
+  };
+
   let label = r.name;
   if (r.give.weapon) {
     const w = WEAPONS[r.give.weapon];
-    if (firstEmpty(p.hotbar) >= 0) slotsAdd(p.hotbar, r.give.weapon, 1);
-    else slotsAdd(p.bag, r.give.weapon, 1);
+    const got = firstEmpty(p.hotbar) >= 0
+      ? slotsAdd(p.hotbar, r.give.weapon, 1)
+      : slotsAdd(p.bag, r.give.weapon, 1);
+    orGround(r.give.weapon, 1, got);
     if (p.mag[r.give.weapon] === undefined) p.mag[r.give.weapon] = w.mag || 0;
     label = `${w.name} crafted`;
   } else if (r.give.armor) {
-    slotsAdd(p.bag, r.give.armor, 1);
+    orGround(r.give.armor, 1, slotsAdd(p.bag, r.give.armor, 1));
     label = `${GEAR[r.give.armor].name} crafted — equip it from your pack (I)`;
   } else if (r.give.item) {
-    slotsAdd(p.bag, r.give.item, r.give.n);
+    orGround(r.give.item, r.give.n, slotsAdd(p.bag, r.give.item, r.give.n));
     label = `${CONSUMABLES[r.give.item].name} x${r.give.n}`;
   } else if (r.give.res) {
     for (const id in r.give.res) {

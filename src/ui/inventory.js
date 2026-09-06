@@ -208,7 +208,26 @@ function endDrag(p, zone) {
     return;
   }
 
+  // Raw materials and ammunition are refused by the hotbar. Every consumer of
+  // them — reloading, crafting, build costs — reads the pack and the stash, so
+  // a stack parked on the hotbar would still cost carry weight while being
+  // invisible to the things that need it. The hotbar is for what you use.
+  if (zone.kind === 'hotbar' && !hotbarAccepts(p, from)) {
+    sfx('deny');
+    notify('The hotbar is for weapons and supplies, not materials', '#c96a5a');
+    return;
+  }
+
   moveStack(p, from.kind, from.i, zone.kind, zone.i);
+}
+
+/** Whether the stack being dragged is something the hotbar will hold. */
+function hotbarAccepts(p, from) {
+  const cont = from.kind === 'bag' ? p.bag : p.hotbar;
+  const s = cont.slots[from.i];
+  if (!s) return true;
+  const it = itemDef(s.id);
+  return !it || it.kind !== 'res';
 }
 
 // ------------------------------------------------------------------ panel ---

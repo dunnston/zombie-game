@@ -1709,6 +1709,147 @@
       G.pickups.length = 0;
     }
 
+
+    // ------------------------------- 11g. loot must never delete anything ---
+    // Four review findings, all the same shape: something with nowhere to go
+    // got silently destroyed instead of being left on the floor.
+    {
+      d.god(true);
+      G.enemies.length = 0;
+      G.pickups.length = 0;
+      G.ui.panel = null;
+      p = G.player;
+
+      const fillEverything = () => {
+        for (let i = 0; i < p.bag.slots.length; i++) p.bag.slots[i] = { id: 'wood', n: 1 };
+        for (let i = 0; i < p.hotbar.slots.length; i++) p.hotbar.slots[i] = { id: 'wood', n: 1 };
+      };
+      const emptyEverything = () => {
+        for (let i = 0; i < p.bag.slots.length; i++) p.bag.slots[i] = null;
+        for (let i = 0; i < p.hotbar.slots.length; i++) p.hotbar.slots[i] = null;
+      };
+
+      // ---- a weapon with nowhere to go stays on the ground ----
+      emptyEverything();
+      fillEverything();
+      G.pickups.length = 0;
+      const wr = api.grantLoot(p, [{ id: 'weapon:rifle', n: 1 }], p.x, p.y);
+      ok('a weapon that will not fit is not swallowed', G.pickups.length > 0,
+        `${G.pickups.length} on the ground, said "${wr.lines[0] && wr.lines[0].text}"`);
+      ok('...and it is still a weapon on the ground',
+        G.pickups.some((it) => it.kind === 'weapon' && it.id === 'rifle'),
+        G.pickups.map((it) => `${it.kind}:${it.id}`).join(','));
+
+      // ...and walking over it with a full pack must not delete it either.
+      const before = G.pickups.length;
+      d.teleport(G.pickups[0].x, G.pickups[0].y);
+      await seconds(1.2);
+      ok('walking over it with a full pack leaves it there',
+        G.pickups.length === before, `${before} -> ${G.pickups.length}`);
+
+      // Make room and it can be picked up.
+      emptyEverything();
+      await seconds(1.4);
+      ok('once there is room it can be collected',
+        api.slotsCount(p.bag, 'rifle') + api.slotsCount(p.hotbar, 'rifle') > 0,
+        `${G.pickups.length} left on the ground`);
+
+      // ---- overflowing consumables land as collectable pickups ----
+      emptyEverything();
+      fillEverything();
+      G.pickups.length = 0;
+      api.grantLoot(p, [{ id: 'item:bandage', n: 4 }], p.x, p.y);
+      ok('bandages that will not fit land on the ground', G.pickups.length > 0,
+        `${G.pickups.length} dropped`);
+      ok('...decoded as consumables, not as a broken resource',
+        G.pickups.every((it) => it.kind === 'item' && it.id === 'bandage'),
+        G.pickups.map((it) => `${it.kind}:${it.id}`).join(','));
+      emptyEverything();
+      await seconds(1.4);
+      ok('and those bandages can be picked back up',
+        api.slotsCount(p.bag, 'bandage') > 0,
+        `${api.slotsCount(p.bag, 'bandage')} recovered`);
+
+      // ---- gear a scavenger delivers survives the handover ----
+      G.pickups.length = 0;
+      emptyEverything();
+      // The delivery path decodes prefixed entry ids; `gear:` was missing from
+      // its hand-written list, so a helmet became an undecodable pickup.
+      api.spawnEntryPickup(p.x + 30, p.y, 'gear:riotHelm', 1);
+      // Checked before the next frame: the player is standing beside it and the
+      // pickup magnet would collect it first, so waiting would test the magnet
+      // rather than the decoding.
+      ok('a delivered helmet is a gear pickup', G.pickups.length > 0 &&
+        G.pickups[0].kind === 'gear' && G.pickups[0].id === 'riotHelm',
+        G.pickups.map((it) => `${it.kind}:${it.id}`).join(',') || 'nothing spawned');
+      await seconds(1.4);
+      ok('...and the player can actually collect it',
+        api.slotsCount(p.bag, 'riotHelm') + api.slotsCount(p.hotbar, 'riotHelm') > 0,
+        `${G.pickups.length} left behind`);
+
+      // ---- crafting never spends materials into nowhere ----
+      emptyEverything();
+      d.giveAll();
+      G.benchTier = 2;
+      const vestRecipe = api.RECIPES.find((r) => r.give.armor === 'lightVest');
+      if (vestRecipe) {
+        // A full pack with a free hotbar slot used to pass the check and then
+        // put the vest in the pack anyway, losing it and the materials.
+        for (let i = 0; i < p.bag.slots.length; i++) p.bag.slots[i] = { id: 'wood', n: 1 };
+        p.hotbar.slots[0] = null;
+        const clothBefore = api.countRes(G.stash, 'cloth');
+        const st = api.craftStatus ? api.craftStatus(vestRecipe, 2) : { ok: true };
+        const crafted = api.craft(vestRecipe, 2);
+        const clothAfter = api.countRes(G.stash, 'cloth');
+        ok('crafting into a full pack is refused rather than eaten',
+          !crafted && clothAfter === clothBefore,
+          `crafted=${crafted}, cloth ${clothBefore} -> ${clothAfter}, reason="${st.reason || ''}"`);
+
+        // With room, it works and the materials are spent.
+        emptyEverything();
+        const clothBefore2 = api.countRes(G.stash, 'cloth');
+        const crafted2 = api.craft(vestRecipe, 2);
+        ok('crafting with room produces the item', crafted2 &&
+          api.slotsCount(p.bag, 'lightVest') > 0,
+          `crafted=${crafted2}`);
+        ok('...and that one does spend the materials',
+          api.countRes(G.stash, 'cloth') < clothBefore2);
+      }
+
+      // ---- the hotbar refuses raw materials ----
+      emptyEverything();
+      api.slotsAdd(p.bag, 'wood', 20);
+      d.tap('KeyI');
+      await frames(4);
+      const zonesR = api.invZones();
+      const rectR = d.canvas.getBoundingClientRect();
+      const toClientR = (z) => ({
+        x: rectR.left + (z.x + z.w / 2) * ((G.dpr || 1) * rectR.width / d.canvas.width),
+        y: rectR.top + (z.y + z.h / 2) * ((G.dpr || 1) * rectR.height / d.canvas.height),
+      });
+      const woodIdx = p.bag.slots.findIndex((s) => s && s.id === 'wood');
+      const woodZ = zonesR.find((z) => z.kind === 'bag' && z.i === woodIdx);
+      const hbZ = zonesR.find((z) => z.kind === 'hotbar' && z.i === 0);
+      if (woodZ && hbZ) {
+        const a = toClientR(woodZ), b = toClientR(hbZ);
+        d.mouseMove(a.x, a.y); await frames(2);
+        d.mouseDown(0); await frames(2);
+        d.mouseMove(b.x, b.y); await frames(2);
+        d.mouseUp(0); await frames(3);
+        ok('raw materials cannot be parked on the hotbar',
+          api.slotsCount(p.hotbar, 'wood') === 0 && api.slotsCount(p.bag, 'wood') === 20,
+          `hotbar wood ${api.slotsCount(p.hotbar, 'wood')}, pack wood ${api.slotsCount(p.bag, 'wood')}`);
+      }
+      d.tap('Escape');
+      await frames(3);
+
+      emptyEverything();
+      api.slotsAdd(p.hotbar, 'pipe', 1);
+      G.pickups.length = 0;
+      G.enemies.length = 0;
+      d.god(true);
+    }
+
     // ------------------------------------------ 11e. cleared ground stays ---
     // The first playtest could do nothing but fight, because the spawner keeps
     // a standing population near the player and refills it every 0.6s. Killing

@@ -12,7 +12,7 @@ import {
 } from './state.js';
 import { spawnBullet } from './combat.js';
 import { baseCenter } from './building.js';
-import { rollContainer, spawnPickup } from './loot.js';
+import { rollContainer, spawnPickup, spawnEntryPickup } from './loot.js';
 import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
 import { addXp } from './progression.js';
@@ -784,12 +784,11 @@ function deliverCargo(s, stash) {
     addRes(G.stash, id, s.carrying[id]);
     total += s.carrying[id];
   }
+  // Decoded by the shared grammar rather than a hand-written prefix list —
+  // the list here missed `gear:` when it was added, so a scavenger who found a
+  // helmet spawned a pickup nothing could decode and it was deleted on contact.
   for (const e of s.carryItems || []) {
-    const kind = e.id.startsWith('weapon:') ? 'weapon'
-      : e.id.startsWith('armor:') ? 'armor'
-        : e.id.startsWith('item:') ? 'item' : 'res';
-    const id = kind === 'res' ? e.id : e.id.slice(e.id.indexOf(':') + 1);
-    spawnPickup(stash.x, stash.y + 26, kind, id, e.n);
+    spawnEntryPickup(stash.x, stash.y + 26, e.id, e.n);
     total += e.n;
   }
   if (total > 0) {
@@ -804,13 +803,7 @@ function deliverCargo(s, stash) {
 /** Puts a haul on the ground where the survivor stands. Never deletes it. */
 function dropCargo(s) {
   for (const id in s.carrying || {}) spawnPickup(s.x, s.y, 'res', id, s.carrying[id]);
-  for (const e of s.carryItems || []) {
-    const kind = e.id.startsWith('weapon:') ? 'weapon'
-      : e.id.startsWith('armor:') ? 'armor'
-        : e.id.startsWith('item:') ? 'item' : 'res';
-    const id = kind === 'res' ? e.id : e.id.slice(e.id.indexOf(':') + 1);
-    spawnPickup(s.x, s.y, kind, id, e.n);
-  }
+  for (const e of s.carryItems || []) spawnEntryPickup(s.x, s.y, e.id, e.n);
   if (s.carrying || (s.carryItems && s.carryItems.length)) {
     FX.text(s.x, s.y - 24, 'DROPPED', '#e8c86a', 11, -34, 1.0);
   }

@@ -66,9 +66,18 @@ function giveItem(p, id, preferHotbar = false) {
 }
 
 /**
- * Gives one loot entry to the player. Resources respect carry weight; the
- * overflow is returned so the caller can drop it on the ground.
- * Returns { text, color, overflow: {id,n}|null }.
+ * Gives one loot entry to the player. Resources respect carry weight; anything
+ * that does not fit comes back as `overflow` so the caller can leave it on the
+ * ground.
+ *
+ * `overflow.entry` is a full **prefixed** entry id (`item:bandage`,
+ * `weapon:rifle`, `gear:milVest`, or a bare resource id). It has to be, because
+ * the pickup it becomes is decoded by the same grammar: an earlier version
+ * returned the bare id and hard-coded the pickup kind to 'res', so overflowing
+ * bandages became a pickup nothing could decode, which was then deleted on
+ * contact.
+ *
+ * Returns { text, color, overflow: {entry,n}|null }.
  */
 export function giveEntry(p, entry) {
   const { id, n } = entry;
@@ -87,7 +96,12 @@ export function giveEntry(p, entry) {
       return { text: `${w.name} (already carried)`, color: '#8a8f84' };
     }
     if (!giveItem(p, wid, true)) {
-      return { text: `${w.name} — NO ROOM`, color: '#c96a5a', overflow: null };
+      // Never destroy it: hand it back so it stays on the ground and the player
+      // can make room and come back for it.
+      return {
+        text: `${w.name} — NO ROOM`, color: '#c96a5a',
+        overflow: { entry: id, n: 1 },
+      };
     }
     p.mag[wid] = w.mag || 0;
     return { text: `${w.name} acquired`, color: '#ffe08a', major: true };
@@ -101,7 +115,10 @@ export function giveEntry(p, entry) {
     // silently equipping the highest-armour piece is exactly what made the old
     // system impossible to reason about.
     if (!giveItem(p, aid)) {
-      return { text: `${a.name} — NO ROOM`, color: '#c96a5a', overflow: null };
+      return {
+        text: `${a.name} — NO ROOM`, color: '#c96a5a',
+        overflow: { entry: `gear:${aid}`, n: 1 },
+      };
     }
     const worn = p.equip[a.slot];
     const better = !worn || a.dr > GEAR[worn].dr;
@@ -127,7 +144,7 @@ export function giveEntry(p, entry) {
     return {
       text: got > 0 ? `${c.name} x${got}` : `${c.name} — PACK FULL`,
       color: got > 0 ? c.color : '#c96a5a',
-      overflow: n - got > 0 ? { id: iid, n: n - got } : null,
+      overflow: n - got > 0 ? { entry: `item:${iid}`, n: n - got } : null,
     };
   }
 
@@ -138,7 +155,7 @@ export function giveEntry(p, entry) {
   return {
     text: got > 0 ? `${def.name} +${got}` : `${def.name} — PACK FULL`,
     color: got > 0 ? def.color : '#c96a5a',
-    overflow: over > 0 ? { id, n: over } : null,
+    overflow: over > 0 ? { entry: id, n: over } : null,
   };
 }
 
@@ -165,7 +182,9 @@ export function grantLoot(p, entries, x, y) {
     if (!r) continue;
     lines.push(r);
     if (r.major) anyMajor = true;
-    if (r.overflow) spawnPickup(x, y, 'res', r.overflow.id, r.overflow.n);
+    // The overflow carries its own prefixed entry id, so a bandage that did not
+    // fit becomes a bandage on the floor rather than an undecodable pickup.
+    if (r.overflow) spawnEntryPickup(x, y, r.overflow.entry, r.overflow.n);
   }
   return { lines, anyMajor };
 }
@@ -224,11 +243,36 @@ export function updatePickups(dt) {
   }
 }
 
+// Ground pickups and loot entries are the same grammar seen from two sides.
+// Both directions live here so they cannot drift apart — they already did
+// once, and the symptom was rare gear silently deleted on contact.
+
+/** Splits a prefixed entry id into the {kind, id} a pickup is stored as. */
+export function entryToPickup(entry) {
+  const c = entry.indexOf(':');
+  if (c < 0) return { kind: 'res', id: entry };
+  const prefix = entry.slice(0, c);
+  const id = entry.slice(c + 1);
+  if (prefix === 'weapon') return { kind: 'weapon', id };
+  if (prefix === 'item') return { kind: 'item', id };
+  if (prefix === 'armor' || prefix === 'gear') return { kind: 'gear', id };
+  if (prefix === 'key') return { kind: 'key', id };
+  return { kind: 'res', id: entry };
+}
+
+/** Rebuilds the entry id a pickup came from, for handing back to giveEntry. */
 const pickupEntryId = (it) =>
   it.kind === 'res' ? it.id
     : it.kind === 'item' ? `item:${it.id}`
       : it.kind === 'weapon' ? `weapon:${it.id}`
-        : `armor:${it.id}`;
+        : it.kind === 'key' ? `key:${it.id}`
+          : `gear:${it.id}`;
+
+/** Drops a loot entry on the ground, decoding its kind from the entry id. */
+export function spawnEntryPickup(x, y, entry, n) {
+  const { kind, id } = entryToPickup(entry);
+  spawnPickup(x, y, kind, id, n);
+}
 
 // ---------------------------------------------------------------- backpacks --
 

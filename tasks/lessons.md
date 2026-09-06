@@ -253,3 +253,36 @@ fell out of an assertion comparing the two numbers.
 **Rule:** when a quantity is displayed in one place and enforced in another,
 make both call the same function. `packAllowance()` is now the only answer to
 "how much more will fit".
+
+### A hand-written prefix list is a deletion waiting to happen
+
+Loot entries are prefixed ids (`weapon:rifle`, `item:bandage`, `gear:milVest`).
+Three separate places decoded that grammar with their own if-chain, and adding
+`gear:` updated only one of them. The other two classified a helmet as a
+resource, spawned a pickup with the id `gear:riotHelm`, failed to look it up,
+and deleted it on contact — rare gear destroyed silently, with no error.
+
+**Rule:** a string grammar needs exactly one encoder and one decoder, exported
+and shared. `entryToPickup` / `pickupEntryId` are now that pair, and the two
+survivor cargo paths call them instead of re-deriving the rules.
+
+### Never spend the cost before checking the destination that will actually be used
+
+`craftStatus` checked "is there a free slot in the pack *or* the hotbar", then
+`craft` put armour in the pack unconditionally. A full pack with one free
+hotbar slot passed the check, spent the materials, and dropped the vest into
+nothing. Consumables had no space check at all.
+
+**Rule:** the precondition must name the same container the action writes to.
+And behind it, make the failure non-destructive anyway — anything that will not
+fit now lands at the player's feet rather than ceasing to exist.
+
+### "No room" is not a reason to destroy something
+
+Four of five findings in one review were the same bug wearing different hats: an
+item with nowhere to go was dropped from existence instead of left on the floor.
+A full inventory is a normal state, and the player's remedy — make room, come
+back — only works if the thing is still there.
+
+**Rule:** for anything the player could have kept, the failure mode is "on the
+ground", never "gone".
