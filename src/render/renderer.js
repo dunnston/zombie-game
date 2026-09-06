@@ -9,6 +9,7 @@ import { hash2, clamp, TAU } from '../core/util.js';
 import { currentWeapon } from '../game/player.js';
 import { buildMenu } from '../game/building.js';
 import { darkness } from '../game/daynight.js';
+import { JOBS } from '../game/survivors.js';
 
 const drawList = [];
 
@@ -695,13 +696,34 @@ function drawSurvivor(ctx, s) {
 
   ctx.font = 'bold 9px "Courier New", monospace';
   ctx.textAlign = 'center';
+  const job = JOBS[s.job] || JOBS.guard;
   ctx.fillStyle = s.hungry ? '#e0904a' : '#b8d8a8';
   ctx.fillText(`${s.name} ${s.level}`, s.x, s.y - 20);
+  // Job tag, so you can read the whole roster's assignment off the screen.
+  ctx.fillStyle = job.color;
+  ctx.fillText(job.short, s.x, s.y - 29);
   if (s.outOfAmmo) {
     ctx.fillStyle = '#d9c46a';
-    ctx.fillText('NO AMMO', s.x, s.y - 30);
+    ctx.fillText('NO AMMO', s.x, s.y - 38);
+  } else if (s.carrying) {
+    ctx.fillStyle = '#e8c86a';
+    ctx.fillText('HAULING', s.x, s.y - 38);
   }
   ctx.textAlign = 'left';
+
+  // A line to whatever they are working on makes the jobs legible at a glance.
+  if (s.runTarget && !s.carrying) {
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    ctx.strokeStyle = job.color;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 5]);
+    ctx.beginPath();
+    ctx.moveTo(s.x, s.y);
+    ctx.lineTo(s.runTarget.x, s.runTarget.y);
+    ctx.stroke();
+    ctx.restore();
+  }
 
   if (s.hp < s.maxHp) {
     const frac = clamp(s.hp / s.maxHp, 0, 1);

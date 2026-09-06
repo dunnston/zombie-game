@@ -152,6 +152,17 @@ export const STRUCTURES = {
     solid: false, tier: 1, threat: 1,
     desc: 'Sets your respawn point. Only the newest one is active.',
   },
+  bunk: {
+    id: 'bunk', name: 'Bunk', cost: { wood: 22, cloth: 14 }, hp: 140,
+    solid: true, tier: 1, threat: 1, protect: true, houses: 1,
+    desc: 'Somewhere for one survivor to sleep. No bunk, no recruit.',
+  },
+  watchtower: {
+    id: 'watchtower', name: 'Watchtower', cost: { wood: 45, scrap: 20 }, hp: 420,
+    solid: true, tier: 1, threat: 2, protect: true, post: 'sniper',
+    sniperRange: 520, sniperDmg: 1.9,
+    desc: 'Assign a survivor here and they cover the whole approach.',
+  },
   stash: {
     id: 'stash', name: 'Supply Stash', cost: { wood: 25, scrap: 8 }, hp: 220,
     solid: true, tier: 1, threat: 2, protect: true,
@@ -213,7 +224,8 @@ export const STRUCTURES = {
 
 export const BUILD_ORDER = [
   'woodWall', 'barricade', 'reinforcedWall', 'metalWall', 'gate', 'spike',
-  'workbench', 'stash', 'bedroll', 'generator', 'turret', 'floodlight',
+  'workbench', 'stash', 'bedroll', 'bunk', 'watchtower',
+  'generator', 'turret', 'floodlight',
 ];
 
 // --------------------------------------------------------------- crafting ---
@@ -308,6 +320,100 @@ export const LOOT = {
     { id: 'mil', min: 1, max: 3, w: 10 },
   ],
   fuelPump: [{ id: 'fuel', min: 12, max: 26, w: 100 }],
+  // Palletised stock: bulk building material rather than anything personal.
+  crate: [
+    { id: 'wood', min: 8, max: 18, w: 30 },
+    { id: 'scrap', min: 8, max: 18, w: 30 },
+    { id: 'elec', min: 2, max: 6, w: 16 },
+    { id: 'parts', min: 1, max: 3, w: 12 },
+    { id: 'cloth', min: 4, max: 10, w: 12 },
+  ],
+
+  // ------------------------------------------------------------ furniture --
+  // Each table should read true to the thing you are opening: a fridge holds
+  // food, a wardrobe holds clothes, a tool rack holds tools.
+  bookshelf: [
+    { id: 'cloth', min: 3, max: 8, w: 34 },      // paper and dust jackets
+    { id: 'elec', min: 1, max: 3, w: 16 },       // an old radio, a calculator
+    { id: 'rations', min: 1, max: 3, w: 14 },    // someone's hidden snacks
+    { id: 'med', min: 1, max: 2, w: 12 },
+    { id: 'parts', min: 1, max: 1, w: 8 },
+    { id: 'item:bandage', min: 1, max: 2, w: 16 },
+  ],
+  dresser: [
+    { id: 'cloth', min: 5, max: 12, w: 46 },
+    { id: 'item:bandage', min: 1, max: 3, w: 20 },
+    { id: 'med', min: 1, max: 3, w: 14 },
+    { id: 'scrap', min: 1, max: 4, w: 12 },
+    { id: 'ammoP', min: 3, max: 8, w: 8 },       // a bedside pistol's spare rounds
+  ],
+  wardrobe: [
+    { id: 'cloth', min: 8, max: 16, w: 56 },
+    { id: 'item:bandage', min: 1, max: 3, w: 18 },
+    { id: 'armor:lightVest', min: 1, max: 1, w: 5 },
+    { id: 'scrap', min: 1, max: 3, w: 12 },
+    { id: 'rations', min: 1, max: 3, w: 9 },
+  ],
+  desk: [
+    { id: 'elec', min: 2, max: 6, w: 34 },
+    { id: 'parts', min: 1, max: 2, w: 20 },
+    { id: 'cloth', min: 2, max: 5, w: 18 },
+    { id: 'scrap', min: 2, max: 6, w: 16 },
+    { id: 'ammoP', min: 4, max: 10, w: 12 },
+  ],
+  filing: [
+    { id: 'cloth', min: 4, max: 10, w: 34 },
+    { id: 'elec', min: 1, max: 3, w: 18 },
+    { id: 'parts', min: 1, max: 2, w: 16 },
+    { id: 'ammoP', min: 5, max: 12, w: 18 },
+    { id: 'med', min: 1, max: 3, w: 14 },
+  ],
+  fridge: [
+    { id: 'rations', min: 6, max: 14, w: 58 },
+    { id: 'med', min: 1, max: 3, w: 20 },
+    { id: 'cloth', min: 1, max: 3, w: 12 },
+    { id: 'fuel', min: 1, max: 3, w: 10 },
+  ],
+  nightstand: [
+    { id: 'med', min: 2, max: 5, w: 30 },
+    { id: 'item:bandage', min: 1, max: 2, w: 22 },
+    { id: 'ammoP', min: 4, max: 10, w: 20 },
+    { id: 'cloth', min: 1, max: 4, w: 16 },
+    { id: 'elec', min: 1, max: 2, w: 12 },
+  ],
+  vanity: [
+    { id: 'med', min: 3, max: 7, w: 44 },
+    { id: 'item:bandage', min: 1, max: 3, w: 26 },
+    { id: 'cloth', min: 2, max: 6, w: 22 },
+    { id: 'item:medkit', min: 1, max: 1, w: 8 },
+  ],
+  footlocker: [
+    { id: 'mil', min: 3, max: 8, w: 34 },
+    { id: 'ammoR', min: 8, max: 18, w: 24 },
+    { id: 'armor:milVest', min: 1, max: 1, w: 6 },
+    { id: 'parts', min: 2, max: 5, w: 18 },
+    { id: 'item:medkit', min: 1, max: 2, w: 10 },
+    { id: 'rations', min: 3, max: 8, w: 8 },
+  ],
+  vending: [
+    { id: 'rations', min: 5, max: 12, w: 62 },
+    { id: 'scrap', min: 2, max: 5, w: 22 },
+    { id: 'elec', min: 1, max: 2, w: 16 },
+  ],
+  toolrack: [
+    { id: 'parts', min: 2, max: 5, w: 34 },
+    { id: 'scrap', min: 6, max: 14, w: 32 },
+    { id: 'wood', min: 5, max: 12, w: 22 },
+    { id: 'weapon:pipe', min: 1, max: 1, w: 6 },
+    { id: 'weapon:machete', min: 1, max: 1, w: 4 },
+  ],
+  displaycase: [
+    { id: 'elec', min: 4, max: 10, w: 34 },
+    { id: 'parts', min: 2, max: 5, w: 26 },
+    { id: 'weapon:pistol', min: 1, max: 1, w: 10 },
+    { id: 'ammoP', min: 10, max: 22, w: 18 },
+    { id: 'scrap', min: 3, max: 8, w: 14 },
+  ],
 };
 
 // Container archetypes: how they look and how many rolls they give.
@@ -318,12 +424,72 @@ export const CONTAINERS = {
   shelf:        { table: 'shelf', rolls: [1, 2], sprite: 'shelf', label: 'Shelving' },
   pharmacy:     { table: 'pharmacy', rolls: [2, 3], sprite: 'medcab', label: 'Medicine Cabinet' },
   electronics:  { table: 'electronics', rolls: [2, 3], sprite: 'crate', label: 'Parts Bin' },
+  crate:        { table: 'crate', rolls: [1, 3], sprite: 'crate', label: 'Supply Crate' },
+  safe:         { table: 'gunSafe', rolls: [2, 3], sprite: 'safe', label: 'Floor Safe' },
+  // Personnel lockers: someone's kit, not the armoury.
+  locker:       { table: 'dresser', rolls: [1, 2], sprite: 'locker', label: 'Staff Locker' },
+  medcab:       { table: 'vanity', rolls: [1, 2], sprite: 'medcab', label: 'Medicine Cabinet' },
   carTrunk:     { table: 'carTrunk', rolls: [1, 2], sprite: 'trunk', label: 'Car Trunk' },
   policeLocker: { table: 'policeLocker', rolls: [2, 3], sprite: 'locker', label: 'Police Locker' },
   gunSafe:      { table: 'gunSafe', rolls: [2, 3], sprite: 'safe', label: 'Gun Safe' },
   militaryCrate:{ table: 'militaryCrate', rolls: [3, 4], sprite: 'milcrate', label: 'Military Crate' },
   hospitalCrate:{ table: 'hospitalCrate', rolls: [2, 4], sprite: 'medcab', label: 'Supply Cabinet' },
   fuelPump:     { table: 'fuelPump', rolls: [1, 2], sprite: 'pump', label: 'Fuel Pump' },
+
+  bookshelf:    { table: 'bookshelf', rolls: [1, 2], sprite: 'bookshelf', label: 'Bookshelf' },
+  dresser:      { table: 'dresser', rolls: [1, 2], sprite: 'dresser', label: 'Dresser' },
+  wardrobe:     { table: 'wardrobe', rolls: [1, 3], sprite: 'wardrobe', label: 'Wardrobe' },
+  desk:         { table: 'desk', rolls: [1, 2], sprite: 'desk', label: 'Desk' },
+  filing:       { table: 'filing', rolls: [1, 3], sprite: 'filing', label: 'Filing Cabinet' },
+  fridge:       { table: 'fridge', rolls: [1, 2], sprite: 'fridge', label: 'Refrigerator' },
+  nightstand:   { table: 'nightstand', rolls: [1, 1], sprite: 'nightstand', label: 'Nightstand' },
+  vanity:       { table: 'vanity', rolls: [1, 2], sprite: 'vanity', label: 'Bathroom Vanity' },
+  footlocker:   { table: 'footlocker', rolls: [2, 3], sprite: 'footlocker', label: 'Footlocker' },
+  vending:      { table: 'vending', rolls: [2, 3], sprite: 'vending', label: 'Vending Machine' },
+  toolrack:     { table: 'toolrack', rolls: [1, 3], sprite: 'toolrack', label: 'Tool Rack' },
+  displaycase:  { table: 'displaycase', rolls: [2, 3], sprite: 'displaycase', label: 'Display Case' },
+};
+
+/**
+ * What furnishes each kind of building, as weighted picks. Placement uses these
+ * so a house fills with beds and wardrobes while a precinct fills with lockers
+ * and filing cabinets — the point being that you learn to read a building's
+ * exterior and know what is worth searching inside.
+ */
+export const FURNISHING = {
+  house: [
+    ['cabinet', 12], ['dresser', 14], ['wardrobe', 12], ['bookshelf', 12],
+    ['nightstand', 12], ['fridge', 9], ['kitchen', 9], ['vanity', 8],
+    ['desk', 6], ['toolbox', 4], ['shelf', 4],
+  ],
+  store: [
+    ['shelf', 26], ['vending', 14], ['displaycase', 10], ['fridge', 12],
+    ['kitchen', 8], ['cabinet', 8], ['filing', 6], ['pharmacy', 8], ['desk', 6],
+  ],
+  hardware: [
+    ['toolrack', 24], ['toolbox', 22], ['shelf', 18], ['crate', 14],
+    ['displaycase', 8], ['desk', 6], ['filing', 4],
+  ],
+  pawn: [
+    ['displaycase', 30], ['electronics', 24], ['shelf', 14], ['desk', 12],
+    ['filing', 8], ['safe', 6],
+  ],
+  police: [
+    ['policeLocker', 24], ['filing', 20], ['locker', 14], ['desk', 14],
+    ['gunSafe', 8], ['vending', 6], ['shelf', 6], ['footlocker', 6],
+  ],
+  hospital: [
+    ['pharmacy', 24], ['hospitalCrate', 20], ['medcab', 16], ['vanity', 10],
+    ['filing', 8], ['desk', 8], ['vending', 6], ['fridge', 6], ['bookshelf', 4],
+  ],
+  industrial: [
+    ['electronics', 24], ['crate', 20], ['toolrack', 16], ['toolbox', 14],
+    ['filing', 8], ['desk', 8], ['shelf', 6],
+  ],
+  military: [
+    ['militaryCrate', 26], ['footlocker', 24], ['gunSafe', 10], ['filing', 8],
+    ['desk', 8], ['electronics', 8], ['vending', 4],
+  ],
 };
 
 // ------------------------------------------------------------- progression ---

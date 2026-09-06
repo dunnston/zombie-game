@@ -35,7 +35,7 @@ npm test
 npm run build
 ```
 
-`npm test` runs 47 Node assertions over the pure logic (world generation, loot
+`npm test` runs 52 Node assertions over the pure logic (world generation, loot
 tables, balance invariants, progression curves, perk trees, the day curve).
 `npm run build` produces a static bundle in `dist/` that can be opened from any
 static host.
@@ -154,8 +154,17 @@ their way. They recover if they get wedged.
 
 ### Scavenging and inventory
 
-Containers are placed by building type, so locations are worth targeting
-deliberately. Searching is a short hold, interrupted if you're hit.
+Buildings furnish themselves according to what they are, from about two dozen
+kinds of searchable fitting: bookshelves, dressers, wardrobes, nightstands,
+desks, filing cabinets, refrigerators, bathroom vanities, vending machines,
+tool racks, display cases, footlockers, lockers, safes, crates and the rest.
+
+Each reads true to itself — a fridge holds food, a wardrobe holds clothes, a
+tool rack holds tools and weapon parts, a footlocker holds military kit. So you
+learn to read a building from outside and know what is worth going in for, and
+a house stops being an empty box with a crate in it.
+
+Searching is a short hold, interrupted if you're hit.
 
 Your pack is a single weight-capped bag (ammo weighs less than lumber). Overflow
 loot drops at your feet rather than vanishing. A **Supply Stash** is shared
@@ -183,7 +192,7 @@ Hold to lay a run of walls. No timers.
 Walls (barricade → wood → reinforced → steel), gates you can open and close,
 spike traps, a workbench, a stash, a bedroll, a fuel-burning generator, an auto
 turret that needs generator power within 260px and feeds on 9mm from your stash,
-and a floodlight that holds back the night. Plus repair and salvage tools
+a floodlight that holds back the night, Bunks that house your survivors, and a Watchtower to post a sniper on. Plus repair and salvage tools
 (salvage returns 50%).
 
 Build **anywhere**. There is no designated home plot — your base is simply where
@@ -270,17 +279,40 @@ respec trivially correct.
 ### Survivors
 
 You find people out in the town, marked with a green ring, and bring them home.
-How many will follow you is gated by **Charisma**.
 
-They garrison whatever you have built, shoot what comes at it, and get better at
-it — ten levels of more health and more damage, earned from their own kills.
-They fire 9mm **from your stash**, so arming them is a real decision, and they
-eat **Rations**, so feeding them is another. Run out of food and they weaken.
+Two independent limits decide how many you can keep, and the roster tells you
+which one is actually in your way:
+
+- **Charisma** — how many people will follow you at all.
+- **Bunks** — one bed houses one survivor. No bunk, no recruit.
+
+They get better at the work: ten levels of more health and more damage, earned
+from their own kills. They fire 9mm **from your stash**, so arming them is a
+real decision, and they eat **Rations**, so feeding them is another. The stash
+is the pantry — food in your own pack feeds nobody until you drop it off.
 
 They can also be knocked down, and if you don't reach them in time — a medkit or
 two bandages — they die permanently, and their levels die with them. A base is
 worth defending because of who is standing in it, not because of what the walls
 cost.
+
+#### Jobs
+
+Assign each person from the People tab. The job shows above their head, so you
+can read the whole roster off the screen.
+
+| Job | What they do |
+| --- | --- |
+| **Guard** | Holds the base and shoots what comes at it. |
+| **Sniper** | Posted on a **Watchtower**: far more range and damage, but tied to it. One tower, one sniper. |
+| **Scavenger** | Walks to nearby containers, works them, and hauls the materials back to the stash. |
+| **Builder** | Repairs damaged structures, during a raid and after it, paying out of the stash. |
+
+There is no pathfinding, so scavengers and builders prefer targets they have a
+clear line to, and give up on anything they stop making progress toward rather
+than leaning on a wall forever. In practice that means **they work the
+accessible stuff and you clear the buildings** — which is a fair division of
+labour rather than a bug you have to babysit.
 
 ### Saving
 
@@ -363,14 +395,14 @@ nearest-neighbour filtering.
 npm test
 ```
 
-47 Node assertions covering world generation determinism, spawn-point safety,
+52 Node assertions covering world generation determinism, spawn-point safety,
 danger tiers, loot-table integrity and theming, weapon/enemy/wall tier ordering,
 recipe gating, the XP curve, raid escalation, threat thresholds, every attribute
 and perk actually changing a stat, perk gating by rank and cost, recompute
 idempotency, the day/night curve and clock, and survivor scaling.
 
 `tests/browser-smoke.js` is injected into the running dev server and drives the
-live game through 123 assertions using synthetic input events — movement, aiming,
+live game through 175 assertions using synthetic input events — movement, aiming,
 melee, gunfire, ammo, reloading, enemy pursuit, taking damage, searching
 containers, carry-capacity overflow, structure placement and cost, walls
 blocking, enemies attacking structures, workbench upgrades, tier-gated crafting,

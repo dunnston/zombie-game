@@ -1,5 +1,32 @@
 # DEADLINE — Survival / Base-Building MVP
 
+## Round 3 — furniture, bunks, survivor jobs
+
+### Phase A — Searchable furniture
+- [ ] ~12 new container archetypes with their own sprites: bookshelf,
+      dresser, wardrobe, desk, filing cabinet, fridge, nightstand, vanity,
+      footlocker, vending machine, tool rack, display case
+- [ ] Loot tables that read true to the furniture (fridges hold food,
+      wardrobes hold cloth, tool racks hold parts)
+- [ ] Room-aware placement so buildings furnish themselves plausibly
+- [ ] Interiors stop being empty boxes
+
+### Phase B — Beds gate the roster
+- [ ] New Bunk structure: one bed houses one survivor
+- [ ] Roster cap = min(Charisma allows, bunks built)
+- [ ] UI states which of the two is actually binding
+
+### Phase C — Survivor jobs
+- [ ] Assignable roles: Guard, Sniper, Scavenger, Builder
+- [ ] Watchtower structure — snipers posted there get range and damage
+- [ ] Scavengers make supply runs and bring resources back to the stash
+- [ ] Builders repair damaged structures during and after raids
+- [ ] Role assignment from the People tab
+
+### Phase D — Verify
+- [ ] Node + browser suites, raid balance re-checked
+- [ ] PR, address review, merge
+
 ## Round 2 — attributes, day/night, survivors
 
 ### Phase A — Day/night cycle

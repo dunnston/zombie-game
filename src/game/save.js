@@ -1,17 +1,22 @@
 // LocalStorage save/load. The world is regenerated from its seed, so a save is
 // just the deltas: what's been looted, what's been built, and who you are.
 
-import { G, notify } from './state.js';
+import { G, notify, structAt } from './state.js';
 import { createWorld, removeProp } from './world.js';
 import { createPlayer, pickRandomSpawn } from './player.js';
 import { makeStructure } from './building.js';
 import { recomputeStats, startingAttrs } from './perks.js';
 import { makeSurvivor, refreshAllSurvivors } from './survivors.js';
-import { bestArmor } from './loot.js';
+import { bestArmor, spawnPickup } from './loot.js';
 import { clamp } from '../core/util.js';
 import { xpForLevel, TILE } from './config.js';
 
-const KEY = 'deadline.save.v4';
+// v5: furnishing changed how many containers each building gets, which shifts
+// the ordinal container ids that `looted` is stored against. A v4 save loaded
+// against a v5 world would mark unrelated furniture as searched and re-fill
+// things you had already emptied, so those saves are retired rather than
+// silently corrupted.
+const KEY = 'deadline.save.v5';
 
 /** Where a dead player would come back, and at what health. */
 function resolveRespawn(p) {
@@ -56,6 +61,14 @@ export function saveGame() {
       survivors: G.survivors.filter((s) => !s.dead).map((s) => ({
         id: s.id, name: s.name, level: s.level, xp: s.xp, kills: s.kills,
         x: s.x, y: s.y, hp: s.hp, downed: s.downed, downT: s.downT,
+        job: s.job,
+        // Towers are stored by tile, since structure objects are rebuilt on load.
+        tower: s.tower && !s.tower.destroyed ? { tx: s.tower.tx, ty: s.tower.ty } : null,
+        // The source container is already recorded as looted, so a haul left out
+        // of the save would simply cease to exist.
+        carrying: s.carrying || null,
+        carryItems: s.carryItems && s.carryItems.length ? s.carryItems : null,
+        repairCredit: s.repairCredit || 0,
       })),
       rescues: G.rescues.map((r) => ({ x: r.x, y: r.y, name: r.name, level: r.level })),
       discovered: G.world.locations.filter((l) => l.discovered).map((l) => l.id),
@@ -64,6 +77,13 @@ export function saveGame() {
         open: s.open, tier: s.tier, fuel: s.fuel, ammo: s.ammo, on: s.on, active: s.active,
       })),
       backpacks: G.backpacks.map((b) => ({ x: b.x, y: b.y, c: b.contents })),
+      // Loose items on the ground are real progress — a scavenger's delivered
+      // gear, loot that overflowed your pack, an enemy drop. Their source
+      // containers are already recorded as looted, so dropping them from the
+      // save would destroy them.
+      pickups: G.pickups.map((it) => ({
+        x: Math.round(it.x), y: Math.round(it.y), k: it.kind, i: it.id, n: it.n,
+      })),
       player: {
         x: resolved.x, y: resolved.y, hp: resolved.hp, stam: p.stam,
         weapons: p.weapons, slot: p.slot, mag: p.mag,
@@ -175,18 +195,28 @@ export function loadGame() {
     G.survivors.length = 0;
     for (const sv of data.survivors || []) {
       const s = makeSurvivor(sv.x, sv.y, {
-        id: sv.id, name: sv.name, level: sv.level, recruited: true,
+        id: sv.id, name: sv.name, level: sv.level, recruited: true, job: sv.job,
       });
       s.xp = sv.xp || 0;
       s.kills = sv.kills || 0;
       s.downed = !!sv.downed;
       s.downT = sv.downT || 0;
       s.hp = Math.min(sv.hp ?? s.maxHp, s.maxHp);
+      if (sv.tower) s.tower = structAt(sv.tower.tx, sv.tower.ty);
+      if (s.job === 'sniper' && !s.tower) s.job = 'guard';
+      s.carrying = sv.carrying || null;
+      s.carryItems = sv.carryItems || null;
+      s.repairCredit = sv.repairCredit || 0;
       G.survivors.push(s);
     }
     refreshAllSurvivors();
     G.rescues.length = 0;
     for (const r of data.rescues || []) G.rescues.push({ ...r, found: false });
+
+    G.pickups.length = 0;
+    for (const it of data.pickups || []) {
+      spawnPickup(it.x, it.y, it.k, it.i, it.n);
+    }
 
     G.camera.x = p.x;
     G.camera.y = p.y;
