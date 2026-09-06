@@ -63,7 +63,9 @@ different single player saves. I should be able to delete saves as well."
 - [ ] Pause menu: SAVE, CONTROLS, QUIT TO TITLE (saves first)
 - [ ] Tests: slot round-trip and deletion under Node; smoke drives the title
       screen by synthetic click, rebinds a key and moves with it
-- [ ] Docs: PROJECT.md §3 §4 §6 §7 §9 §11, README controls section notes rebinding
+- [ ] Docs: PROJECT.md §3 §4 §6 §7 §9 §11; README controls section notes rebinding,
+      and its Testing section is refreshed (it still says 52 Node / 211 smoke and
+      has the Saving heading twice)
 
 ### PR B — online co-op  (branch `feat/online-coop`)
 
