@@ -615,8 +615,13 @@ flatten it.
 | 5 | BEHEMOTH SIEGE +1 | overwhelming | the whole base | 0% |
 
 **These are single runs of a stochastic harness — treat them as ranges, not
-figures.** Index 3 has been measured at 154s, 177s and 261s on identical code.
-What matters is that no raid reaches the 300s backstop, not the exact number.
+figures.** Index 3 has been measured at 154s, 177s, 261s and 274s on identical
+code. Index 2 has produced 67–95s with 1–6 lost on six runs and, once, 172s
+with the whole base lost after the defender died twice — on the same code
+that gave 80s beside it. What matters is that no raid reaches the 300s
+backstop, not the exact number. **When one run looks wrong, run it twice more
+and once on `main` before reading anything into it** (2026-09-06: that took
+ten minutes and settled it).
 
 The harness plays the defender itself, and after a death it now walks back to
 the base on foot. Without that it respawned across the map, never found another
