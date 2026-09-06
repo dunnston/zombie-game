@@ -1,4 +1,22 @@
-# DEADLINE — Survival / Base-Building MVP
+# DEADLINE — working plan
+
+> **The roadmap and project status live in `PROJECT.md`.** This file is just
+> the scratch plan for whatever round is currently in progress, kept so the
+> steps of a single piece of work are visible while it happens. Completed
+> rounds are archived below for reference; do not treat them as the backlog.
+
+## Rounds completed
+
+| Round | What | PR |
+| --- | --- | --- |
+| 1 | The playable MVP | #1 |
+| 2 | Attribute trees, day/night, survivors | #2 |
+| 3 | Furniture, bunks, survivor jobs | #3 |
+| 4 | Drivable cars | #4 (in review) |
+
+---
+
+## Archive of per-round plans
 
 ## Round 3 — furniture, bunks, survivor jobs
 

@@ -11,6 +11,10 @@ Everything you see is drawn in code. There are no image or audio files in this
 repository; every sprite is generated into an offscreen canvas at boot and every
 sound is synthesised with WebAudio.
 
+> This README is the player- and developer-facing guide. For project direction —
+> what is built, why decisions were made, what is next, and what we have learned
+> — see **[PROJECT.md](PROJECT.md)**, which is the living source of truth.
+
 ---
 
 ## Running it
