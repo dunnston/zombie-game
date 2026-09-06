@@ -32,6 +32,8 @@ export const G = {
   time: 0,
   threat: 0,
   threatTier: 0,
+  // Local pressure relief — see pressure.js. Built lazily from the world size.
+  quiet: null,
   raid: null,
   raidsDone: 0,
   notifications: [],

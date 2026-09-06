@@ -11,6 +11,7 @@ import { addThreat } from './threat.js';
 import { enemyDrop, dropBackpack } from './loot.js';
 import { creditSurvivorKill } from './survivors.js';
 import { exitVehicle } from './vehicles.js';
+import { addQuiet } from './pressure.js';
 import { clamp } from '../core/util.js';
 
 // ------------------------------------------------------------------ enemies --
@@ -64,7 +65,18 @@ export function killEnemy(e, source = 'player') {
   creditSurvivorKill(source, e.def.xp);
   enemyDrop(e);
   if (!G.raid) addThreat(THREAT.killWalk * (e.def.threat || 0.4));
-  if (G.raid) G.raid.killed++;
+  // Only raiders count towards the raid. This used to tally every kill made
+  // while a raid existed, which quietly meant three different things were wrong
+  // together: the HUD could report more killed than the raid ever spawned, the
+  // stall detector read ambient kills as progress and so kept a wedged raid
+  // alive, and — once a broken-off raid started paying out by share killed —
+  // farming the local wildlife bought salvage for raiders nobody fought.
+  if (G.raid && e.raid) G.raid.killed++;
+
+  // Clearing ground is supposed to buy you a breather there. Raid kills do not
+  // count: a raid is already a bounded event, and letting it quieten your base
+  // would hand you a free lull for surviving one.
+  if (!e.raid) addQuiet(e.x, e.y);
 }
 
 // ------------------------------------------------------------------- player --

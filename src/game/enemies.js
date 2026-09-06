@@ -13,6 +13,7 @@ import { dangerAtPx } from './world.js';
 import { damagePlayer, damageStructure } from './damage.js';
 import { damageSurvivor, SURVIVOR } from './survivors.js';
 import { nightFactors } from './daynight.js';
+import { densityMul, suppressed } from './pressure.js';
 import { sfx } from '../core/audio.js';
 import { makeRng, dist2, clamp, angleDelta, TAU } from '../core/util.js';
 
@@ -22,8 +23,9 @@ const scratch = [];
 export const MAX_ENEMIES = 160;
 const SURVIVOR_R = SURVIVOR.r;
 
-// Ambient population target per danger tier, measured near the player.
-const DENSITY = [0, 5, 10, 17, 24];
+// Ambient population target per danger tier, measured near the player. The
+// outskirts are where the game is learned, so tier 1 is deliberately thin.
+const DENSITY = [0, 4, 10, 17, 24];
 const MIX = {
   1: [['walker', 0.94], ['runner', 0.06]],
   2: [['walker', 0.70], ['runner', 0.28], ['brute', 0.02]],
@@ -101,13 +103,23 @@ export function updateSpawning(dt) {
 
   const tier = dangerAtPx(G.world, p.x, p.y);
   const near = countNear(p.x, p.y, 950);
-  // After dark there are simply more of them abroad.
-  const want = DENSITY[clamp(tier, 1, 4)] * nightFactors().density;
+  // After dark there are simply more of them abroad — but ground the player has
+  // cleared stays thinner, which is the only thing that creates a lull long
+  // enough to build in.
+  const want = DENSITY[clamp(tier, 1, 4)] * nightFactors().density * densityMul(p.x, p.y);
   if (near >= want) return;
+
+  // Standing on ground you have thoroughly cleared buys an actual lull, not
+  // just a thinner stream. This is the check that matters: the spawn ring sits
+  // ~1000px out, well beyond the patch a burst of kills quietens, so testing
+  // only the spawn point would almost never fire.
+  if (suppressed(p.x, p.y)) return;
 
   const ring = Math.max(880, G.viewRadius + 180);
   const spot = findSpawnPoint(ring, ring + 420);
   if (!spot) return;
+  // Don't walk something new into a patch that was just cleared either.
+  if (suppressed(spot.x, spot.y)) return;
   const spotTier = dangerAtPx(G.world, spot.x, spot.y);
   spawnEnemy(pickType(Math.max(tier, spotTier)), spot.x, spot.y);
 }

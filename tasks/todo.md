@@ -1,199 +1,50 @@
-# DEADLINE — working plan
+# tasks/todo.md
 
-> **The roadmap and project status live in `PROJECT.md`.** This file is just
-> the scratch plan for whatever round is currently in progress, kept so the
-> steps of a single piece of work are visible while it happens. Completed
-> rounds are archived below for reference; do not treat them as the backlog.
+## Current round — playtest response (pacing, inventory, survival)
 
-## Rounds completed
+Owner played for the first time. Could only fight; could not establish a base
+or find crafting. Plan approved covering three PRs.
 
-| Round | What | PR |
-| --- | --- | --- |
-| 1 | The playable MVP | #1 |
-| 2 | Attribute trees, day/night, survivors | #2 |
-| 3 | Furniture, bunks, survivor jobs | #3 |
-| 4 | Drivable cars | #4 (in review) |
+### PR 1 — Pacing  (done, PR #7)
 
----
+- [x] `src/game/pressure.js` — quiet field, 256px cells, decay over ~4-5 min
+- [x] Kills add quiet to their cell and neighbours
+- [x] Player structures add standing quiet within ~400px
+- [x] `updateSpawning` scales density by quiet and refuses quiet cells
+- [x] Tier-1 density 5 -> 4
+- [x] XP curve: 55 + 45*(L-1)^2.35
+- [x] Persist the quiet field through save/load
+- [x] Tests: unit (curve steepening), browser (suppression + decay)
+- [x] Measured pacing check: time-to-level and longest quiet gap near base
 
-## Archive of per-round plans
+### PR 2 — Slot inventory, equipment, hotbar  (next)
 
-## Round 4 — drivable cars
+Full slot grid for everything, behind the existing state.js resource API.
+Save -> v7. New `src/ui/inventory.js`. Crafting becomes a tab.
 
-### Phase A — The car itself
-- [ ] Cars become entities with condition, fuel and a boot, not scenery
-- [ ] Arcade driving: throttle, reverse, speed-scaled steering
-- [ ] Collisions hurt the car and stop you; running over the infected
-      kills them and costs you paint
-- [ ] Fuel burn, engine damage, a wreck you can strip for parts
+### PR 3 — Storage tiers, hunger and thirst  (not started)
 
-### Phase B — Getting in
-- [ ] Most cars are locked. Three ways past that:
-  - [ ] **Keys** — placed in a container near the car they open
-  - [ ] **Lockpick** — craftable, consumed, odds scale with Perception
-  - [ ] **Hotwire** — an Intelligence perk; slow and loud, but works on anything
-- [ ] Failing a pick makes noise and draws attention
-
-### Phase C — Why you want one
-- [ ] The boot is a mobile stash with real capacity — the answer to
-      hauling from the far districts
-- [ ] Headlights at night, tied into the existing lighting pass
-- [ ] Driving is loud: speed feeds Threat
-
-### Phase D — Verify
-- [ ] Node + browser suites, raid balance re-checked
-- [ ] PR, address review, merge
-
-## Round 3 — furniture, bunks, survivor jobs
-
-### Phase A — Searchable furniture
-- [ ] ~12 new container archetypes with their own sprites: bookshelf,
-      dresser, wardrobe, desk, filing cabinet, fridge, nightstand, vanity,
-      footlocker, vending machine, tool rack, display case
-- [ ] Loot tables that read true to the furniture (fridges hold food,
-      wardrobes hold cloth, tool racks hold parts)
-- [ ] Room-aware placement so buildings furnish themselves plausibly
-- [ ] Interiors stop being empty boxes
-
-### Phase B — Beds gate the roster
-- [ ] New Bunk structure: one bed houses one survivor
-- [ ] Roster cap = min(Charisma allows, bunks built)
-- [ ] UI states which of the two is actually binding
-
-### Phase C — Survivor jobs
-- [ ] Assignable roles: Guard, Sniper, Scavenger, Builder
-- [ ] Watchtower structure — snipers posted there get range and damage
-- [ ] Scavengers make supply runs and bring resources back to the stash
-- [ ] Builders repair damaged structures during and after raids
-- [ ] Role assignment from the People tab
-
-### Phase D — Verify
-- [ ] Node + browser suites, raid balance re-checked
-- [ ] PR, address review, merge
-
-## Round 2 — attributes, day/night, survivors
-
-### Phase A — Day/night cycle
-- [ ] Day clock, phases (dawn / day / dusk / night), day counter
-- [ ] Screen-space darkness with light holes punched by the player,
-      powered structures, generators and floodlights
-- [ ] Night raises enemy density, sense range and Threat gain
-- [ ] New structure: Floodlight (needs power)
-- [ ] HUD clock + day number
-
-### Phase B — SPECIAL attributes and perk trees
-- [ ] Six attributes: STR / PER / CON / CHA / INT / LCK, ranks 1-10
-- [ ] Levels grant skill points; spend on ranks or on perks
-- [ ] ~26 perks across the six trees, gated by attribute rank
-- [ ] Replace the 1-of-3 draft (no more forced pause on level up)
-- [ ] Rebuild stats with a pure recompute pass instead of mutation
-- [ ] New character panel with tree navigation
-
-### Phase C — Survivor NPCs
-- [ ] Rescuable survivors placed in the world
-- [ ] They garrison the base, fight, take cover behind walls
-- [ ] They level up from kills and get stronger
-- [ ] Permanent death — losing the base loses the people in it
-- [ ] Rations upkeep, capacity gated by Charisma
-- [ ] Roster UI
-
-### Phase D — Reaffirm "base anywhere"
-- [ ] Survivors and raids follow the base wherever it is
-- [ ] Test asserting a base can be built in every district
-
-### Phase E — Verify
-- [ ] Node + browser suites green, raid balance re-checked
-- [ ] PR, address review, merge
-
-## Plan
-
-### Phase 0 — Scaffolding
-- [ ] Vite + vanilla JS (ESM) project, Canvas2D renderer
-- [ ] Git repo, push to github.com/dunnston/zombie-game
-
-### Phase 1 — Core
-- [ ] Fixed-timestep game loop, camera, input
-- [ ] Procedural sprite atlas (no external assets)
-- [ ] Player movement, sprint, stamina, mouse aim
-- [ ] Melee + ranged combat, ammo, reload, hit feedback
-
-### Phase 2 — World
-- [ ] 160x160 tile semi-procedural map with handcrafted locations
-- [ ] Danger tiers by location (suburbs -> commercial -> police/hospital -> military)
-- [ ] Loot containers with location-appropriate loot tables
-- [ ] Cars, trees, roads, rubble
-
-### Phase 3 — Enemies
-- [ ] Walker / Runner / Brute tiers + raid-only Behemoth
-- [ ] Detection, pursuit, attack, obstacle steering, structure attacking
-
-### Phase 4 — Survival systems
-- [ ] Inventory (weight-capped resources + 4 weapon slots + consumables)
-- [ ] Death -> drop backpack, respawn (random until bedroll placed)
-- [ ] Crafting (workbench T1/T2), immediate, resource-cost only
-- [ ] Building (walls, gate, spikes, turret, generator, stash, workbench, bedroll)
-- [ ] Base anywhere; stash storage; repair
-
-### Phase 5 — Threat & raids
-- [ ] Threat meter driven by player activity, decay when quiet
-- [ ] 3+ escalating raid tiers, waves, enemies attack structures
-- [ ] Raid rewards
-
-### Phase 6 — Progression
-- [ ] XP from combat/loot/craft/build/raids/exploration
-- [ ] Level-up: choose 1 of 3 upgrades from a 14-upgrade pool
-
-### Phase 7 — Polish
-- [ ] WebAudio SFX, screen shake, particles, damage numbers, muzzle flash
-- [ ] HUD, minimap, full map, tutorial prompts, notifications
-- [ ] LocalStorage save/load
-
-### Phase 8 — Testing
-- [ ] node --test unit tests over pure logic
-- [ ] Playwright/browser smoke test of real gameplay
-- [ ] Fix all console errors, balance pass
-
-### Phase 9 — Delivery
-- [ ] README (start, controls, architecture, systems, limitations, future)
-- [ ] PR -> wait for Codex review -> address -> merge
+Crate / Supply Stash / Steel Locker aggregating into one stash view.
+Light hunger and thirst: soft debuffs, no health damage.
 
 ## Review
 
-All phases complete. `npm install && npm run dev` runs the game.
+_Filled in as each PR lands._
 
-### Verification
-- `npm test` — 31/31 Node assertions (world gen, loot integrity, balance
-  invariants, progression curves, raid escalation).
-- `tests/browser-smoke.js` — 66/66 assertions against the live game via
-  synthetic input, covering every system in the brief.
-- `tests/raid-harness.js` — raid 1 completes in 44s with no losses; raid 3
-  costs 3 structures and drops walls to 12%; raid 5 overwhelms an
-  un-upgraded base. Escalation confirmed.
-- Zero console errors across all runs; 58+ fps with 90 active enemies.
+### PR 1 review notes
 
-### Real bugs found by playing, not by reading
-1. Bullets collided with the player's own structures — a walled base could
-   not shoot out, which silently disabled turrets and broke the raid loop.
-2. Threat decay ran before the raid check each frame, so the meter could
-   never reach 100 and raids were unreachable.
-3. Raids stalled permanently when one raider got wedged on terrain,
-   blocking all progression. Added relocation + a hard time ceiling.
-4. Death backpacks lost interact priority to a nearby workbench, making
-   gear unrecoverable if you died at your own base.
-5. `bagLoad` counted raw item counts while the capacity check used weight.
-6. HUD was drawn in device pixels, halving text size on HiDPI displays.
+Measured, four player positions, 35s each after clearing six walkers:
 
-### Design changes made in response to testing
-- Trees are choppable for wood. Came directly from discovering turrets were
-  firing into trees with no way for the player to clear a firing line.
-- Enemy `structMul` split so walkers/runners threaten the player while
-  brutes threaten walls — this is what makes raid 3 feel like a step change.
-- Raiders target the *nearest* structure rather than the most valuable, so
-  hordes break on the perimeter instead of beelining past it.
-- Player given a two-tone ground ring and a brighter palette after the first
-  playtest showed they were indistinguishable from zombies in a crowd.
+| | before | after |
+| --- | --- | --- |
+| New enemies arriving | 5 | **0** |
+| Longest unbroken calm | 3.2–18.6s | **33.6–34.0s** |
 
-### Deliberately not built
-Hunger, thirst, temperature, sleep, farming, vehicles, NPCs, quests,
-procedural world generation, large skill trees. Per the brief, breadth was
-cut to keep every shipped system fully working.
+Two things the first implementation got wrong, both found by measuring rather
+than reading:
+
+- The suppression check tested the *spawn point*, ~1000px away, which a burst of
+  kills never quietens. It has to test the ground the player is standing on.
+- Reading one 256px cell made the payoff depend on where inside it you stood —
+  the same six kills bought 40s of calm or none. Fixed by sampling the field
+  bilinearly and calibrating the threshold from the measured spread.

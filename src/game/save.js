@@ -11,6 +11,7 @@ import { bestArmor, spawnPickup } from './loot.js';
 import { clamp } from '../core/util.js';
 import { xpForLevel, TILE } from './config.js';
 import { CAR, plantVehicleKeys, occupyTiles } from './vehicles.js';
+import { serialisePressure, loadPressure } from './pressure.js';
 
 // v5: furnishing changed how many containers each building gets, which shifts
 // the ordinal container ids that `looted` is stored against. A v4 save loaded
@@ -58,6 +59,9 @@ export function saveGame() {
       day: G.day,
       dayTime: G.dayTime,
       rationDebt: G.rationDebt,
+      // Cleared ground should still be clear after a reload; otherwise saving
+      // beside your base hands the horde its opening back.
+      quiet: serialisePressure(),
       survivorSeq: G.survivorSeq,
       survivors: G.survivors.filter((s) => !s.dead).map((s) => ({
         id: s.id, name: s.name, level: s.level, xp: s.xp, kills: s.kills,
@@ -125,6 +129,7 @@ export function loadGame() {
 
   try {
     G.world = createWorld(data.seed);
+    loadPressure(data.quiet, G.world);
     const lootedSet = new Set(data.looted || []);
     for (const c of G.world.containers) if (lootedSet.has(c.id)) c.looted = true;
     const discSet = new Set(data.discovered || []);

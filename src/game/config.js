@@ -498,8 +498,18 @@ export const FURNISHING = {
 
 // ------------------------------------------------------------- progression ---
 
+/**
+ * XP to go from `level` to the next one.
+ *
+ * The first playtest reached level 7 in about ten minutes, which spent the
+ * whole attribute tree before the player had seen the map. The shape wanted is
+ * "the first few come quickly, then it bites": levels 2 and 3 are cheaper than
+ * they used to be, and by level 7 the run costs roughly two and a half times
+ * what it did. The old curve's 1.7 exponent on a small coefficient was too
+ * close to linear to ever slow down.
+ */
 export function xpForLevel(level) {
-  return Math.floor(70 + 58 * (level - 1) + 13 * Math.pow(level - 1, 1.7));
+  return Math.floor(55 + 45 * Math.pow(level - 1, 2.35));
 }
 
 export const UPGRADES = [

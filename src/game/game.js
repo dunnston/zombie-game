@@ -24,10 +24,14 @@ import {
   baseCenter,
 } from './building.js';
 import { updateThreat, addThreat, raidReady } from './threat.js';
+import {
+  updatePressure, initPressure, quietAt, totalQuietAt, densityMul, suppressed,
+  addQuiet, CELL,
+} from './pressure.js';
 import { startRaid, updateRaid, forceEndRaid } from './raid.js';
 import { visibleRecipes, craft } from './crafting.js';
 import { addXp, raiseAttribute, buyPerk } from './progression.js';
-import { killPlayer } from './damage.js';
+import { killPlayer, killEnemy } from './damage.js';
 import { initClock, updateClock, nightFactors, clockString, darkness } from './daynight.js';
 import { recomputeStats, ATTRS, PERKS, perkStatus } from './perks.js';
 import {
@@ -63,6 +67,7 @@ export const TUTORIAL = [
 export function newGame(seed = 20240917) {
   G.world = createWorld(seed);
   seedLoot(seed ^ 0x9E3779B9);
+  initPressure(G.world);
 
   G.enemies.length = 0;
   G.bullets.length = 0;
@@ -552,6 +557,8 @@ export function update(dt) {
   updateFloodlights();
   updateUpkeep(dt);
   updatePickups(dt);
+  // Quiet decays before the spawner reads it, so a lull always ends on time.
+  updatePressure(dt);
   updateSpawning(dt);
   updateThreat(dt);
 
@@ -585,6 +592,7 @@ export const api = {
   findInteractable, placeStructure, canPlace, spawnEnemy, forceEndRaid,
   visibleRecipes, craft, nearWorkbench, upgradeBench, baseCenter,
   grantLoot, rollContainer, spawnPickup, repairStructure, demolishStructure, killPlayer,
+  killEnemy,
   raiseAttribute, buyPerk, recomputeStats, ATTRS, PERKS, perkStatus,
   spawnVehicles, makeVehicle, enterVehicle, exitVehicle, drivenCar, isDriving,
   nearestVehicle, vehiclePrompt, tryUnlock, stowInTrunk, takeFromTrunk,
@@ -594,5 +602,6 @@ export const api = {
   refreshAllSurvivors, makeSurvivor, rationsHeld, rationsCarried,
   JOBS, JOB_IDS, rosterLimits, freeTowers, assignJob, SCAVENGE, BUILDER,
   clockString, darkness, nightFactors, SURVIVOR,
+  quietAt, totalQuietAt, densityMul, suppressed, addQuiet, updatePressure, CELL,
   WEAPONS, STRUCTURES, RECIPES, CAMERA, PLAYER, THREAT,
 };
