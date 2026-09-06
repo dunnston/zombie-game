@@ -2428,6 +2428,21 @@
       b2.close();
       await frames(3);
 
+      // A second window of the host's own browser sends the host's identity. It
+      // must get a fresh player, never the host's.
+      const { a: a4, b: b4 } = d.net.makeLoopback();
+      const rel4 = [];
+      b4.onMessage('reliable', (m) => rel4.push(m));
+      d.net.debugAttachGuest(a4, 'smoke4');
+      b4.send('reliable', d.net.msg.hello(G.player.id, 'Me again', null));
+      await frames(4);
+      const w4 = rel4.find((m) => m.t === 'welcome');
+      ok('a guest with the host\'s own identity is a new player, not the host',
+        !!w4 && w4.n !== G.player.netId && G.players.some((q) => q.netId === w4.n && q !== G.player && q.id === `${G.player.id}#2`),
+        w4 ? `netId ${w4.n}, host is ${G.player.netId}` : rel4.map((m) => m.t + (m.reason ? ':' + m.reason : '')).join(','));
+      b4.close();
+      await frames(3);
+
       // A password, when set, is checked by the host.
       d.net.stopHosting();
       const hash = await d.net.hashPassword('pumpkin');

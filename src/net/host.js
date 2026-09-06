@@ -134,16 +134,20 @@ function admit(guest, m) {
   if (H.pwHash && m.pw !== H.pwHash) return reject('wrong password');
   if (!G.world || !G.player) return reject('the host has not started a game yet');
 
-  // The same person back again, or someone new.
-  let p = m.id ? G.players.find((q) => q.id === m.id) : null;
-  if (p && !p.away && p !== G.player) {
+  // The same person back again, or someone new. A second window of the host's
+  // own browser carries the host's identity: that is a new player, not the
+  // host, and it gets a derived id so the save keeps both records.
+  let identityId = m.id || null;
+  if (identityId && G.player && G.player.id === identityId) identityId = `${identityId}#2`;
+  let p = identityId ? G.players.find((q) => q.id === identityId) : null;
+  if (p && !p.away) {
     // Already here from another tab — refuse rather than fork the character.
     return reject('that player is already connected');
   }
   if (!p) {
     const present = G.players.filter((q) => !q.away).length;
     if (present >= MAX_PLAYERS) return reject('that game is full');
-    p = joinPlayer({ id: m.id || null, name: (m.name || '').trim() || undefined });
+    p = joinPlayer({ id: identityId, name: (m.name || '').trim() || undefined });
   } else {
     p.away = false;
     if (m.name && m.name.trim()) p.name = m.name.trim();
