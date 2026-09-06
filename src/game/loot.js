@@ -6,7 +6,7 @@ import {
   firstEmpty, makeSlots, packAllowance,
 } from './items.js';
 import { recomputeStats } from './perks.js';
-import { G, addResCapped, notify, solidPx } from './state.js';
+import { G, addResCapped, notify, solidPx, nearestPlayer, baseOwner } from './state.js';
 import { makeRng, weightedPick, dist2, clamp, TAU } from '../core/util.js';
 import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
@@ -199,15 +199,18 @@ export function spawnPickup(x, y, kind, id, n = 1) {
     px = x + Math.cos(a) * (8 + guard * 3);
     py = y + Math.sin(a) * (8 + guard * 3);
   }
-  G.pickups.push({
+  const it = {
+    // `id` is the item; `uid` is this particular pile, for the wire.
+    uid: ++G.pickupSeq,
     x: px, y: py, kind, id, n,
     vx: lootRng.range(-40, 40), vy: lootRng.range(-40, 40),
     t: 0, bob: lootRng.range(0, TAU), life: 600,
-  });
+  };
+  G.pickups.push(it);
+  return it;
 }
 
 export function updatePickups(dt) {
-  const p = G.player;
   for (let i = G.pickups.length - 1; i >= 0; i--) {
     const it = G.pickups[i];
     it.t += dt;
@@ -217,7 +220,9 @@ export function updatePickups(dt) {
     it.vx *= damp; it.vy *= damp;
 
     if (it.life <= 0) { G.pickups.splice(i, 1); continue; }
-    if (!p || p.dead) continue;
+    // Whoever is closest gets the pull — and the loot.
+    const p = nearestPlayer(it.x, it.y);
+    if (!p) continue;
 
     const d2 = dist2(it.x, it.y, p.x, p.y);
     const range = p.pickupRange;
@@ -339,11 +344,13 @@ export function collectBackpack(p, pack) {
   return n;
 }
 
-/** Small drops from a dead enemy — keeps ammo flowing so guns stay usable. */
-export function enemyDrop(e) {
-  const p = G.player;
+/**
+ * Small drops from a dead enemy — keeps ammo flowing so guns stay usable.
+ * @param killer  whose Luck applies; the player who made the kill
+ */
+export function enemyDrop(e, killer = baseOwner()) {
   // Fortune Favours (Luck perk) can pay a body out twice.
-  if (p && p.doubleDropChance > 0 && lootRng() < p.doubleDropChance) rollEnemyDrop(e);
+  if (killer && killer.doubleDropChance > 0 && lootRng() < killer.doubleDropChance) rollEnemyDrop(e);
   rollEnemyDrop(e);
 }
 

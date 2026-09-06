@@ -286,3 +286,73 @@ back — only works if the thing is still there.
 
 **Rule:** for anything the player could have kept, the failure mode is "on the
 ground", never "gone".
+
+## Round 5 — the multiplayer foundation
+
+### A hidden page runs no frames, and a suite that waits on frames waits forever
+
+The in-app browser pane was hidden, so Chromium never fired
+`requestAnimationFrame`. The game loop never stepped — `G.time` stayed at 0
+for five minutes — but `G.fps` read 60 the whole time, because 60 is the value
+it is initialised to and nothing ever ran to change it. The smoke suite neither
+passed nor failed: its deadline guard lived inside the frame wait, and the
+frame wait never returned. Two things fixed it. The frame wait now races a
+plain `setTimeout` and fails with "rAF has not fired for 5s — the page is
+hidden" instead of hanging. And the suite is run under Playwright, whose page
+actually renders.
+
+**Rule:** a guard that only runs when the thing it guards is making progress is
+not a guard. Put the watchdog on a clock the failure cannot stop. And when a
+number has not changed in a while, ask whether it is being measured at all.
+
+### Vite reloads the page for files that are not in the bundle
+
+Saving `tests/browser-smoke.js` mid-run reloaded the game and silently killed a
+three-minute suite; the only symptom was `__smokeStart` coming back undefined.
+Vite does a full reload for any change under the project root that is not in
+the module graph. `server.watch.ignored` now covers `tasks/`, `*.md` and `.claude/` — so editing
+the docs during a playtest no longer restarts the game. It does *not* cover
+`tests/`: the same watcher invalidates Vite's transform cache, and ignoring the
+test files meant an edited suite was served stale. A run reported 298 passes
+against a file that had 301, silently. A reload is loud; stale is silent.
+
+**Rule:** do not edit files while a browser run is in flight, and make the dev
+server ignore everything that is not source.
+
+### Make the local alias a getter, then hunt the exceptions
+
+`G.player` had 122 references. Around 100 of them meant "me, for the camera
+and the HUD" and were correct as written; ~20 meant "whoever did this" and
+were the bug in waiting. Turning `G.player` into a getter over
+`G.players[localIdx]` left the hundred alone and made the twenty stand out as
+the places that had to grow a parameter. Renaming everything would have been
+a week of churn hiding the same twenty decisions.
+
+**Rule:** when a singleton becomes a collection, keep the old name as an alias
+for the common meaning and change only the sites that meant something else.
+
+### Read the input in exactly one place
+
+`updatePlayer` read the keyboard directly, with UI rules ("a panel swallows
+input", "build mode owns the mouse") mixed into the movement and combat code.
+Moving all of it into `gatherLocalIntent()` — one function that turns keys into
+an intent struct — meant the sim could be driven by a struct from anywhere,
+and the smoke test drives a second player by writing to `p2.intent`. The UI
+rules got simpler too, because they now live where the input is read.
+
+**Rule:** the simulation acts on data. Anything that reads a device is a
+boundary, and a boundary should be one function.
+
+### The suite that "covers combat" had never let the player land a kill
+
+After the refactor, a bullet's owner became the player object instead of the
+string `'player'`. `creditSurvivorKill` did `ownerTag.startsWith(...)` on it
+and threw — on every kill the player made — and each throw aborted the rest of
+that simulation step. The smoke suite passed 298/298: its combat section
+checks that a swing *damages* and a shot *consumes ammo*, and every actual kill
+in the suite is made by a turret, a survivor or the debug API. The raid harness
+found it in the first minute, because there the player actually fights.
+
+**Rule:** when a value changes type, grep for every consumer, and check the
+suite has a case where the *player* does the thing — not just a proxy for it.
+The smoke suite now has one.

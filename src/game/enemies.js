@@ -8,6 +8,7 @@
 import { ENEMIES, TILE } from './config.js';
 import {
   G, moveCircle, solidPx, structAtPx, hasLineOfSight, SpatialHash, unstick,
+  nearestPlayer, presentPlayers, isLocal,
 } from './state.js';
 import { dangerAtPx } from './world.js';
 import { damagePlayer, damageStructure } from './damage.js';
@@ -38,6 +39,8 @@ export function spawnEnemy(type, x, y, opts = {}) {
   if (!def) return null;
   const hpMul = opts.hpMul || 1;
   const e = {
+    // Stable identity for the wire; the array index is not, it gets spliced.
+    id: ++G.enemySeq,
     type, def,
     x, y, vx: 0, vy: 0,
     angle: rng.range(0, TAU),
@@ -66,13 +69,13 @@ function pickType(tier) {
   return 'walker';
 }
 
-/** Finds an unblocked spot on a ring around the player, outside their view. */
-function findSpawnPoint(minR, maxR) {
+/** Finds an unblocked spot on a ring around a point, outside the player's view. */
+function findSpawnPoint(cx, cy, minR, maxR) {
   for (let i = 0; i < 26; i++) {
     const a = rng.range(0, TAU);
     const r = rng.range(minR, maxR);
-    const x = G.player.x + Math.cos(a) * r;
-    const y = G.player.y + Math.sin(a) * r;
+    const x = cx + Math.cos(a) * r;
+    const y = cy + Math.sin(a) * r;
     if (x < TILE * 2 || y < TILE * 2 || x > G.world.w * TILE - TILE * 2 || y > G.world.h * TILE - TILE * 2) continue;
     if (solidPx(x, y)) continue;
     return { x, y };
@@ -82,46 +85,62 @@ function findSpawnPoint(minR, maxR) {
 
 let spawnAccum = 0;
 
+/**
+ * Keeps a standing population around every living player. Each of them is the
+ * centre of their own ring: two people in different districts each get that
+ * district's crowd, and someone standing on ground they cleared gets their lull
+ * regardless of what their teammate is stirring up across town.
+ */
 export function updateSpawning(dt) {
-  const p = G.player;
-  if (!p || p.dead) return;
+  const players = presentPlayers().filter((p) => !p.dead);
+  if (players.length === 0) return;
   spawnAccum += dt;
   if (spawnAccum < 0.6) return;
   spawnAccum = 0;
 
-  // Cull anything the player has walked far away from — keeps the sim cheap
-  // and stops old aggro chains following you across the map.
+  // Cull anything everyone has walked far away from — keeps the sim cheap and
+  // stops old aggro chains following you across the map.
   const cullR2 = 2400 * 2400;
   for (let i = G.enemies.length - 1; i >= 0; i--) {
     const e = G.enemies[i];
     if (e.dead) { G.enemies.splice(i, 1); continue; }
-    if (!e.raid && dist2(e.x, e.y, p.x, p.y) > cullR2) G.enemies.splice(i, 1);
+    if (e.raid) continue;
+    let nearSomeone = false;
+    for (const p of players) {
+      if (dist2(e.x, e.y, p.x, p.y) <= cullR2) { nearSomeone = true; break; }
+    }
+    if (!nearSomeone) G.enemies.splice(i, 1);
   }
 
   if (G.raid) return;                      // raids control their own spawning
-  if (G.enemies.length >= MAX_ENEMIES) return;
 
-  const tier = dangerAtPx(G.world, p.x, p.y);
-  const near = countNear(p.x, p.y, 950);
-  // After dark there are simply more of them abroad — but ground the player has
-  // cleared stays thinner, which is the only thing that creates a lull long
-  // enough to build in.
-  const want = DENSITY[clamp(tier, 1, 4)] * nightFactors().density * densityMul(p.x, p.y);
-  if (near >= want) return;
+  for (const p of players) {
+    if (G.enemies.length >= MAX_ENEMIES) return;
 
-  // Standing on ground you have thoroughly cleared buys an actual lull, not
-  // just a thinner stream. This is the check that matters: the spawn ring sits
-  // ~1000px out, well beyond the patch a burst of kills quietens, so testing
-  // only the spawn point would almost never fire.
-  if (suppressed(p.x, p.y)) return;
+    const tier = dangerAtPx(G.world, p.x, p.y);
+    const near = countNear(p.x, p.y, 950);
+    // After dark there are simply more of them abroad — but ground the player
+    // has cleared stays thinner, which is the only thing that creates a lull
+    // long enough to build in.
+    const want = DENSITY[clamp(tier, 1, 4)] * nightFactors().density * densityMul(p.x, p.y);
+    if (near >= want) continue;
 
-  const ring = Math.max(880, G.viewRadius + 180);
-  const spot = findSpawnPoint(ring, ring + 420);
-  if (!spot) return;
-  // Don't walk something new into a patch that was just cleared either.
-  if (suppressed(spot.x, spot.y)) return;
-  const spotTier = dangerAtPx(G.world, spot.x, spot.y);
-  spawnEnemy(pickType(Math.max(tier, spotTier)), spot.x, spot.y);
+    // Standing on ground you have thoroughly cleared buys an actual lull, not
+    // just a thinner stream. This is the check that matters: the spawn ring sits
+    // ~1000px out, well beyond the patch a burst of kills quietens, so testing
+    // only the spawn point would almost never fire.
+    if (suppressed(p.x, p.y)) continue;
+
+    // Off screen for the person at this keyboard; a fixed ring for anyone
+    // whose screen we cannot see.
+    const ring = isLocal(p) ? Math.max(880, G.viewRadius + 180) : 880;
+    const spot = findSpawnPoint(p.x, p.y, ring, ring + 420);
+    if (!spot) continue;
+    // Don't walk something new into a patch that was just cleared either.
+    if (suppressed(spot.x, spot.y)) continue;
+    const spotTier = dangerAtPx(G.world, spot.x, spot.y);
+    spawnEnemy(pickType(Math.max(tier, spotTier)), spot.x, spot.y);
+  }
 }
 
 export function countNear(x, y, r) {
@@ -176,12 +195,16 @@ function blockerAhead(e, angle) {
 }
 
 export function updateEnemies(dt) {
-  const p = G.player;
   const hash = G.spatial;
   const night = nightFactors();
 
   for (const e of G.enemies) {
     if (e.dead) continue;
+
+    // The person this one would go for: the nearest who is up and about. Null
+    // when nobody is — everyone dead, down or away — which reads below exactly
+    // as a dead player used to.
+    const p = nearestPlayer(e.x, e.y);
 
     e.flash = Math.max(0, e.flash - dt);
     e.atkCd = Math.max(0, e.atkCd - dt);
@@ -191,13 +214,13 @@ export function updateEnemies(dt) {
     e.growlT -= dt;
     if (e.growlT <= 0) {
       e.growlT = rng.range(4, 16);
-      if (dist2(e.x, e.y, p.x, p.y) < 620 * 620) sfx('zombieGrowl');
+      if (p && dist2(e.x, e.y, p.x, p.y) < 620 * 620) sfx('zombieGrowl');
     }
 
     // ---------------------------------------------------------- targeting --
     let tx, ty, targetStruct = null, targetIsPlayer = false;
-    const dPlayer2 = dist2(e.x, e.y, p.x, p.y);
-    const senseR = e.def.sense * (p.sneaking ? 0.55 : 1) * night.sense;
+    const dPlayer2 = p ? dist2(e.x, e.y, p.x, p.y) : Infinity;
+    const senseR = e.def.sense * (p && p.sneaking ? 0.55 : 1) * night.sense;
 
     // Survivors are people too: a zombie that gets close to one goes for it.
     let victim = null, victimD = 999999;
@@ -209,22 +232,22 @@ export function updateEnemies(dt) {
     const survivorInReach = victim &&
       victimD < (e.def.atkRange + SURVIVOR_R) * (e.def.atkRange + SURVIVOR_R);
 
-    if (!p.dead && (e.aggro || dPlayer2 < senseR * senseR)) {
+    if (p && (e.aggro || dPlayer2 < senseR * senseR)) {
       // Sight check stops enemies tracking you through solid buildings.
       if (e.aggro || dPlayer2 < 120 * 120 || hasLineOfSight(e.x, e.y, p.x, p.y)) {
         e.aggro = true;
         e.alertT = Math.max(e.alertT, 4);
       }
     }
-    if (p.dead) e.aggro = false;
+    if (!p) e.aggro = false;
 
     if (e.raid && G.raid) {
       // Raiders push for the base, but will happily eat the player en route.
-      if (!p.dead && dPlayer2 < 300 * 300) { tx = p.x; ty = p.y; targetIsPlayer = true; }
+      if (p && dPlayer2 < 300 * 300) { tx = p.x; ty = p.y; targetIsPlayer = true; }
       else if (e.objective && !e.objective.destroyed) { tx = e.objective.x; ty = e.objective.y; targetStruct = e.objective; }
-      else if (!p.dead) { tx = p.x; ty = p.y; targetIsPlayer = true; }
+      else if (p) { tx = p.x; ty = p.y; targetIsPlayer = true; }
       else { tx = G.raid.cx; ty = G.raid.cy; }
-    } else if (e.aggro && !p.dead) {
+    } else if (e.aggro && p) {
       tx = p.x; ty = p.y; targetIsPlayer = true;
     } else if (e.alertT > 0 && e.noiseX) {
       tx = e.noiseX; ty = e.noiseY;
@@ -255,8 +278,8 @@ export function updateEnemies(dt) {
           if (dist2(e.x, e.y, sv.x, sv.y) < (e.def.atkRange + SURVIVOR_R + 6) ** 2) {
             damageSurvivor(sv, e.def.dmg, e.x, e.y);
           }
-        } else if (!p.dead && dist2(e.x, e.y, p.x, p.y) < (e.def.atkRange + p.r + 6) ** 2) {
-          damagePlayer(e.def.dmg, e.x, e.y, e.def.name);
+        } else if (p && dist2(e.x, e.y, p.x, p.y) < (e.def.atkRange + p.r + 6) ** 2) {
+          damagePlayer(p, e.def.dmg, e.x, e.y, e.def.name);
         }
         e.pendingStruct = null;
         e.pendingSurvivor = null;
@@ -268,7 +291,7 @@ export function updateEnemies(dt) {
     // Flesh first. A reachable person always outranks scenery — otherwise a
     // zombie standing right next to you would punch the wall behind you and
     // ignore you entirely, which is both wrong and trivially exploitable.
-    const playerInReach = !p.dead && dist2(e.x, e.y, p.x, p.y) < (e.def.atkRange + p.r) ** 2;
+    const playerInReach = !!p && dist2(e.x, e.y, p.x, p.y) < (e.def.atkRange + p.r) ** 2;
 
     // A survivor within arm's reach gets bitten, even mid-approach to a wall.
     if (!playerInReach && survivorInReach && e.atkCd <= 0) {

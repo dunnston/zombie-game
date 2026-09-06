@@ -2,16 +2,22 @@
 // bleeds it back down. Threat is what schedules raids — never a calendar.
 
 import { THREAT } from './config.js';
-import { G, notify } from './state.js';
+import { G, notify, baseOwner } from './state.js';
 import { sfx } from '../core/audio.js';
 import { nightFactors } from './daynight.js';
 
 const TIER_NAMES = ['LOW', 'RISING', 'HIGH', 'CRITICAL'];
 const TIER_COLORS = ['#8fae6a', '#d9c46a', '#d98a4a', '#e05a4a'];
 
-export function addThreat(amount, reason = '') {
-  if (!G.player || G.raid) return;
-  const mul = G.player.threatMul ?? 1;
+/**
+ * @param actor  the player whose noise this is, for their Threat perks. Things
+ *               nobody did personally — a running generator, a turret — read
+ *               the base owner's.
+ */
+export function addThreat(amount, reason = '', actor = null) {
+  const src = actor || baseOwner();
+  if (!src || G.raid) return;
+  const mul = src.threatMul ?? 1;
   // Noise carries further in the dark, and more of them are awake to hear it.
   G.threat = Math.min(THREAT.max, G.threat + amount * mul * nightFactors().threat);
   checkTier(reason);

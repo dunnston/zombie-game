@@ -5,7 +5,7 @@
 // somewhere safe enough to think about it.
 
 import { xpForLevel } from './config.js';
-import { G, notify } from './state.js';
+import { G, notify, isLocal } from './state.js';
 import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
 import {
@@ -16,8 +16,7 @@ import { refreshAllSurvivors } from './survivors.js';
 /** Points awarded for reaching a given level. Every fifth level pays double. */
 export const pointsForLevel = (level) => (level % 5 === 0 ? 2 : 1);
 
-export function addXp(amount, label = null) {
-  const p = G.player;
+export function addXp(p, amount, label = null) {
   if (!p || amount <= 0) return;
   const gained = amount * (p.xpMul || 1);
   p.xp += gained;
@@ -38,17 +37,20 @@ function onLevelUp(p, levels) {
   sfx('levelUp');
   FX.ring(p.x, p.y, 10, 130, 0.7, '#ffe08a', 3);
   FX.text(p.x, p.y - 46, `LEVEL ${p.level}`, '#ffe08a', 18, -28, 1.6);
-  notify(
-    `LEVEL ${p.level} — ${p.skillPoints} skill point${p.skillPoints === 1 ? '' : 's'} to spend (TAB)`,
-    '#ffe08a', true,
-  );
+  if (isLocal(p)) {
+    notify(
+      `LEVEL ${p.level} — ${p.skillPoints} skill point${p.skillPoints === 1 ? '' : 's'} to spend (TAB)`,
+      '#ffe08a', true,
+    );
+  } else {
+    notify(`${p.name} reached level ${p.level}`, '#ffe08a');
+  }
   void levels;
 }
 
 // ------------------------------------------------------------- spending ----
 
-export function raiseAttribute(id) {
-  const p = G.player;
+export function raiseAttribute(id, p = G.player) {
   const check = canRaiseAttr(p, id);
   if (!check.ok) { sfx('deny'); notify(check.reason, '#c96a5a'); return false; }
 
@@ -70,8 +72,7 @@ export function raiseAttribute(id) {
   return true;
 }
 
-export function buyPerk(perkId) {
-  const p = G.player;
+export function buyPerk(perkId, p = G.player) {
   const perk = PERKS_BY_ID[perkId];
   if (!perk) return false;
   const st = perkStatus(p, perk);

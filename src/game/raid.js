@@ -2,7 +2,9 @@
 // they haven't built one yet) until every raider is dead.
 
 import { raidSpec, TILE } from './config.js';
-import { G, notify, addRes, shake, screenFlash, solidPx } from './state.js';
+import {
+  G, notify, addRes, shake, screenFlash, solidPx, nearestPlayer, presentPlayers,
+} from './state.js';
 import { spawnEnemy, MAX_ENEMIES } from './enemies.js';
 import { baseCenter, raidTarget } from './building.js';
 import { resetThreatAfterRaid } from './threat.js';
@@ -83,7 +85,6 @@ function startWave(raid) {
 export function updateRaid(dt) {
   const raid = G.raid;
   if (!raid) return;
-  const p = G.player;
 
   if (raid.phase === 'warning') {
     raid.timer -= dt;
@@ -105,11 +106,13 @@ export function updateRaid(dt) {
     raid.spawnTimer -= dt;
     if (raid.spawnTimer <= 0 && G.enemies.length < MAX_ENEMIES) {
       raid.spawnTimer = 0.22;
-      // If the player has wandered off, spawn around them so the raid still
-      // finds someone to fight.
-      const anchorOnPlayer = !raid.hasBase || dist2(p.x, p.y, raid.cx, raid.cy) > 1500 * 1500;
-      const ax = anchorOnPlayer ? p.x : raid.cx;
-      const ay = anchorOnPlayer ? p.y : raid.cy;
+      // If everyone has wandered off, spawn around whoever is nearest the base
+      // so the raid still finds someone to fight.
+      const near = nearestPlayer(raid.cx, raid.cy, (q) => !q.away && !q.dead);
+      const anchorOnPlayer = !!near &&
+        (!raid.hasBase || dist2(near.x, near.y, raid.cx, raid.cy) > 1500 * 1500);
+      const ax = anchorOnPlayer ? near.x : raid.cx;
+      const ay = anchorOnPlayer ? near.y : raid.cy;
       // Close enough that shamblers arrive in seconds rather than a minute,
       // far enough to stay off screen when they appear.
       const spot = spawnRing(ax, ay, 520, 800);
@@ -185,7 +188,12 @@ export function updateRaid(dt) {
       structHp += s.hp;
       if (dist2(s.x, s.y, raid.cx, raid.cy) < BREAKOFF_RADIUS * BREAKOFF_RADIUS) standing++;
     }
-    const sig = `${raid.killed}|${Math.round(structHp)}|${Math.round(p.hp)}|${p.dead ? 1 : 0}`;
+    let playerHp = 0, playersDown = 0;
+    for (const q of presentPlayers()) {
+      playerHp += q.hp;
+      if (q.dead || q.downed) playersDown++;
+    }
+    const sig = `${raid.killed}|${Math.round(structHp)}|${Math.round(playerHp)}|${playersDown}`;
     raid.idle = sig === raid.lastSig ? (raid.idle || 0) + 1 : 0;
     raid.lastSig = sig;
     raid.standing = standing;
@@ -243,7 +251,8 @@ function finishRaid(repelled = true) {
     const n = Math.floor(spec.reward[id] * share);
     if (n > 0) { reward[id] = n; addRes(G.stash, id, n); }
   }
-  addXp(Math.round(spec.xp * (repelled ? 1 : 0.5 + share * 0.5)));
+  // Everyone who was here for it earns it.
+  for (const q of presentPlayers()) addXp(q, Math.round(spec.xp * (repelled ? 1 : 0.5 + share * 0.5)));
 
   // Clean up stragglers that were part of the raid but wandered off.
   for (const e of G.enemies) if (e.raid) e.raid = false;
@@ -254,7 +263,7 @@ function finishRaid(repelled = true) {
   const tint = repelled ? '#b7e08a' : '#d9c46a';
   notify(repelled ? `${spec.name} REPELLED` : `${spec.name} OVER`, tint, true);
   notify(rewardText ? `Salvage delivered to stash — ${rewardText}` : 'No salvage worth taking', tint, true);
-  if (G.player) FX.ring(G.player.x, G.player.y, 10, 200, 0.9, tint, 4);
+  for (const q of presentPlayers()) FX.ring(q.x, q.y, 10, 200, 0.9, tint, 4);
 }
 
 /** Debug/testing helper — ends a raid instantly. */

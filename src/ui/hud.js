@@ -171,7 +171,7 @@ export function drawHUD(ctx, deviceW, deviceH, interactive = true) {
   else if (G.ui.panel === 'craft') drawCraftPanel(ctx, W, H);
   else if (G.ui.panel === 'map') drawMapPanel(ctx, W, H);
 
-  if (p.dead) drawDeath(ctx, W, H);
+  if (p.dead || p.downed) drawDeath(ctx, W, H);
   if (G.paused) drawPause(ctx, W, H);
 
   drawCursor(ctx);
@@ -1417,6 +1417,25 @@ function wrapText(ctx, text, x, y, maxW, lh) {
 
 function drawDeath(ctx, W, H) {
   const p = G.player;
+  if (p.downed) {
+    // Down, not dead: a teammate can still reach you. Keep the world visible
+    // so you can watch them coming.
+    const pulse = 0.5 + Math.sin(G.time * 4) * 0.5;
+    ctx.fillStyle = `rgba(60,6,6,${0.28 + pulse * 0.1})`;
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 44px "Courier New", monospace';
+    ctx.fillStyle = '#c4392f';
+    ctx.fillText('YOU ARE DOWN', W / 2, H / 2 - 20);
+    ctx.font = '15px "Courier New", monospace';
+    ctx.fillStyle = C.text;
+    ctx.fillText('A teammate can hold E beside you to get you up.', W / 2, H / 2 + 16);
+    ctx.fillStyle = C.dim;
+    ctx.font = '13px "Courier New", monospace';
+    ctx.fillText(`${Math.ceil(p.downT)}s before you bleed out`, W / 2, H / 2 + 44);
+    ctx.textAlign = 'left';
+    return;
+  }
   ctx.fillStyle = `rgba(60,6,6,${clamp(0.35 + (3 - p.respawnT) * 0.16, 0.3, 0.72)})`;
   ctx.fillRect(0, 0, W, H);
   ctx.textAlign = 'center';

@@ -4,7 +4,7 @@
 at the start of a session and updated at the end of one. If something here
 contradicts the code, the code is right and this file needs fixing — say so.
 
-- **Last updated:** 2026-09-06, after the first playtest
+- **Last updated:** 2026-09-06, multiplayer foundation in review
 - **Repo:** https://github.com/dunnston/zombie-game
 - **Owner:** dunnston
 
@@ -65,16 +65,35 @@ These settle arguments. When a decision is close, the pillar wins.
 
 ## 3. Where we are right now
 
-**Status: a genuinely playable game, well past MVP, now with real playtest
-feedback driving the work.** Five rounds merged.
+**Status: a genuinely playable game, well past MVP, now being made
+multiplayer.** Six rounds merged; the co-op foundation is in review.
 
 | | |
 | --- | --- |
-| Source | 32 modules, ~12,300 lines, no dependencies but Vite |
+| Source | 33 modules, ~12,700 lines, no dependencies but Vite |
 | Assets | Zero. Every sprite is drawn in code at boot; every sound is WebAudio. |
-| Tests | 60 Node assertions; browser suite 279 |
+| Tests | 60 Node assertions; browser suite 305 |
 | Save format | **v7** |
-| Performance | ~57fps with 90 active enemies |
+| Performance | ~60fps with 90 active enemies |
+
+### Multiplayer — where it stands
+
+The owner asked for it on 2026-09-06 and reversed the "deliberately not
+building" entry below. Agreed shape: **online co-op for up to four, one player
+hosts.** The host's browser runs the authoritative sim exactly as it does
+today; guests send input and render what the host tells them. A ~120-line
+signalling broker swaps WebRTC connection details for a six-character room
+code and then gets out of the way — game traffic never touches a server. One
+shared base and stash, separate inventories and progression, no friendly fire,
+revive a downed teammate, guests remembered in the host's save. Two PRs:
+
+| PR | State | What |
+| --- | --- | --- |
+| A — foundation | [#9](https://github.com/dunnston/zombie-game/pull/9) | `G.players[]`, intent split from simulation, actor parameters everywhere, downed/revive. No visible change in solo. |
+| A2 — menu and saves | next | Title screen on boot (Continue / New Game / Multiplayer / Controls), several save slots with delete, rebindable keys. Asked for by the owner while A was in review. |
+| B — online co-op | after A2 | Broker, WebRTC transport, host/client sessions, lobby, save v8. |
+
+The full plan is in `tasks/todo.md`.
 
 ### Shipped
 
@@ -84,6 +103,10 @@ feedback driving the work.** Five rounds merged.
 | [#2](https://github.com/dunnston/zombie-game/pull/2) | SPECIAL attribute trees, day/night cycle, survivor NPCs |
 | [#3](https://github.com/dunnston/zombie-game/pull/3) | Searchable furniture, bunks gating the roster, survivor jobs |
 | [#4](https://github.com/dunnston/zombie-game/pull/4) | Drivable cars with keys, lockpicks and hotwiring. Save → v6. |
+| [#6](https://github.com/dunnston/zombie-game/pull/6) | Raids break off instead of stranding the player |
+| [#7](https://github.com/dunnston/zombie-game/pull/7) | The quiet field; steeper XP curve |
+| [#8](https://github.com/dunnston/zombie-game/pull/8) | Slot inventory, equipment slots, hotbar. Save → v7. |
+| [#9](https://github.com/dunnston/zombie-game/pull/9) | Multiplayer foundation: players array, intent split, downed and revive |
 
 ### What the first playtest said
 
@@ -157,9 +180,21 @@ enemy density, sharpens their senses, and nearly doubles Threat gain.
 Four jobs: Guard, Sniper (on a watchtower), Scavenger, Builder. They level up,
 eat Rations, and die permanently.
 
-**Cars** *(in review)*. ~30 in town, most locked. Three ways in: a key hidden
-near the car, a craftable lockpick (odds scale with Perception), or the Hotwire
-perk. A 400-unit boot, headlights, roadkill, and fuel/noise/bodywork as costs.
+**Cars.** ~30 in town, most locked. Three ways in: a key hidden near the car, a
+craftable lockpick (odds scale with Perception), or the Hotwire perk. A
+400-unit boot, headlights, roadkill, and fuel/noise/bodywork as costs.
+
+**Players** *(foundation in review)*. The world holds a list of players, and
+`G.player` is an alias for the one at this keyboard. Each player has an
+`intent` — what they want to do this step, as data — and the simulation reads
+only that; the keyboard is read in exactly one place. Enemies go for the
+nearest player and spawn around each of them; loot pulls toward whoever is
+closest; kill XP goes to the killer, and turret, trap and survivor kills pay
+everyone present. Base-wide numbers (turret reach, wall strength, upkeep, the
+roster cap) are the host's. With a teammate on their feet somewhere, running
+out of health leaves you **downed** for 30 seconds instead of dead: they hold
+E beside you to bring you up at 40% health. Alone, death is what it always was.
+No friendly fire; players walk through each other.
 
 ---
 
@@ -171,7 +206,10 @@ src/
   core/              util, input, audio, sprites, particles — no game rules
   game/
     config.js        ALL tunables and content data. One file to balance.
-    state.js         the mutable G object + shared low-level accessors
+    state.js         the mutable G object + shared low-level accessors;
+                     G.players[] and the G.player alias for the local one
+    intent.js        what a player wants this step, as data — the ONLY place
+                     the simulation's input is read from the keyboard
     world.js         map generation, tile collision, danger field
     player.js  enemies.js  combat.js  damage.js
     loot.js  building.js  crafting.js  threat.js  raid.js
@@ -211,6 +249,15 @@ src/
    twice** — see the decision log.
 8. **There is no pathfinding.** Any behaviour that walks toward a target needs
    give-up logic, or it will press against a wall forever.
+9. **The simulation never reads the keyboard.** `gatherLocalIntent()` in
+   `intent.js` fills the local player's `intent` once per step; everything in
+   `updatePlayer` and the interaction code acts on intent alone. A second
+   player's intent arriving over a wire must drive identical code. UI-only keys
+   (panels, build mode, pause) may still read `Input` — they are not simulation.
+10. **Simulation code takes the acting player as a parameter.** `G.player` is
+    the *local* player and belongs to the camera, the HUD and the renderer. A
+    system that means "whoever did this" — damage, XP, threat, cost, loot —
+    takes `p`. Base-wide multipliers read `baseOwner()`, never `G.player`.
 
 ---
 
@@ -244,6 +291,17 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | Nothing equips itself any more | `bestArmor()` silently wore whatever had the highest damage reduction, so the player could neither choose nor even see what they had on. Gear now goes to the pack and waits. |
 | `carryCap` is a budget for the pack *and* the hotbar | The weight bar counts both, so the capacity check has to as well — otherwise loot keeps fitting after the bar reads 100%. `packAllowance()` is the single place that nets it off. |
 | The quiet field is sampled bilinearly | Reading the containing cell made the payoff depend on where inside a 256px square you stood: measured, the same six kills bought 40 seconds of calm or none. |
+| Multiplayer is host-authoritative, not lockstep | `Math.random()` is in ~40 places and Map iteration order leaks into the sim; deterministic lockstep would need all of it replaced, and a single desync silently forks the world with no error. One browser owning the truth has no desync class of bug at all. |
+| A broker, not a relay | The room-code server only swaps WebRTC connection details, then game traffic runs browser to browser. It can go down mid-game with no effect, it holds no world and no password, and it costs nothing to leave running. |
+| `G.player` stays, as an alias | About a hundred references genuinely mean "the local player, for the camera and HUD". Renaming them all would be churn with no benefit; making `G.player` a getter over `G.players[localIdx]` left them correct and made the twenty that meant "whoever did this" stand out. |
+| Intent is data; the sim never touches `Input` | The only way one code path can serve a keyboard and a wire. It also put the two UI rules that were scattered through `updatePlayer` (a panel swallows input; build mode owns the mouse) in one place. |
+| The host's stats govern the base | Turret reach, trap damage, wall strength, upkeep and the roster cap read `baseOwner()` — `G.players[0]`. Stable, predictable, and it does not shift when a guest leaves. In solo it is the same rule as before. |
+| Kill XP to the killer; automated kills to everyone present | A player who lands the kill earns it. A turret, trap or survivor kill pays every present player, because the base is everyone's. Both rules collapse to the old one in solo. |
+| Downed, not dead, when a teammate is up | Death in co-op with no revive is a walk back from a random spawn while your friend fights alone. Thirty seconds down, revive by holding E, 40% health back. Alone — or when nobody comes — the old death path runs unchanged. Enemies ignore the downed. |
+| No friendly fire, no player collision | Bullets already ignore your own walls (pillar 3); a teammate is not a better reason to make you flinch. And a player who can block a doorway is a griefing tool nobody asked for. |
+| Cull enemies far from *every* player, spawn around *each* | One player's ring would starve the other's district of a crowd, or cull the horde their teammate was fighting. Each living player is the centre of their own ring; the quiet field is read where each of them stands. |
+| A remote player's edge intents are consumed after one step | The local intent is rebuilt from the keys every step, so its edges last one step by construction. A remote intent is a packet that stays put until the next one — held as data, "E was pressed" toggled a gate 17 times in 300ms. `consumeEdges()` runs at the end of every update for everyone but the local player; held states (movement, fire, E still down) are left alone. Found by the first Codex review of PR #9. |
+| One seat per car; a leaver parks; a roadkill is the driver's | Two players could hold the same `drivingId`, the second stranded with movement disabled and nobody reading their controls. A guest leaving at the wheel left the car engine-on with its collision tiles released forever. Roadkills paid everyone. All three from the same review, all reproduced before fixing. |
 
 ---
 
@@ -251,7 +309,13 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 
 ### Next up (highest value first)
 
-1. **Finish the playtest response.** Crafting folded into the inventory screen
+1. **Multiplayer PR B — online co-op.** The signalling broker, the WebRTC
+   transport, host and client sessions, title and lobby screens, save v8 with
+   guests remembered. Then two browsers on one world through the broker on
+   localhost, and a measured wire rate recorded in §9. Follow-ups already
+   known: a TURN/relay fallback for symmetric NAT, binary snapshots if the
+   measured rate warrants it.
+2. **Finish the playtest response.** Crafting folded into the inventory screen
    (the owner never found it on `C`), tiered storage containers, and light
    hunger and thirst. See `tasks/todo.md` for the working plan.
 2. **Decide what to do with `GameAssets/`.** Seven 1448x1086 art boards arrived
@@ -280,9 +344,11 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 ### Deliberately not building
 
 Thirst, detailed hunger, temperature, illness, sleep, reading books, long
-crafting timers, many ammo calibres, farming, multiplayer, NPC factions,
-dialogue, quests, huge procedural worlds, realistic electrical or plumbing
-systems. From the original brief, and still right.
+crafting timers, many ammo calibres, farming, NPC factions, dialogue, quests,
+huge procedural worlds, realistic electrical or plumbing systems. From the
+original brief, and still right. **Multiplayer was on this list** until the
+owner asked for it on 2026-09-06; PvP, dedicated servers and persistent shared
+worlds remain off it.
 
 ---
 
@@ -336,6 +402,35 @@ actually stopping on scenery left behind by an earlier test. The detail string
 (`stopped 80px short`) is what gave it away — always log the measurement, not
 just the verdict.
 
+**A hidden page does not run `requestAnimationFrame` at all.** The in-app
+browser pane, when it is not on screen, fires no frames — so the game loop
+never steps, and the smoke suite neither passes nor fails: it waits forever,
+because its deadline was only checked from inside the frame wait. Its `fps`
+read 60 the whole time — the initial value, never updated. Every frame wait
+now races a plain timer and says "rAF has not fired" instead of hanging. Run
+the suite in Playwright with the page fronted.
+
+**Vite reloads the page when a file outside the module graph changes.** Saving
+a test file or a doc while the game is running restarted it — which killed a
+smoke run, and would kill a playtest. `vite.config.js` now ignores `tasks/`,
+`*.md` and `.claude/`. **Not `tests/`:** the same watcher invalidates Vite's
+transform cache, so ignoring the test files meant an edited suite was served
+*stale*, and a run reported 298 passes against a file that had 301. A reload is
+loud; a stale file is silent. Do not edit tests while a run is in flight.
+
+**Check the suite has a case where the player does the thing.** The smoke
+suite's combat section proved a swing damages and a shot spends ammo — and
+every actual kill in it was made by a turret, a survivor or the debug API. So
+when a bullet's owner changed from a string to the player object, and
+`creditSurvivorKill` called `startsWith` on it, 298 assertions passed while
+every player kill threw. The raid harness, where the player actually fights,
+caught it in a minute. It has a case now.
+
+**Split a refactor into a PR with no visible change.** The multiplayer
+foundation touched 19 files and every system. Landing it first, gated on "solo
+plays byte-identically and every suite is green", means the networking PR can
+be reviewed for networking rather than for whether the game still works.
+
 ---
 
 ## 9. How to verify
@@ -346,13 +441,32 @@ round. Current expected totals:
 | Suite | Expected |
 | --- | --- |
 | `npm test` (Node, pure logic) | 60 |
-| `tests/browser-smoke.js` | 279 |
+| `tests/browser-smoke.js` | 305 |
 
-**Run the browser suite with the page focused.** Its waits are counted in
-animation frames, and a backgrounded tab throttles `requestAnimationFrame` to
-about 1fps — the same suite then takes two hours instead of three minutes. In
-Playwright, call `page.bringToFront()` before running. If the budget guard
-trips it now reports the frame rate it saw and says which of the two it was.
+**Run the browser suite with the page visible and focused.** Its waits are
+counted in animation frames. A backgrounded tab throttles
+`requestAnimationFrame` to about 1fps — the same suite then takes two hours
+instead of four minutes — and a *hidden* page (the in-app browser pane when it
+is not on screen) fires no frames at all. In Playwright, call
+`page.bringToFront()` before running. If frames stop for five seconds the
+suite now fails saying so; if the budget guard trips it reports the frame rate
+it saw.
+
+The suite runs about four minutes. Kick it off asynchronously and poll:
+
+```js
+window.__r = null;
+window.runDeadlineSmoke(360000).then((r) => { window.__r = r; });
+// later: window.__r.failed, window.__r.failures, window.DEADLINE.errors
+```
+
+**Verifying the multiplayer foundation.** The smoke suite's section
+*11i. a second survivor* joins a second player with `api.joinPlayer()`, drives
+them by writing to `p2.intent`, and asserts the co-op rules: enemies pick the
+nearer player and ignore a downed one, a swing and a magazine into a teammate
+do nothing, players pass through each other, and the downed → revive → real
+death → respawn cycle. It leaves through `api.leavePlayer()`, and the solo
+sections before it are unchanged.
 
 ```bash
 npm test
@@ -421,6 +535,16 @@ input (`key`, `tap`, `mouseDown`, `aimAt`) and the whole `api` surface.
 
 Newest first. One line per meaningful change.
 
+- **2026-09-06** — Multiplayer foundation (PR A): `G.players[]` with
+  `G.player` as the local alias, the intent/simulation split, actor parameters
+  through damage, XP, threat, cost, building, crafting, vehicles and survivors,
+  per-player enemy spawning and targeting, downed/revive. Twenty-six new smoke
+  assertions; solo unchanged. The raid harness caught a TypeError on every
+  player kill that the smoke suite had no case for; the Codex review found
+  four more (remote edge intents repeating at 60Hz, two drivers in one car, a
+  leaver's car left running, roadkills paid to everyone), each reproduced
+  against the running game before the fix. The owner reversed "no
+  multiplayer".
 - **2026-09-06** — Slot inventory: a 30-slot pack grid, six-slot hotbar, five
   equipment slots (head/body/hands/legs/feet) with fifteen gear pieces, drag
   and drop throughout, and capacity by weight. Save → v7. Asked for three

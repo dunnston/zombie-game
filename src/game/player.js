@@ -8,10 +8,10 @@ import {
 
 export { packAllowance };
 import { startingAttrs, recomputeStats } from './perks.js';
-import { G, moveCircle, notify, unstick } from './state.js';
-import { Input, key, keyTap } from '../core/input.js';
+import { G, moveCircle, notify, unstick, isLocal } from './state.js';
+import { makeIntent } from './intent.js';
 import { meleeAttack, fireGun, startReload, updateReload } from './combat.js';
-import { healPlayer } from './damage.js';
+import { healPlayer, killPlayer } from './damage.js';
 import { finishHotwire } from './vehicles.js';
 import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
@@ -19,13 +19,34 @@ import { clamp, smooth, makeRng } from '../core/util.js';
 
 const rng = makeRng(0x51EE99);
 
-export function createPlayer(x, y) {
+/**
+ * @param x, y   where they stand
+ * @param opts   { id, name, seat } — identity for a save file, a display name,
+ *               and which of the colour/name seats to draw from
+ */
+export function createPlayer(x, y, opts = {}) {
+  const seat = opts.seat ?? 0;
   const p = {
+    // Identity. `id` outlives the session (it is what a save remembers a guest
+    // by); `netId` is handed out by addPlayer() and is only good for one game.
+    id: opts.id || null,
+    netId: 0,
+    name: opts.name || PLAYER.names[Math.min(seat, PLAYER.names.length - 1)],
+    color: PLAYER.colors[seat % PLAYER.colors.length],
+    // What this player is trying to do this step. Filled by gatherLocalIntent
+    // for the person at this keyboard, or from the wire for anyone else.
+    intent: makeIntent(),
+    // Disconnected: not drawn, not simulated, not a target — but kept, with
+    // everything they carry, so they can pick up where they left off.
+    away: false,
+
     x, y, vx: 0, vy: 0, angle: 0, r: PLAYER.r,
     hp: PLAYER.maxHp,
     stam: PLAYER.maxStam,
     stamLock: 0,
     dead: false, respawnT: 0, invuln: 0, hurtFlash: 0, lastHurt: 99,
+    // Down but not out: a teammate can still bring you back.
+    downed: false, downT: 0, reviving: null,
 
     // One addressable list for everything carried. Capacity is by weight, not
     // slot count — a pack of ammunition is not a pack of scrap — but the grid
@@ -167,17 +188,30 @@ function finishUse(p) {
   // Spend it from the hotbar first, so the stack you can see going down is the
   // one you were watching.
   if (!slotsTake(p.hotbar, p.using.id, 1)) slotsTake(p.bag, p.using.id, 1);
-  healPlayer(c.heal);
+  healPlayer(p, c.heal);
   p.using = null;
 }
 
-export function updatePlayer(dt) {
-  const p = G.player;
+/**
+ * One simulation step for one player, driven entirely by `p.intent`. Nothing
+ * in here knows whether the intent came from this keyboard or from a wire.
+ */
+export function updatePlayer(p, dt) {
+  const it = p.intent;
   p.lastHurt += dt;
 
   if (p.dead) {
     p.respawnT -= dt;
-    if (p.respawnT <= 0) respawnPlayer();
+    if (p.respawnT <= 0) respawnPlayer(p);
+    return;
+  }
+
+  // Down: the clock runs, and nothing else does. A teammate can still reach
+  // you; if nobody does, this becomes an ordinary death.
+  if (p.downed) {
+    p.downT -= dt;
+    p.vx *= Math.exp(-11 * dt); p.vy *= Math.exp(-11 * dt);
+    if (p.downT <= 0) killPlayer(p, true);
     return;
   }
 
@@ -202,59 +236,14 @@ export function updatePlayer(dt) {
   }
 
   // --------------------------------------------------------------- aiming --
-  const cam = G.camera;
-  const mx = (Input.mouse.x - G.canvasW / 2) / cam.zoom + cam.x;
-  const my = (Input.mouse.y - G.canvasH / 2) / cam.zoom + cam.y;
-  Input.mouse.wx = mx; Input.mouse.wy = my;
-  const aimTarget = Math.atan2(my - p.y, mx - p.x);
+  const aimTarget = Math.atan2(it.aimY - p.y, it.aimX - p.x);
   p.angle = aimTarget + p.recoil * (p.recoilDir || 1);
   if (p.recoil < 0.001) p.recoilDir = rng.chance(0.5) ? 1 : -1;
 
-  const uiBlocked = !!G.ui.panel || driving;
-
   // ------------------------------------------------------------- movement --
-  let ix = 0, iy = 0;
-  if (!uiBlocked) {
-    if (key('KeyW') || key('ArrowUp')) iy -= 1;
-    if (key('KeyS') || key('ArrowDown')) iy += 1;
-    if (key('KeyA') || key('ArrowLeft')) ix -= 1;
-    if (key('KeyD') || key('ArrowRight')) ix += 1;
-  }
-  const moving = ix !== 0 || iy !== 0;
-  if (moving) {
-    const len = Math.hypot(ix, iy);
-    ix /= len; iy /= len;
-  }
-
-  p.sneaking = !uiBlocked && (key('ControlLeft') || key('ControlRight'));
-  const wantSprint = !uiBlocked && !p.sneaking && (key('ShiftLeft') || key('ShiftRight')) && moving && p.stam > 1;
-  p.sprinting = wantSprint;
-
-  if (p.sprinting) {
-    p.stam = Math.max(0, p.stam - PLAYER.stamDrain * dt);
-    p.stamLock = PLAYER.stamRegenDelay;
-    if (p.stam <= 0) p.sprinting = false;
-  } else {
-    p.stamLock = Math.max(0, p.stamLock - dt);
-    if (p.stamLock <= 0) p.stam = Math.min(p.maxStam, p.stam + p.stamRegen * dt);
-  }
-
   // Actions that root you in place.
-  const rooted = !!(p.searching || p.using);
-  let speed = PLAYER.speed * p.speedMul * (p.adrenalineActive ? 1.15 : 1);
-  if (p.sprinting) speed *= PLAYER.sprintMul;
-  if (p.sneaking) speed *= 0.5;
-  if (rooted) speed = 0;
-  // Overloaded packs slow you down — a soft cap rather than a hard block.
-  const load = bagLoad(p);
-  if (load > 1) speed *= clamp(1.25 - load * 0.25, 0.55, 1);
-
-  if (!driving) {
-    p.vx += (ix * speed - p.vx) * smooth(18, dt);
-    p.vy += (iy * speed - p.vy) * smooth(18, dt);
-    if (!moving) { p.vx *= Math.exp(-11 * dt); p.vy *= Math.exp(-11 * dt); }
-    moveCircle(p, p.vx * dt, p.vy * dt, p.r);
-  }
+  const rooted = !!(p.searching || p.using || p.reviving);
+  movePlayer(p, dt, rooted);
 
   // ---------------------------------------------------------- channelling --
   if (p.using) {
@@ -264,12 +253,13 @@ export function updatePlayer(dt) {
 
   // --------------------------------------------------------------- combat --
   updateReload(p, dt);
-  // Two hands on the wheel: no shooting while driving.
-  if (!uiBlocked && !driving && !G.ui.buildMode && !rooted) {
+  // Two hands on the wheel: no shooting while driving. The intent has already
+  // been blanked by the UI layer if a panel or build mode owns the input.
+  if (!driving && !rooted) {
     const w = currentWeapon(p);
-    if (keyTap('KeyR')) startReload(p, w);
+    if (it.reload) startReload(p, w);
 
-    if (Input.mouseDown && p.attackCd <= 0) {
+    if (it.fire && p.attackCd <= 0) {
       if (w.kind === 'melee') {
         p.attackCd = w.cd;
         p.stam = Math.max(0, p.stam - 4);
@@ -282,18 +272,54 @@ export function updatePlayer(dt) {
           if ((p.mag[w.id] || 0) > 0) {
             p.attackCd = w.cd * p.fireRateMul;
             fireGun(p, w);
-          } else if (Input.mousePressed) {
+          } else if (it.firePressed) {
             startReload(p, w);
           }
         }
       }
     }
 
-    for (let i = 0; i < 6; i++) {
-      if (keyTap(`Digit${i + 1}`)) selectSlot(p, i);
-    }
-    if (Input.wheel !== 0) cycleSlot(p, Input.wheel > 0 ? 1 : -1);
-    if (keyTap('KeyQ')) useHealing(p);
+    if (it.slot >= 0) selectSlot(p, it.slot);
+    if (it.wheel !== 0) cycleSlot(p, it.wheel);
+    if (it.use) useHealing(p);
+  }
+}
+
+/**
+ * Stamina, speed and the actual step, from the movement half of the intent.
+ * Separate from updatePlayer so a client can run exactly this for its own
+ * player between snapshots and land where the host will say it landed.
+ */
+export function movePlayer(p, dt, rooted = false) {
+  const it = p.intent;
+  const driving = !!p.drivingId;
+  const moving = it.mx !== 0 || it.my !== 0;
+
+  p.sneaking = !driving && it.sneak;
+  p.sprinting = !driving && !p.sneaking && it.sprint && moving && p.stam > 1;
+
+  if (p.sprinting) {
+    p.stam = Math.max(0, p.stam - PLAYER.stamDrain * dt);
+    p.stamLock = PLAYER.stamRegenDelay;
+    if (p.stam <= 0) p.sprinting = false;
+  } else {
+    p.stamLock = Math.max(0, p.stamLock - dt);
+    if (p.stamLock <= 0) p.stam = Math.min(p.maxStam, p.stam + p.stamRegen * dt);
+  }
+
+  let speed = PLAYER.speed * p.speedMul * (p.adrenalineActive ? 1.15 : 1);
+  if (p.sprinting) speed *= PLAYER.sprintMul;
+  if (p.sneaking) speed *= 0.5;
+  if (rooted) speed = 0;
+  // Overloaded packs slow you down — a soft cap rather than a hard block.
+  const load = bagLoad(p);
+  if (load > 1) speed *= clamp(1.25 - load * 0.25, 0.55, 1);
+
+  if (!driving) {
+    p.vx += (it.mx * speed - p.vx) * smooth(18, dt);
+    p.vy += (it.my * speed - p.vy) * smooth(18, dt);
+    if (!moving) { p.vx *= Math.exp(-11 * dt); p.vy *= Math.exp(-11 * dt); }
+    moveCircle(p, p.vx * dt, p.vy * dt, p.r);
   }
 }
 
@@ -338,8 +364,7 @@ export function pickRandomSpawn(minEnemyDist = 520) {
   return fallback;
 }
 
-export function respawnPlayer() {
-  const p = G.player;
+export function respawnPlayer(p) {
   const spot = p.spawnPoint && p.spawnStructure && !p.spawnStructure.destroyed
     ? p.spawnPoint
     : pickRandomSpawn();
@@ -349,20 +374,45 @@ export function respawnPlayer() {
   p.hp = p.maxHp;
   p.stam = p.maxStam;
   p.dead = false;
+  p.downed = false;
   p.invuln = 2.2;
   p.reloading = null;
   p.searching = null;
   p.using = null;
+  p.reviving = null;
   p.slot = clamp(p.slot, 0, p.hotbar.slots.length - 1);
   for (const w of carriedWeapons(p)) {
     const def = WEAPONS[w];
     if (def && def.mag) p.mag[w] = Math.max(p.mag[w] || 0, 0);
   }
 
-  G.camera.x = p.x; G.camera.y = p.y;
+  if (isLocal(p)) { G.camera.x = p.x; G.camera.y = p.y; }
   FX.ring(p.x, p.y, 6, 90, 0.6, '#9fd0ff', 3);
-  notify(
-    p.spawnStructure ? 'Respawned at your bedroll' : 'Respawned somewhere in the wild',
-    '#9fd0ff', true,
-  );
+  if (isLocal(p)) {
+    notify(
+      p.spawnStructure ? 'Respawned at your bedroll' : 'Respawned somewhere in the wild',
+      '#9fd0ff', true,
+    );
+  } else {
+    notify(`${p.name} is back`, '#9fd0ff');
+  }
+}
+
+/**
+ * Brings a downed teammate back up. The reviver has held E beside them for
+ * PLAYER.reviveTime — that channel is run from game.js, like searching.
+ */
+export function revivePlayer(reviver, p) {
+  if (!p.downed || p.dead) return false;
+  p.downed = false;
+  p.downT = 0;
+  p.hp = Math.max(1, Math.round(p.maxHp * PLAYER.reviveHpFrac));
+  p.invuln = 1.5;
+  p.lastHurt = 0;
+  FX.ring(p.x, p.y, 6, 60, 0.5, '#7ce08a', 2);
+  FX.text(p.x, p.y - 24, `${p.name.toUpperCase()} IS UP`, '#7ce08a', 12, -34, 1.0);
+  sfx('heal');
+  if (isLocal(p)) notify(`${reviver.name} got you back on your feet`, '#b7e08a', true);
+  else notify(`${p.name} is back on their feet`, '#b7e08a');
+  return true;
 }

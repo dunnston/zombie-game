@@ -13,7 +13,16 @@ import { Input } from '../core/input.js';
 export const G = {
   version: 6,
   world: null,
-  player: null,
+  // Every survivor in the world who is a person at a keyboard. In solo this
+  // holds exactly one. `G.player` below is an alias for the *local* one, so the
+  // hundred-odd places that mean "me, for the camera and the HUD" read the same
+  // as they always did; simulation code that means "whoever did this" takes the
+  // player as a parameter instead.
+  players: [],
+  localIdx: 0,
+  playerSeq: 0,
+  enemySeq: 0,
+  pickupSeq: 0,
   enemies: [],
   bullets: [],
   corpses: [],
@@ -53,6 +62,71 @@ export const G = {
   slowmo: 0,
   spatial: null,
 };
+
+// ------------------------------------------------------------------ players --
+
+/**
+ * The local player. Assigning to it means "this is the one person at this
+ * keyboard, start the roster over" — which is what newGame and loadGame want.
+ * Other players join through addPlayer().
+ */
+Object.defineProperty(G, 'player', {
+  enumerable: true,
+  get() { return G.players[G.localIdx] || null; },
+  set(p) {
+    G.players.length = 0;
+    G.localIdx = 0;
+    G.playerSeq = 0;
+    if (p) addPlayer(p);
+  },
+});
+
+/** Adds a player to the world and hands it a wire id. */
+export function addPlayer(p) {
+  p.netId = ++G.playerSeq;
+  G.players.push(p);
+  return p;
+}
+
+export function removePlayer(p) {
+  const i = G.players.indexOf(p);
+  if (i < 0) return false;
+  G.players.splice(i, 1);
+  if (G.localIdx > i) G.localIdx--;
+  return true;
+}
+
+/** True for the player at this keyboard — the one whose screen should shake. */
+export const isLocal = (p) => p === G.players[G.localIdx];
+
+/**
+ * Whose stats govern the base. Turrets, traps, wall strength, survivor upkeep
+ * and the roster cap all read one player's multipliers, and it is always the
+ * host's: stable, predictable, and it does not shift when a guest leaves.
+ */
+export const baseOwner = () => G.players[0] || null;
+
+/** Players who are present in the world at all — connected, whatever state. */
+export function presentPlayers() {
+  const out = [];
+  for (const p of G.players) if (!p.away) out.push(p);
+  return out;
+}
+
+/** A player an enemy can hurt: present, alive, and on their feet. */
+export const targetable = (p) => !!p && !p.away && !p.dead && !p.downed;
+
+/** The nearest player an enemy could go for, or null if nobody qualifies. */
+export function nearestPlayer(x, y, pred = targetable) {
+  let best = null, bd = Infinity;
+  for (const p of G.players) {
+    if (!pred(p)) continue;
+    const dx = p.x - x, dy = p.y - y;
+    const d = dx * dx + dy * dy;
+    if (d < bd) { bd = d; best = p; }
+  }
+  return best;
+}
 
 // ------------------------------------------------------------ resource bag --
 //
@@ -105,23 +179,23 @@ export function takeRes(bag, id, n) {
 export const countRes = (bag, id) =>
   (isSlots(bag) ? slotsCount(bag, id) : (bag[id] || 0));
 
-/** Total of `id` across the player's pack and the stash. */
-export function totalRes(id) {
-  return countRes(G.player ? G.player.bag : {}, id) + countRes(G.stash, id);
+/** Total of `id` across a player's pack and the shared stash. */
+export function totalRes(id, p = G.player) {
+  return countRes(p ? p.bag : {}, id) + countRes(G.stash, id);
 }
 
-export function canAfford(cost, mul = 1) {
+export function canAfford(cost, mul = 1, p = G.player) {
   for (const id in cost) {
-    if (totalRes(id) < Math.ceil(cost[id] * mul)) return false;
+    if (totalRes(id, p) < Math.ceil(cost[id] * mul)) return false;
   }
   return true;
 }
 
-/** Spends from the pack first, then the stash. Assumes canAfford() passed. */
-export function spend(cost, mul = 1) {
+/** Spends from the player's pack first, then the stash. Assumes canAfford() passed. */
+export function spend(cost, mul = 1, p = G.player) {
   for (const id in cost) {
     let need = Math.ceil(cost[id] * mul);
-    need -= takeRes(G.player.bag, id, need);
+    if (p) need -= takeRes(p.bag, id, need);
     if (need > 0) takeRes(G.stash, id, need);
   }
 }

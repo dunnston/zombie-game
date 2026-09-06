@@ -8,7 +8,7 @@
 import { TILE, RES } from './config.js';
 import {
   G, moveCircle, notify, unstick, hasTerrainLineOfSight,
-  takeRes, addRes, countRes, shake,
+  takeRes, addRes, countRes, shake, baseOwner,
 } from './state.js';
 import { spawnBullet } from './combat.js';
 import { baseCenter } from './building.js';
@@ -77,7 +77,9 @@ export const JOB_IDS = Object.keys(JOBS);
  * are how many you can house.
  */
 export function rosterLimits() {
-  const charisma = Math.max(0, Math.round(G.player ? G.player.survivorCap : 0));
+  // The base owner's Charisma decides who will follow — see baseOwner().
+  const owner = baseOwner();
+  const charisma = Math.max(0, Math.round(owner ? owner.survivorCap : 0));
   let bunks = 0;
   for (const s of G.structures) {
     if (s.destroyed) continue;
@@ -156,7 +158,7 @@ export function makeSurvivor(x, y, opts = {}) {
 
 /** Recomputes a survivor's stats from level and the player's Charisma perks. */
 export function refreshSurvivor(s) {
-  const p = G.player;
+  const p = baseOwner();
   const hpMul = p ? p.survivorHpMul : 1;
   const dmgMul = p ? p.survivorDmgMul : 1;
   s.maxHp = Math.round((SURVIVOR.baseHp + SURVIVOR.hpPerLevel * (s.level - 1)) * hpMul);
@@ -196,7 +198,7 @@ export function seedRescues(world, count = 7) {
   return G.rescues.length;
 }
 
-export function recruit(rescue) {
+export function recruit(rescue, p = G.player) {
   const { charisma, bunks, cap } = rosterLimits();
   if (liveSurvivors().length >= cap) {
     sfx('deny');
@@ -227,7 +229,7 @@ export function recruit(rescue) {
   sfx('levelUp');
   FX.ring(s.x, s.y, 6, 70, 0.6, '#b7e08a', 3);
   notify(`${s.name} joined you — they will hold the base`, '#b7e08a', true);
-  addXp(60);
+  addXp(p, 60);
   return s;
 }
 
@@ -246,7 +248,8 @@ export function updateUpkeep(dt) {
   // Charge this tick's upkeep *plus* whatever is outstanding, so restocking the
   // pantry actually clears a shortage. Billing only the current tick would leave
   // any accrued debt permanent and the crew starving forever.
-  const need = alive.length * SURVIVOR.upkeepPerMin * minutes * G.player.upkeepMul;
+  const owner = baseOwner();
+  const need = alive.length * SURVIVOR.upkeepPerMin * minutes * (owner ? owner.upkeepMul : 1);
   const owed = need + (G.rationDebt || 0);
   const paid = takeRes(G.stash, 'rations', owed);
   G.rationDebt = Math.max(0, owed - paid);
@@ -273,7 +276,7 @@ export function updateUpkeep(dt) {
  * your own pack is no use to anyone until you drop it off.
  */
 export const rationsHeld = () => countRes(G.stash, 'rations');
-export const rationsCarried = () => countRes(G.player.bag, 'rations');
+export const rationsCarried = (p = G.player) => countRes(p.bag, 'rations');
 
 // ------------------------------------------------------------------- combat --
 
@@ -309,10 +312,9 @@ function killSurvivor(s) {
   shake(6);
 }
 
-export function reviveSurvivor(s) {
+export function reviveSurvivor(s, rp = G.player) {
   if (!s.downed || s.dead) return false;
   const cost = 1;
-  const rp = G.player;
   const held = (id) => countRes(rp.bag, id) + countRes(rp.hotbar, id);
   const spendItem = (id, n) => {
     const fromBag = takeRes(rp.bag, id, n);
@@ -333,12 +335,13 @@ export function reviveSurvivor(s) {
   FX.text(s.x, s.y - 24, `${s.name} IS UP`, '#7ce08a', 12, -34, 1.0);
   notify(`${s.name} is back on their feet`, '#b7e08a');
   sfx('heal');
-  addXp(20);
+  addXp(rp, 20);
   return true;
 }
 
 export function awardSurvivorXp(s, amount) {
-  s.xp += amount * G.player.survivorXpMul;
+  const owner = baseOwner();
+  s.xp += amount * (owner ? owner.survivorXpMul : 1);
   const need = () => SURVIVOR.xpPerLevel * s.level;
   while (s.level < SURVIVOR.maxLevel && s.xp >= need()) {
     s.xp -= need();
@@ -353,7 +356,8 @@ export function awardSurvivorXp(s, amount) {
 // -------------------------------------------------------------------- update --
 
 export function updateSurvivors(dt) {
-  const p = G.player;
+  // With no base yet, the crew shadows whoever they follow — the base owner.
+  const p = baseOwner();
   const base = baseCenter();
 
   for (let i = G.survivors.length - 1; i >= 0; i--) {
@@ -382,7 +386,7 @@ export function updateSurvivors(dt) {
     let postX, postY;
     if (s.job === 'sniper' && s.tower) { postX = s.tower.x; postY = s.tower.y; }
     else if (s.post) { postX = s.post.x; postY = s.post.y; }
-    else if (base.hasBase) { postX = base.x; postY = base.y; }
+    else if (base.hasBase || !p) { postX = base.x; postY = base.y; }
     else { postX = p.x; postY = p.y; }
 
     // A sniper only gets the tower's reach once they are actually standing on
@@ -811,9 +815,14 @@ function dropCargo(s) {
   s.carryItems = null;
 }
 
-/** Called when a bullet owned by a survivor lands a kill. */
+/**
+ * Called when a bullet owned by a survivor lands a kill. The owner is a tag
+ * string for anything automated and the player object for a player's own
+ * shot — so check the type, not just the truthiness. The raid harness found
+ * this: six player kills, six TypeErrors, six aborted simulation steps.
+ */
 export function creditSurvivorKill(ownerTag, xp) {
-  if (!ownerTag || !ownerTag.startsWith('survivor:')) return;
+  if (typeof ownerTag !== 'string' || !ownerTag.startsWith('survivor:')) return;
   const id = Number(ownerTag.slice(9));
   const s = G.survivors.find((x) => x.id === id && !x.dead);
   if (!s) return;

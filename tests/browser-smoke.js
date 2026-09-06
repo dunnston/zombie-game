@@ -15,7 +15,27 @@
     results.push({ name, pass: !!pass, detail: String(detail) });
     return pass;
   };
-  const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+  // A hidden page never runs requestAnimationFrame at all, and then the suite
+  // does not fail — it just never comes back, because the deadline below is
+  // only checked from inside frames(). So every frame wait races a plain timer:
+  // if rAF has not fired in five seconds, say why, instead of waiting forever.
+  const frame = () => new Promise((resolve, reject) => {
+    let done = false;
+    const guard = setTimeout(() => {
+      if (done) return;
+      done = true;
+      reject(new Error(
+        'requestAnimationFrame has not fired for 5s. The page is hidden or ' +
+        'backgrounded — the suite needs a visible tab (Playwright: page.bringToFront()).',
+      ));
+    }, 5000);
+    requestAnimationFrame(() => {
+      if (done) return;
+      done = true;
+      clearTimeout(guard);
+      resolve();
+    });
+  });
 
   /**
    * The level-up draft intentionally pauses the world, so the harness clears it
@@ -469,7 +489,7 @@
     // -------------------------------- 9. levelling, attributes and perks ---
     G.ui.panel = null;
     const lvl0 = p.level, sp0 = p.skillPoints;
-    api.addXp(100000);
+    api.addXp(p, 100000);
     await frames(3);
     ok('XP levels the player up', p.level > lvl0, `lvl ${lvl0} -> ${p.level}`);
     ok('levelling grants skill points', p.skillPoints > sp0, `${sp0} -> ${p.skillPoints}`);
@@ -1911,6 +1931,217 @@
         `${decayed.toFixed(2)} -> ${reloaded.toFixed(2)}`);
       d.god(true);
       G.enemies.length = 0;
+    }
+
+    // ------------------------------------------- 11i. a second survivor -----
+    // Everything above ran with one player, exactly as it always has. Now a
+    // second person joins the same world, driven by intent rather than by the
+    // keyboard — the path a networked guest takes. Enemies, loot, death and
+    // revive all have to know there are two of them.
+    {
+      d.god(true);
+      G.enemies.length = 0;
+      p = G.player;
+      const spot2 = clearOfStructures(G, p.x, p.y);
+      d.teleport(spot2.x, spot2.y);
+      await frames(2);
+
+      const p2 = api.joinPlayer({ name: 'Bex' });
+      await frames(2);
+      const apart = Math.hypot(p2.x - p.x, p2.y - p.y);
+      ok('a second player joins beside the first', G.players.length === 2 && apart < 200,
+        `${G.players.length} players, ${Math.round(apart)}px apart`);
+      ok('G.player still means the one at this keyboard', G.player === p && api.isLocal(p) && !api.isLocal(p2));
+      ok('the newcomer has their own pack, hotbar, seat colour and wire id',
+        p2.bag !== p.bag && p2.hotbar !== p.hotbar && p2.color !== p.color && p2.netId !== p.netId,
+        `${p.color}/${p2.color}  netId ${p.netId}/${p2.netId}`);
+
+      // Driven by intent, not by keys. The intent object persists between steps
+      // exactly as a guest's latest packet would.
+      p2.x = spot2.x + 160; p2.y = spot2.y; p2.vx = 0; p2.vy = 0;
+      const x2 = p2.x;
+      const px0 = p.x, py0 = p.y;
+      p2.intent.mx = 1;
+      await seconds(0.8);
+      p2.intent.mx = 0;
+      await frames(3);
+      ok('a player driven by intent moves', p2.x - x2 > 40, `moved ${Math.round(p2.x - x2)}px`);
+      ok('...and the local player, with no keys held, did not',
+        Math.hypot(p.x - px0, p.y - py0) < 8, `${Math.round(Math.hypot(p.x - px0, p.y - py0))}px`);
+      p2.x = spot2.x + 160; p2.y = spot2.y; p2.vx = 0; p2.vy = 0;
+
+      // A kill pays the one who made it. The bullet's owner is the player
+      // object now, not a tag — this is the path the raid harness found
+      // throwing, and the solo sections never exercise it because there the
+      // debug API and the turrets do all the killing.
+      {
+        const eK = api.spawnEnemy('walker', p2.x + 30, p2.y);
+        const xpLocal0 = p.xp + p.level * 100000, xpP2 = p2.xp + p2.level * 100000;
+        const errs0 = d.errors.length;
+        p2.intent.aimX = eK.x; p2.intent.aimY = eK.y;
+        p2.intent.fire = true;
+        await seconds(4);
+        p2.intent.fire = false;
+        ok('a player driven by intent can kill', eK.dead, `walker hp ${Math.round(eK.hp)}`);
+        ok('the kill pays the killer, not the local player',
+          p2.xp + p2.level * 100000 > xpP2 && p.xp + p.level * 100000 === xpLocal0,
+          `newcomer xp ${xpP2 % 100000} -> ${Math.round(p2.xp)}, local unchanged=${p.xp + p.level * 100000 === xpLocal0}`);
+        ok('...without a runtime error', d.errors.length === errs0, d.errors.slice(errs0).join(' | '));
+        G.enemies.length = 0;
+        p2.intent.aimX = 0; p2.intent.aimY = 0;
+      }
+
+      // Enemies pick the nearest of them.
+      const eN = api.spawnEnemy('walker', spot2.x + 420, spot2.y, { aggro: true });
+      const dN0 = Math.hypot(eN.x - p2.x, eN.y - p2.y);
+      await seconds(1.2);
+      const dN1 = Math.hypot(eN.x - p2.x, eN.y - p2.y);
+      ok('enemies go for the nearest player', dN1 < dN0 - 20 && dN1 < Math.hypot(eN.x - p.x, eN.y - p.y),
+        `to newcomer ${Math.round(dN0)} -> ${Math.round(dN1)}px`);
+      G.enemies.length = 0;
+
+      // No friendly fire, and no bumping into each other.
+      p2.x = p.x + 38; p2.y = p.y; p2.vx = 0; p2.vy = 0;
+      const hp2 = p2.hp;
+      api.selectSlot(p, p.hotbar.slots.findIndex((s) => s && s.id === 'pipe'));
+      d.aimAt(p2.x, p2.y);
+      await frames(2);
+      d.mouseDown(); await seconds(0.5); d.mouseUp();
+      api.slotsAdd(p.hotbar, 'pistol', 1);
+      p.mag.pistol = 12;
+      api.selectSlot(p, p.hotbar.slots.findIndex((s) => s && s.id === 'pistol'));
+      await frames(2);
+      d.aimAt(p2.x, p2.y);
+      await frames(2);
+      d.mouseDown(); await seconds(0.3); d.mouseUp();
+      await seconds(0.4);
+      ok('a swing and a magazine into a teammate do nothing', p2.hp === hp2 && p.mag.pistol < 12,
+        `hp ${hp2} -> ${p2.hp}, fired ${12 - p.mag.pistol}`);
+      d.key('KeyD', true);
+      await seconds(0.6);
+      d.key('KeyD', false);
+      await frames(3);
+      ok('players walk straight through each other', p.x > p2.x + 10, `${Math.round(p.x - p2.x)}px past them`);
+
+      // Going down with a teammate present is a countdown, not a death.
+      const deaths1 = G.stats.deaths;
+      const packs1 = G.backpacks.length;
+      api.killPlayer(p2);
+      await frames(2);
+      ok('with a teammate present, dying leaves you downed',
+        p2.downed && !p2.dead && G.stats.deaths === deaths1 && G.backpacks.length === packs1,
+        `downed=${p2.downed} dead=${p2.dead} deaths ${deaths1}->${G.stats.deaths} packs ${packs1}->${G.backpacks.length}`);
+      ok('the countdown is running', p2.downT > 0 && p2.downT <= api.PLAYER.downedTime, `${p2.downT.toFixed(1)}s`);
+
+      // The infected have no interest in someone already on the ground.
+      d.teleport(p2.x - 220, p2.y);
+      await frames(2);
+      const eD = api.spawnEnemy('walker', p2.x + 60, p2.y, { aggro: true });
+      const dToLocal0 = Math.hypot(eD.x - p.x, eD.y - p.y);
+      await seconds(0.8);
+      const dToLocal1 = Math.hypot(eD.x - p.x, eD.y - p.y);
+      ok('enemies ignore a downed player and go for the one still standing',
+        p2.downed && dToLocal1 < dToLocal0 - 15, `to standing player ${Math.round(dToLocal0)} -> ${Math.round(dToLocal1)}px`);
+      G.enemies.length = 0;
+
+      // Hold E beside them to bring them up.
+      d.teleport(p2.x - 40, p2.y);
+      await frames(3);
+      const hv = api.findInteractable();
+      ok('a downed teammate is the interact target', !!hv && hv.kind === 'revivePlayer', hv && hv.kind);
+      d.key('KeyE', true);
+      await seconds(api.PLAYER.reviveTime + 0.6);
+      d.key('KeyE', false);
+      await frames(3);
+      ok('holding E beside them gets them up', !p2.downed && !p2.dead && p2.hp > 0,
+        `downed=${p2.downed} hp ${Math.round(p2.hp)}/${p2.maxHp}`);
+      ok('a revive restores a fraction of health, not all of it',
+        p2.hp >= p2.maxHp * api.PLAYER.reviveHpFrac - 1 && p2.hp < p2.maxHp, `${Math.round(p2.hp)}/${p2.maxHp}`);
+
+      // Nobody comes: the countdown runs out and it is the death it always was.
+      api.killPlayer(p2);
+      await frames(2);
+      p2.downT = 0.2;
+      await seconds(0.6);
+      ok('when the countdown runs out it is a real death, pack and all',
+        p2.dead && G.stats.deaths === deaths1 + 1 && G.backpacks.length === packs1 + 1,
+        `dead=${p2.dead} deaths ${G.stats.deaths} packs ${G.backpacks.length}`);
+      await seconds(api.PLAYER.respawnTime + 0.6);
+      ok('the second player respawns on their own', !p2.dead && !p2.downed, `dead=${p2.dead}`);
+
+      // The four things the first code review found, each reproduced against
+      // the running game before it was fixed.
+      //
+      // A remote player's intent is a packet that stays put until the next one.
+      // Holding "E was pressed" as data toggled a gate 17 times in 300ms.
+      {
+        G.stash.wood = (G.stash.wood || 0) + 200; G.stash.scrap = (G.stash.scrap || 0) + 200;
+        const gtx = Math.floor(p2.x / 32), gty = Math.floor(p2.y / 32);
+        let gate = null;
+        for (let dx = 2; dx < 7 && !gate; dx++) {
+          if (api.canPlace('gate', gtx + dx, gty, p2).ok) gate = api.placeStructure('gate', gtx + dx, gty, p2);
+        }
+        if (gate) {
+          p2.x = gate.x - 40; p2.y = gate.y; p2.vx = 0; p2.vy = 0;
+          const wasOpen = gate.open;
+          let flips = 0, last = gate.open;
+          p2.intent.interact = true;
+          for (let i = 0; i < 30; i++) { await frames(1); if (gate.open !== last) { flips++; last = gate.open; } }
+          ok('a remote edge intent acts exactly once', flips === 1 && gate.open !== wasOpen, `gate flipped ${flips} times in 30 steps`);
+          api.demolishStructure(gate, p2);
+        } else {
+          ok('a remote edge intent acts exactly once', false, 'nowhere to place a gate');
+        }
+      }
+
+      // Cars: one seat, a leaver parks, and a roadkill is the driver's kill.
+      {
+        const clear = (v) => {
+          const ax = v.x + Math.cos(v.angle) * 110, ay = v.y + Math.sin(v.angle) * 110;
+          return !v.destroyed && !api.solidPx(ax, ay) && !api.solidPx(v.x + Math.cos(v.angle) * 60, v.y + Math.sin(v.angle) * 60);
+        };
+        const car = G.vehicles.find(clear) || G.vehicles.find((v) => !v.destroyed);
+        car.locked = false; car.fuel = 50;
+        p.x = car.x + 30; p.y = car.y; p.vx = 0; p.vy = 0;
+        p2.x = car.x - 30; p2.y = car.y; p2.vx = 0; p2.vy = 0;
+        api.enterVehicle(p, car);
+        const second = api.enterVehicle(p2, car);
+        ok('a car has one seat', second === false && !p2.drivingId && p.drivingId === car.id,
+          `second entry ${second}, p2.drivingId=${p2.drivingId}`);
+        api.exitVehicle(p);
+
+        api.enterVehicle(p2, car);
+        const w = api.spawnEnemy('walker', car.x + Math.cos(car.angle) * 110, car.y + Math.sin(car.angle) * 110);
+        w.hp = 1;
+        const xpLocal = p.xp + p.level * 100000, xpDriver = p2.xp + p2.level * 100000;
+        p2.intent.drive.forward = true;
+        await seconds(1.5);
+        p2.intent.drive.forward = false;
+        ok('a roadkill is the driver\'s kill, not everyone\'s',
+          w.dead && p2.xp + p2.level * 100000 > xpDriver && p.xp + p.level * 100000 === xpLocal,
+          `dead=${w.dead} driver xp +${Math.round(p2.xp + p2.level * 100000 - xpDriver)} local +${Math.round(p.xp + p.level * 100000 - xpLocal)}`);
+
+        // Leave at the wheel.
+        api.leavePlayer(p2);
+        await frames(2);
+        ok('a player who leaves while driving parks the car',
+          !car.engineOn && car.tiles.length > 0 && !G.players.includes(p2),
+          `engineOn=${car.engineOn} tiles=${car.tiles.length}`);
+        G.enemies.length = 0;
+        d.teleport(spot2.x, spot2.y);
+        await frames(2);
+      }
+
+      // And once they leave, dying alone is instant again.
+      await frames(2);
+      ok('a player can leave', G.players.length === 1 && G.player === p, `${G.players.length} players`);
+      const deaths2 = G.stats.deaths;
+      api.killPlayer();
+      await frames(2);
+      ok('alone, death is immediate', p.dead && !p.downed && G.stats.deaths === deaths2 + 1);
+      await seconds(api.PLAYER.respawnTime + 0.6);
+      ok('...and the respawn still works', !p.dead);
+      G.backpacks.length = 0;
     }
 
     // ----------------------------------------------------- 12. stability ---
