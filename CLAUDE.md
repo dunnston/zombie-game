@@ -52,11 +52,15 @@ mention it.
 
 ## Verifying
 
-`npm test` must be green (52 assertions). The browser suite in
-`tests/browser-smoke.js` must be green (211) with no `window.DEADLINE.errors` —
-run the dev server, fetch and eval it, then call `window.runDeadlineSmoke()`.
-`tests/raid-harness.js` holds the raid balance reference figures; if they move,
-that needs a reason.
+Both suites must report **zero failures**. The assertion counts grow with every
+round, so treat the numbers as informational and the failure count as the gate —
+`PROJECT.md` §9 records what the current branch should produce.
+
+- `npm test` — pure logic, under Node.
+- `tests/browser-smoke.js` — run the dev server, fetch and eval it, then call
+  `window.runDeadlineSmoke()`. Also check `window.DEADLINE.errors` is empty.
+- `tests/raid-harness.js` — raid balance reference figures. If they move, that
+  needs a reason.
 
 ## Working agreements
 

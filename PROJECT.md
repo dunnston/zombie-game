@@ -73,7 +73,7 @@ mechanically, not for feel.
 | --- | --- |
 | Source | 27 modules, ~10,500 lines, no dependencies but Vite |
 | Assets | Zero. Every sprite is drawn in code at boot; every sound is WebAudio. |
-| Tests | 52 Node assertions, 211 browser assertions |
+| Tests | 52 Node assertions; browser suite 175 on `main`, 211 with PR #4 |
 | Save format | **v6** (on the cars branch); v5 on `main` |
 | Performance | ~57fps with 90 active enemies |
 
@@ -275,11 +275,17 @@ running game before fixing, and say so in the reply.
 
 ## 9. How to verify
 
+**The gate is zero failures, not a particular count** — the suites grow every
+round. Current expected totals:
+
+| Suite | `main` | with PR #4 (cars) |
+| --- | --- | --- |
+| `npm test` (Node, pure logic) | 52 | 52 |
+| `tests/browser-smoke.js` | 175 | 211 |
+
 ```bash
 npm test
 ```
-
-52 Node assertions over pure logic. Must be 52/52.
 
 The browser suite is injected into the running dev server:
 
@@ -287,8 +293,8 @@ The browser suite is injected into the running dev server:
 npm run dev
 ```
 
-Then in the page: fetch and eval `tests/browser-smoke.js`, call
-`window.runDeadlineSmoke()`. Must be 211/211 with zero `window.DEADLINE.errors`.
+Then in the page: fetch and eval `tests/browser-smoke.js` and call
+`window.runDeadlineSmoke()`. Check `window.DEADLINE.errors` is empty too.
 
 `tests/raid-harness.js` builds a standard compound and plays a raid of a given
 tier. **Current reference figures — a change that moves these needs a reason:**
