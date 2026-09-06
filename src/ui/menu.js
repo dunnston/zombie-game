@@ -6,12 +6,12 @@
 // Every button's rectangle is recorded in G.menu.rects under its label, so the
 // browser suite can drive the menu with real synthetic clicks.
 
-import { G } from '../game/state.js';
+import { G, notify } from '../game/state.js';
 import { Input, keyTap } from '../core/input.js';
 import { newGame, startGame, toTitle } from '../game/game.js';
 import { seedLoot } from '../game/loot.js';
 import {
-  listSlots, latestSlot, createSlot, deleteSlot, loadSlot, saveToSlot, defaultName,
+  listSlots, latestSlot, createSlot, deleteSlot, loadSlot, saveToSlot, defaultName, slotById,
   playtimeLabel, whenLabel,
 } from '../game/saves.js';
 import {
@@ -21,37 +21,46 @@ import {
 import { C, panel, button, beginUiFrame, drawCursor, inside, clicked } from './kit.js';
 import { makeRng, clamp } from '../core/util.js';
 import { sfx } from '../core/audio.js';
+import { startHosting, stopHosting } from '../net/host.js';
+import { joinGame, leaveGame } from '../net/client.js';
+import { hashPassword, loadIdentity, saveIdentity, normaliseCode, isRoomCode } from '../net/protocol.js';
 
 const VERSION = '1.0.0';
 
-// ---------------------------------------------------------------- text field --
-// One real <input>, positioned over the canvas when a screen needs typing and
-// hidden otherwise. A canvas text box is not worth writing.
+// --------------------------------------------------------------- text fields --
+// Real <input>s, positioned over the canvas when a screen needs typing and
+// hidden otherwise. A canvas text box is not worth writing. Each screen names
+// its fields ('name', 'code', 'password'); only the ones it shows are visible.
 
-let field = null;
-let fieldSubmit = false;
+const fields = new Map();      // key -> input element
+const submitted = new Set();   // keys whose field saw Enter this frame
+const shownThisFrame = new Set();
 
-function ensureField() {
-  if (field || typeof document === 'undefined') return field;
-  field = document.createElement('input');
-  field.id = 'deadline-textfield';
-  field.type = 'text';
-  field.maxLength = 24;
-  field.autocomplete = 'off';
-  field.spellcheck = false;
-  field.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { fieldSubmit = true; e.preventDefault(); }
+function ensureField(key) {
+  if (typeof document === 'undefined') return null;
+  let f = fields.get(key);
+  if (f) return f;
+  f = document.createElement('input');
+  f.id = key === 'name' ? 'deadline-textfield' : `deadline-textfield-${key}`;
+  f.className = 'deadline-textfield';
+  f.type = key === 'password' ? 'password' : 'text';
+  f.maxLength = key === 'code' ? 6 : 24;
+  f.autocomplete = 'off';
+  f.spellcheck = false;
+  f.dataset.key = key;
+  f.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { submitted.add(key); e.preventDefault(); }
   });
-  document.body.appendChild(field);
-  return field;
+  document.body.appendChild(f);
+  fields.set(key, f);
+  return f;
 }
 
-/** Shows the field at a CSS-pixel rectangle and focuses it the first time. */
-function textField(x, y, w, h, initial = '') {
-  const f = ensureField();
+/** Shows a field at a CSS-pixel rectangle; focuses the first one shown on a screen. */
+function textField(key, x, y, w, h, initial = '') {
+  const f = ensureField(key);
   if (!f) return;
-  const s = G.dpr || 1;
-  void s;
+  shownThisFrame.add(key);
   f.style.left = `${x}px`;
   f.style.top = `${y}px`;
   f.style.width = `${w}px`;
@@ -59,17 +68,26 @@ function textField(x, y, w, h, initial = '') {
   if (f.style.display !== 'block') {
     f.style.display = 'block';
     f.value = initial;
-    setTimeout(() => f.focus(), 0);
+    if (shownThisFrame.size === 1) setTimeout(() => f.focus(), 0);
   }
 }
 
-export function hideField() {
-  if (field) { field.style.display = 'none'; field.blur(); }
-  fieldSubmit = false;
+/** Hides every field a screen did not draw this frame. Called once per frame. */
+function settleFields() {
+  for (const [key, f] of fields) {
+    if (!shownThisFrame.has(key) && f.style.display === 'block') { f.style.display = 'none'; f.blur(); }
+  }
+  shownThisFrame.clear();
 }
 
-export const fieldValue = () => (field ? field.value : '');
-export function setFieldValue(v) { ensureField(); if (field) field.value = v; }
+export function hideField() {
+  for (const f of fields.values()) { f.style.display = 'none'; f.blur(); }
+  submitted.clear();
+}
+
+const takeSubmit = (key) => { const had = submitted.has(key); submitted.delete(key); return had; };
+export const fieldValue = (key = 'name') => { const f = fields.get(key); return f ? f.value : ''; };
+export function setFieldValue(v, key = 'name') { const f = ensureField(key); if (f) f.value = v; }
 
 // ---------------------------------------------------------------- backdrop --
 
@@ -132,7 +150,7 @@ function footer(ctx, W, H, text) {
 }
 
 function goto(screen) {
-  if (screen !== 'new') hideField();
+  hideField();
   G.menu.screen = screen;
   G.menu.pendingRebind = null;
   G.menu.confirmDelete = null;
@@ -188,14 +206,13 @@ function drawNew(ctx, W, H) {
   ctx.font = '10px "Courier New", monospace';
   ctx.fillText('It gets its own save slot. You can have as many as you like.', x + 20, y + 76);
 
-  textField(x + 20, y + 90, w - 40, 32, defaultName('solo'));
+  textField('name', x + 20, y + 90, w - 40, 32, defaultName('solo'));
 
   const bw = (w - 52) / 2;
   const start = menuButton(ctx, 'START', x + 20, y + 146, bw, 40, 'START', { center: true, color: C.accent });
   const back = menuButton(ctx, 'BACK', x + 32 + bw, y + 146, bw, 40, 'BACK', { center: true });
-  if (start || fieldSubmit) {
-    fieldSubmit = false;
-    const name = fieldValue().trim() || defaultName('solo');
+  if (start || takeSubmit('name')) {
+    const name = fieldValue('name').trim() || defaultName('solo');
     const slot = createSlot(name, 'solo');
     hideField();
     newGame(Math.floor(Math.random() * 0x7fffffff));
@@ -316,9 +333,156 @@ function drawMulti(ctx, W, H) {
   ctx.fillText('Shared base, separate packs and levels, revive each other.', x + 20, y + 92);
 
   const bw = (w - 52) / 2;
-  menuButton(ctx, 'HOST', x + 20, y + 118, bw, 44, 'HOST A GAME', { enabled: false, sub: 'the next update', center: true });
-  menuButton(ctx, 'JOIN', x + 32 + bw, y + 118, bw, 44, 'JOIN A GAME', { enabled: false, sub: 'the next update', center: true });
+  if (menuButton(ctx, 'HOST', x + 20, y + 118, bw, 44, 'HOST A GAME', { sub: 'your world, your code', center: true })) {
+    G.menu.hostSlot = G.menu.hostSlot || 'new';
+    G.menu.busy = false; G.menu.error = null;
+    goto('host');
+  }
+  if (menuButton(ctx, 'JOIN', x + 32 + bw, y + 118, bw, 44, 'JOIN A GAME', { sub: 'with a friend\'s code', center: true })) {
+    G.menu.busy = false; G.menu.error = null;
+    goto('join');
+  }
   if (menuButton(ctx, 'BACK', x + 20, y + h - 58, 120, 40, 'BACK', { center: true })) goto('main');
+}
+
+/** The identity this browser plays as: a stable id and the last name used. */
+function identity() {
+  const id = loadIdentity();
+  if (!id.name) id.name = 'Survivor';
+  return id;
+}
+
+function drawHost(ctx, W, H) {
+  title(ctx, W, 64, false);
+  const slots = listSlots().slice(0, 4);
+  const w = Math.min(600, W - 40);
+  const rowH = 46;
+  const listH = (slots.length + 1) * rowH;
+  const h = 292 + listH;
+  const x = (W - w) / 2, y = 96;
+  panel(ctx, x, y, w, h, 'HOST A GAME');
+  const me = identity();
+  const pad = 24;
+
+  ctx.font = '11px "Courier New", monospace';
+  ctx.fillStyle = C.dim;
+  ctx.fillText('Your name', x + pad, y + 54);
+  ctx.fillText('Password (optional)', x + w / 2 + 8, y + 54);
+  textField('name', x + pad, y + 62, w / 2 - pad - 12, 32, me.name);
+  textField('password', x + w / 2 + 8, y + 62, w / 2 - pad - 8, 32, '');
+
+  ctx.fillStyle = C.dim;
+  ctx.fillText('Which world', x + pad, y + 126);
+  let ry = y + 134;
+  const choose = (key, label, sub, id) => {
+    const selected = G.menu.hostSlot === id;
+    if (menuButton(ctx, key, x + pad, ry, w - pad * 2, rowH - 6, (selected ? '● ' : '○ ') + label, { sub, small: true, color: selected ? C.accent : C.text })) {
+      G.menu.hostSlot = id;
+    }
+    ry += rowH;
+  };
+  choose('WORLD:new', 'New world', 'a fresh town in a new slot', 'new');
+  for (const s of slots) {
+    choose(`WORLD:${s.id}`, s.name, `${s.mode === 'coop' ? 'Co-op' : 'Solo'}  ·  Day ${s.day}  ·  Level ${s.level}  ·  ${playtimeLabel(s.playtime)}`, s.id);
+  }
+
+  ctx.font = '10px "Courier New", monospace';
+  ctx.fillStyle = C.dim;
+  const ty = ry + 14;
+  ctx.fillText('Hosting runs the world in this browser. Friends join with the room code;', x + pad, ty);
+  ctx.fillText('the password is checked here and never sent to the server.', x + pad, ty + 14);
+  if (G.menu.error) { ctx.fillStyle = C.warn; ctx.fillText(G.menu.error, x + pad, ty + 34); }
+  else if (G.menu.busy) { ctx.fillStyle = C.gold; ctx.fillText(G.net.status || 'starting…', x + pad, ty + 34); }
+
+  const bw = (w - pad * 2 - 12) / 2;
+  const by = y + h - 64;
+  const start = menuButton(ctx, 'START HOSTING', x + pad, by, bw, 42, 'START HOSTING', { center: true, color: C.accent, enabled: !G.menu.busy });
+  if (menuButton(ctx, 'BACK', x + pad + bw + 12, by, bw, 42, 'BACK', { center: true, enabled: !G.menu.busy })) goto('multi');
+  if (start && !G.menu.busy) beginHosting(me);
+}
+
+async function beginHosting(me) {
+  G.menu.busy = true; G.menu.error = null;
+  const name = fieldValue('name').trim() || 'Host';
+  const pw = fieldValue('password');
+  saveIdentity({ ...me, name });
+  try {
+    const pwHash = pw ? await hashPassword(pw) : null;
+    // The world first, so the code appears over a running game.
+    if (G.menu.hostSlot === 'new' || !slotById(G.menu.hostSlot)) {
+      const slot = createSlot(defaultName('coop'), 'coop');
+      newGame(Math.floor(Math.random() * 0x7fffffff));
+      G.slotId = slot.id;
+    } else if (!loadSlot(G.menu.hostSlot)) {
+      throw new Error('that save could not be loaded');
+    } else {
+      seedLoot((G.world.seed ^ 0x9E3779B9) >>> 0);
+    }
+    G.player.name = name;
+    G.mode = 'coop';
+    hideField();
+    const code = await startHosting({ name, passwordHash: pwHash });
+    saveToSlot(G.slotId);
+    notify(`Hosting. Room code ${code} — friends join with it.`, '#e8c86a', true);
+  } catch (err) {
+    G.menu.error = String(err && err.message || err);
+    if (G.scene === 'game') { stopHosting(); toTitle(true); goto('host'); }
+  }
+  G.menu.busy = false;
+}
+
+function drawJoin(ctx, W, H) {
+  title(ctx, W, H * 0.2);
+  const w = 520, h = 324;
+  const x = (W - w) / 2, y = H * 0.34;
+  panel(ctx, x, y, w, h, 'JOIN A GAME');
+  const me = identity();
+  const pad = 24;
+
+  ctx.font = '11px "Courier New", monospace';
+  ctx.fillStyle = C.dim;
+  ctx.fillText('Room code', x + pad, y + 54);
+  ctx.fillText('Password (if they set one)', x + w / 2 + 8, y + 54);
+  textField('code', x + pad, y + 62, w / 2 - pad - 12, 32, G.menu.lastCode || '');
+  textField('password', x + w / 2 + 8, y + 62, w / 2 - pad - 8, 32, '');
+  ctx.fillStyle = C.dim;
+  ctx.fillText('Your name', x + pad, y + 126);
+  textField('name', x + pad, y + 134, w - pad * 2, 32, me.name);
+
+  ctx.font = '10px "Courier New", monospace';
+  const ty = y + 196;
+  if (G.menu.error) { ctx.fillStyle = C.warn; ctx.fillText(G.menu.error, x + pad, ty); }
+  else if (G.menu.busy) { ctx.fillStyle = C.gold; ctx.fillText(G.net.status || 'connecting…', x + pad, ty); }
+  else {
+    ctx.fillStyle = C.dim;
+    ctx.fillText('Your character is kept by the host — come back with the same', x + pad, ty);
+    ctx.fillText('browser and it is yours.', x + pad, ty + 14);
+  }
+
+  const bw = (w - pad * 2 - 12) / 2;
+  const by = y + h - 64;
+  const go = menuButton(ctx, 'CONNECT', x + pad, by, bw, 42, 'CONNECT', { center: true, color: C.accent, enabled: !G.menu.busy });
+  if (menuButton(ctx, 'BACK', x + pad + bw + 12, by, bw, 42, 'BACK', { center: true, enabled: !G.menu.busy })) goto('multi');
+  if ((go || takeSubmit('code') || takeSubmit('password') || takeSubmit('name')) && !G.menu.busy) beginJoin(me);
+}
+
+async function beginJoin(me) {
+  const code = normaliseCode(fieldValue('code'));
+  if (!isRoomCode(code)) { G.menu.error = 'a room code is six letters and numbers'; return; }
+  G.menu.busy = true; G.menu.error = null;
+  G.menu.lastCode = code;
+  const name = fieldValue('name').trim() || 'Survivor';
+  const pw = fieldValue('password');
+  saveIdentity({ ...me, name });
+  try {
+    const pwHash = pw ? await hashPassword(pw) : null;
+    await joinGame({ code, passwordHash: pwHash, identity: { id: me.id, name } });
+    hideField();
+  } catch (err) {
+    G.menu.error = String(err && err.message || err);
+    leaveGame(false);
+  }
+  G.menu.busy = false;
 }
 
 // ----------------------------------------------------------------- controls --
@@ -427,18 +591,22 @@ export function drawMenu(ctx, deviceW, deviceH) {
     case 'new': drawNew(ctx, W, H); break;
     case 'slots': drawSlots(ctx, W, H); break;
     case 'multi': drawMulti(ctx, W, H); break;
+    case 'host': drawHost(ctx, W, H); break;
+    case 'join': drawJoin(ctx, W, H); break;
     case 'controls': drawControlsPanel(ctx, W, H, () => goto('main')); break;
     default: drawMain(ctx, W, H); break;
   }
-  if (G.menu.screen !== 'new') hideField();
+  // Any field a screen did not draw this frame goes away.
+  settleFields();
+  submitted.clear();
 
   drawCursor(ctx);
 }
 
-/** Test and debug hooks: read the button rectangles, type into the field. */
+/** Test and debug hooks: read the button rectangles, type into a field. */
 export const menuDebug = {
   rects: () => G.menu.rects,
-  setText: (v) => setFieldValue(v),
+  setText: (v, key = 'name') => setFieldValue(v, key),
   screen: () => G.menu.screen,
   goto,
   toTitle,

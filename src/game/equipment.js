@@ -49,6 +49,48 @@ export function unequip(p, slot) {
   return true;
 }
 
+/**
+ * Drag from a body slot onto a pack or hotbar cell: takes the piece off into
+ * that cell, swapping with whatever is there if it is a piece for the same
+ * slot. Refuses anything else, so a helmet cannot land on a stack of nails.
+ */
+export function unequipTo(p, slot, contKind, index) {
+  const id = p.equip[slot];
+  if (!id) return false;
+  const cont = contKind === 'bag' ? p.bag : p.hotbar;
+  if (index < 0 || index >= cont.slots.length) return false;
+  const target = cont.slots[index];
+  if (target) {
+    const g = GEAR[target.id];
+    if (!g || g.slot !== slot || target.n !== 1) return false;
+    p.equip[slot] = target.id;
+  } else {
+    p.equip[slot] = null;
+  }
+  cont.slots[index] = { id, n: 1 };
+  recomputeStats(p);
+  sfx('ui');
+  return true;
+}
+
+/**
+ * Drag from a pack or hotbar cell onto a body slot: wears it if it belongs
+ * there, and puts whatever was worn back into the cell it came from.
+ */
+export function equipFromSlot(p, contKind, index, slot) {
+  const cont = contKind === 'bag' ? p.bag : p.hotbar;
+  const s = cont.slots[index];
+  if (!s) return false;
+  const g = GEAR[s.id];
+  if (!g || g.slot !== slot) return false;
+  const previous = p.equip[slot];
+  p.equip[slot] = s.id;
+  cont.slots[index] = previous ? { id: previous, n: 1 } : null;
+  recomputeStats(p);
+  sfx('ui');
+  return true;
+}
+
 /** Wears the best thing carried for every empty slot — the quick-equip button. */
 export function equipBest(p) {
   let changed = 0;

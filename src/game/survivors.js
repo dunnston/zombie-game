@@ -16,6 +16,7 @@ import { rollContainer, spawnPickup, spawnEntryPickup } from './loot.js';
 import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
 import { addXp } from './progression.js';
+import { emit } from '../net/events.js';
 import { makeRng, dist2, clamp, angleDelta, TAU } from '../core/util.js';
 
 const rng = makeRng(0x5EA12345);
@@ -225,6 +226,9 @@ export function recruit(rescue, p = G.player) {
   G.survivors.push(s);
   const i = G.rescues.indexOf(rescue);
   if (i >= 0) G.rescues.splice(i, 1);
+  // Guests hold their own copy of who is still out there; the survivor itself
+  // arrives by snapshot, the gap where the rescue stood does not.
+  emit('rescues', { list: G.rescues.map((r) => ({ x: r.x, y: r.y, name: r.name, level: r.level })) });
 
   sfx('levelUp');
   FX.ring(s.x, s.y, 6, 70, 0.6, '#b7e08a', 3);

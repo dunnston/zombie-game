@@ -100,7 +100,10 @@ function summarise(slot) {
   slot.level = p ? p.level : 1;
   slot.kills = G.stats ? G.stats.kills : 0;
   slot.seed = G.world ? G.world.seed : slot.seed;
-  slot.mode = G.mode || slot.mode || 'solo';
+  // A world is co-op while it is being hosted or while other people's
+  // characters live in it; played alone with nobody else recorded, it is solo.
+  slot.mode = (G.net && G.net.role === 'host') || G.players.length > 1 ? 'coop' : 'solo';
+  G.mode = slot.mode;
 }
 
 /** Writes the live game into a slot and refreshes its summary. */

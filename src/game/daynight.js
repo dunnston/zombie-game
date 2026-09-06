@@ -32,7 +32,7 @@ export function updateClock(dt) {
   if (G.dayTime >= 1) {
     G.dayTime -= 1;
     G.day++;
-    notify(`DAY ${G.day}`, '#d0c46a', true);
+    notify(`DAY ${G.day}`, '#d0c46a', true, 'all');
   }
   const phase = phaseAt(G.dayTime);
   if (phase.id !== G.phase) {
@@ -45,12 +45,12 @@ export function updateClock(dt) {
 
 function announcePhase(phase) {
   if (phase.id === 'dusk') {
-    notify('The light is going. Get behind something.', '#d98a4a', true);
+    notify('The light is going. Get behind something.', '#d98a4a', true, 'all');
     sfx('raidWarn');
   } else if (phase.id === 'night') {
-    notify('NIGHT — they can hear you a long way off', '#8f9ad0', true);
+    notify('NIGHT — they can hear you a long way off', '#8f9ad0', true, 'all');
   } else if (phase.id === 'dawn') {
-    notify('First light. You made it.', '#d0c46a', true);
+    notify('First light. You made it.', '#d0c46a', true, 'all');
   }
 }
 

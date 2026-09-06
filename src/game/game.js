@@ -61,6 +61,11 @@ import {
   assignJob, SCAVENGE, BUILDER, SURVIVOR,
 } from './survivors.js';
 import { cancelDrag, lastZones, isDragging } from '../ui/inventory.js';
+import { act } from '../net/actions.js';
+import { hostAfterUpdate } from '../net/host.js';
+import { updateClient, sendIdleIntent } from '../net/client.js';
+import { emit } from '../net/events.js';
+import { structChanged, netHooks } from './state.js';
 import { updateFX, clearFX } from '../core/particles.js';
 import * as FX from '../core/particles.js';
 // Only UI keys are read here — panels, build mode, pause. Everything the
@@ -171,16 +176,28 @@ export function joinPlayer(opts = {}) {
   return p;
 }
 
-export function leavePlayer(p) {
-  if (!G.players.includes(p)) return false;
+/**
+ * A player who has disconnected but is still part of this world: parked, not
+ * removed. Their car is put back, their channels dropped, and they stop being
+ * drawn, targeted or simulated — but everything they carry saves with the
+ * world, and the same identity gets it back.
+ */
+export function parkPlayer(p) {
   // Park the car first: a driver who vanishes would leave it engine-on with its
   // collision tiles released, and nothing would ever put them back.
   if (p.drivingId) exitVehicle(p);
   p.searching = null;
   p.using = null;
   p.reviving = null;
+  p.intent && (p.intent.mx = 0, p.intent.my = 0, p.intent.fire = false);
   // Anyone mid-revive on this player sees them gone, not a ghost that stays downed.
   p.away = true;
+  return p;
+}
+
+export function leavePlayer(p) {
+  if (!G.players.includes(p)) return false;
+  parkPlayer(p);
   removePlayer(p);
   notify(`${p.name} left`, '#8a8f84');
   return true;
@@ -236,6 +253,10 @@ export function toTitle(save = true) {
   G.menu.pendingRebind = null;
   G.menu.confirmDelete = null;
 }
+// The guest session needs this when its host vanishes, and cannot import it
+// without an import cycle (game → client → game left `isDragging` in its
+// temporal dead zone at boot). The hook object in state.js carries it instead.
+netHooks.toTitle = toTitle;
 
 // ------------------------------------------------------------- interaction --
 
@@ -369,6 +390,7 @@ export function beginInteract(p, target) {
       break;
     case 'gate':
       target.ref.open = !target.ref.open;
+      structChanged(target.ref);
       sfx('build');
       break;
     case 'generator':
@@ -399,6 +421,8 @@ function finishSearch(p) {
     doubleChance: p.doubleDropChance,
   });
   const { lines, anyMajor } = grantLoot(p, entries, c.x, c.y);
+  emit('looted', { id: c.id });
+  emit('loot', { n: p.netId, x: Math.round(c.x), y: Math.round(c.y), lines: lines.map((l) => ({ text: l.text, color: l.color })) });
 
   let y = c.y - 12;
   for (const l of lines) { FX.text(c.x, y, l.text, l.color, 12, -34, 1.1); y -= 15; }
@@ -455,8 +479,8 @@ function updateBuildMode(p) {
     G.ui.ghost.target = s;
     G.ui.ghost.valid = !!s && dist2(s.x, s.y, p.x, p.y) < BUILD_RANGE * BUILD_RANGE;
     if (Input.mousePressed && !overBar && G.ui.ghost.valid) {
-      if (sel === 'repair') repairStructure(s, p);
-      else demolishStructure(s, p);
+      if (sel === 'repair') act.repair(s);
+      else act.demolish(s);
     } else if (Input.mousePressed && !overBar) {
       sfx('deny');
     }
@@ -471,7 +495,8 @@ function updateBuildMode(p) {
   const repeatable = !!STRUCTURES[sel].wall;
   const wantPlace = (repeatable ? Input.mouseDown : Input.mousePressed) && !overBar;
   if (wantPlace && (G.ui.placeCd || 0) <= 0) {
-    if (placeStructure(sel, tx, ty, p)) {
+    // On a guest this is a request to the host; the wall arrives as an event.
+    if (act.place(sel, tx, ty) || G.net.role === 'client') {
       G.ui.placeCd = repeatable ? 0.07 : 0.16;
       if (sel === 'bedroll') completeTutorial('build');
       if (sel === 'workbench') completeTutorial('bench');
@@ -513,6 +538,7 @@ function updateDiscovery(p) {
   if (isLocal(p)) G.ui.location = loc;
   if (loc && !loc.discovered) {
     loc.discovered = true;
+    emit('loc', { id: loc.id });
     const xp = 25 * loc.tier;
     addXp(p, xp);
     notify(`${loc.name} — ${loc.desc}`, '#9fd0ff', true);
@@ -638,7 +664,13 @@ export function update(dt) {
     else { G.paused = !G.paused; sfx('ui'); }
   }
 
-  if (G.paused) { updateFX(dt); return; }
+  if (G.paused) {
+    updateFX(dt);
+    // A paused guest tells the host it is holding nothing; going silent would
+    // leave whatever it was doing — running, firing, driving — in force.
+    if (G.net.role === 'client') sendIdleIntent();
+    return;
+  }
   G.playtime += dt;
 
   if (!rebinding && actTap('craft')) { setPanel(G.ui.panel === 'craft' ? null : 'craft'); }
@@ -654,6 +686,23 @@ export function update(dt) {
 
   // ------------------------------------------------------------- systems --
   rebuildSpatial();
+
+  // A guest does not run the world. It sends what its player wants, predicts
+  // its own movement, and eases everything else toward what the host said.
+  if (G.net.role === 'client') {
+    updateClient(dt);
+    updateCamera(dt);
+    if (p && !p.dead && !p.downed) {
+      G.ui.hover = findInteractable(p);
+      if (G.ui.buildMode) updateBuildMode(p);
+    } else {
+      G.ui.hover = null;
+      G.ui.buildMode = false;
+    }
+    updateBullets(dt);            // tracers only: their damage is zero here
+    updateCosmetics(dt);
+    return;
+  }
 
   // The person at this keyboard says what they want; anyone else's intent has
   // already arrived from wherever they are.
@@ -702,6 +751,24 @@ export function update(dt) {
   if (G.raid) updateRaid(dt);
   else if (raidReady()) startRaid();
 
+  updateCosmetics(dt);
+  updateTutorial(dt);
+
+  // Edge-triggered intent from anyone but this keyboard has now had its one
+  // step. The local intent is rebuilt from the keys at the top of update().
+  for (const q of G.players) if (!isLocal(q)) consumeEdges(q.intent);
+
+  // Guests hear what happened this step. A no-op unless hosting.
+  hostAfterUpdate(dt);
+
+  // Autosave, into this game's slot. A game with no slot (the tests start
+  // straight through newGame) is not quietly given one every 25 seconds.
+  autosaveT += dt;
+  if (autosaveT > 25) { autosaveT = 0; if (G.slotId) saveGame(); }
+}
+
+/** Corpses fading, structures un-flashing, notifications ageing, particles. */
+function updateCosmetics(dt) {
   for (let i = G.corpses.length - 1; i >= 0; i--) {
     const c = G.corpses[i];
     c.t += dt;
@@ -713,18 +780,7 @@ export function update(dt) {
     if (G.notifications[i].t > G.notifications[i].life) G.notifications.splice(i, 1);
   }
   if (G.flash.t > 0) G.flash.t = Math.max(0, G.flash.t - dt * 2.4);
-
   updateFX(dt);
-  updateTutorial(dt);
-
-  // Edge-triggered intent from anyone but this keyboard has now had its one
-  // step. The local intent is rebuilt from the keys at the top of update().
-  for (const q of G.players) if (!isLocal(q)) consumeEdges(q.intent);
-
-  // Autosave, into this game's slot. A game with no slot (the tests start
-  // straight through newGame) is not quietly given one every 25 seconds.
-  autosaveT += dt;
-  if (autosaveT > 25) { autosaveT = 0; if (G.slotId) saveGame(); }
 }
 
 // Exposed for the UI layer and for the browser smoke test.
@@ -739,7 +795,7 @@ export const api = {
   killPlayer: (p = G.player, force = false) => killPlayer(p, force),
   killEnemy,
   // Players beyond the first — a second survivor for the test to drive by intent.
-  joinPlayer, leavePlayer, makeIntent, revivePlayer, beginInteract, movePlayer,
+  joinPlayer, leavePlayer, parkPlayer, makeIntent, revivePlayer, beginInteract, movePlayer,
   isLocal, presentPlayers, nearestPlayer, baseOwner,
   raiseAttribute, buyPerk, recomputeStats, ATTRS, PERKS, perkStatus,
   cancelDrag, isDragging, invZones: () => lastZones,

@@ -37,9 +37,9 @@ function checkTier() {
   const t = threatTier();
   if (t > G.threatTier) {
     G.threatTier = t;
-    if (t === 1) notify('THREAT RISING — they are starting to gather', '#d9c46a', true);
-    if (t === 2) { notify('THREAT HIGH — fortify now', '#d98a4a', true); sfx('raidWarn'); }
-    if (t === 3) { notify('THREAT CRITICAL — a horde is forming', '#e05a4a', true); sfx('raidWarn'); }
+    if (t === 1) notify('THREAT RISING — they are starting to gather', '#d9c46a', true, 'all');
+    if (t === 2) { notify('THREAT HIGH — fortify now', '#d98a4a', true, 'all'); sfx('raidWarn'); }
+    if (t === 3) { notify('THREAT CRITICAL — a horde is forming', '#e05a4a', true, 'all'); sfx('raidWarn'); }
   } else if (t < G.threatTier) {
     G.threatTier = t;
   }

@@ -4,8 +4,9 @@
 
 import { PLAYER, THREAT } from './config.js';
 import {
-  G, notify, shake, screenFlash, removeStructure, isLocal, presentPlayers, baseOwner,
+  G, notify, shake, screenFlash, removeStructure, isLocal, presentPlayers, baseOwner, structChanged,
 } from './state.js';
+import { emit } from '../net/events.js';
 import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
 import { addXp } from './progression.js';
@@ -77,6 +78,7 @@ export function killEnemy(e, source = null) {
   sfx('zombieDie');
 
   if (e.def.boss) { shake(9); FX.ring(e.x, e.y, 10, 160, 0.7, '#e05a4a', 4); }
+  emit('edie', { id: e.id, x: Math.round(e.x), y: Math.round(e.y), tp: e.type, a: Math.round(e.angle * 100) / 100 });
 
   awardKillXp(source, e.def.xp * (G.raid ? 1.25 : 1));
   // A survivor who lands the kill earns the experience for it.
@@ -225,6 +227,7 @@ export function damageStructure(s, dmg, fromX = s.x, fromY = s.y) {
   s.hp -= dmg;
   s.flash = 0.12;
   s.lastHit = G.time;
+  structChanged(s);
 
   const dx = s.x - fromX, dy = s.y - fromY;
   const len = Math.hypot(dx, dy) || 1;

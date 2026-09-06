@@ -11,7 +11,9 @@ import { clamp } from '../core/util.js';
 import { Input } from '../core/input.js';
 
 export const G = {
-  version: 6,
+  // Save payload version. 6 was the single-player record; 8 keeps every
+  // player by identity so a hosted world remembers its guests.
+  version: 8,
   world: null,
   // Every survivor in the world who is a person at a keyboard. In solo this
   // holds exactly one. `G.player` below is an alias for the *local* one, so the
@@ -70,6 +72,9 @@ export const G = {
   slotId: null,
   mode: 'solo',
   playtime: 0,
+  // Networking. 'solo' runs the sim for one keyboard; 'host' runs it and tells
+  // guests; 'client' renders what a host says and sends intent back.
+  net: { role: 'solo', code: null, hostName: null, status: '', error: null, stats: null, guests: [] },
 };
 
 // ------------------------------------------------------------------ players --
@@ -224,6 +229,7 @@ export const structAtPx = (px, py) => structAt(Math.floor(px / TILE), Math.floor
 export function addStructure(s) {
   G.structures.push(s);
   G.structGrid.set(skey(s.tx, s.ty), s);
+  netEmit('struct', { s: structRecord(s) });
   return s;
 }
 
@@ -232,7 +238,21 @@ export function removeStructure(s) {
   if (i >= 0) G.structures.splice(i, 1);
   const cur = G.structGrid.get(skey(s.tx, s.ty));
   if (cur === s) G.structGrid.delete(skey(s.tx, s.ty));
+  netEmit('sdel', { tx: s.tx, ty: s.ty });
 }
+
+/** A structure as the save file and the wire describe it. */
+export function structRecord(s) {
+  return {
+    t: s.type, tx: s.tx, ty: s.ty, hp: Math.round(s.hp * 10) / 10, maxHp: s.maxHp,
+    open: !!s.open, tier: s.tier || 1, fuel: Math.round((s.fuel || 0) * 10) / 10, ammo: s.ammo || 0,
+    on: s.on !== false, active: !!s.active, running: !!s.running, powered: !!s.powered,
+    aim: Math.round((s.aim || 0) * 100) / 100,
+  };
+}
+
+/** Tells guests a structure's fields changed (health, gate, fuel, tier…). */
+export const structChanged = (s) => netEmit('struct', { s: structRecord(s) });
 
 /** True if the tile blocks movement — terrain, props, or a closed structure. */
 export function solidTile(tx, ty) {
@@ -389,10 +409,30 @@ export class SpatialHash {
 
 // ------------------------------------------------------------ notifications --
 
-export function notify(text, color = '#d8e8c0', big = false) {
+/**
+ * @param scope  'local' (default) shows it on this screen only. 'all' is world
+ *               news — a raid, the day turning, someone joining — and, when
+ *               hosting, is repeated to every guest through onBroadcast.
+ */
+export function notify(text, color = '#d8e8c0', big = false, scope = 'local') {
   G.notifications.push({ text, color, t: 0, life: big ? 3.4 : 2.6, big });
   if (G.notifications.length > 7) G.notifications.shift();
+  if (scope === 'all' && notify.onBroadcast) notify.onBroadcast(text, color, big);
 }
+// Installed by the host session; null everywhere else. Kept as a property so
+// state.js never imports the network.
+notify.onBroadcast = null;
+
+/**
+ * The one door from the simulation to the network. Modules that state.js
+ * itself imports (world.js) cannot import net/events.js without a cycle, so
+ * they — and state.js — call through here. The host session installs `emit`;
+ * everywhere else it stays null and these are no-ops.
+ */
+// `emit` is set by the host session; `toTitle` by game.js at load, for the
+// guest session, which must not import game.js (cycle).
+export const netHooks = { emit: null, toTitle: null };
+export const netEmit = (kind, fields, to = null) => { if (netHooks.emit) netHooks.emit(kind, fields, to); };
 
 /**
  * True when the cursor is over a UI region that has claimed clicks. The HUD

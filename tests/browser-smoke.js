@@ -94,6 +94,14 @@
     // what was there before so the run leaves the player's own saves alone.
     const slotsBefore = new Set(d.saves.listSlots().map((s) => s.id));
     const bindsBefore = JSON.stringify(Object.fromEntries(d.binds.ACTIONS.map((a) => [a.id, d.binds.codesFor(a.id)])));
+    // And the saves themselves. A section that saves while a pre-existing slot
+    // is current would overwrite the player's game; everything under
+    // `deadline.` is copied now and written back at the end, byte for byte.
+    const storageBefore = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('deadline.')) storageBefore[k] = localStorage.getItem(k);
+    }
 
     // ------------------------------------------------- 0. title screen ------
     // The game boots to a menu now. Drive it with real synthetic clicks on the
@@ -2351,6 +2359,172 @@
       G.backpacks.length = 0;
     }
 
+    // ------------------------------------- 11j. hosting, with a loopback guest --
+    // The host session driven by a fake guest over an in-memory peer: the same
+    // messages a real browser sends, without a broker or a second window.
+    {
+      d.god(true);
+      G.enemies.length = 0;
+      p = G.player;
+      const spotH = clearOfStructures(G, p.x, p.y);
+      d.teleport(spotH.x, spotH.y);
+      await frames(2);
+
+      d.net.hostOffline({ name: 'Ash' });
+      ok('hosting offline makes this browser the authority', G.net.role === 'host' && G.mode === 'coop' && G.player.name === 'Ash');
+      const { a, b } = d.net.makeLoopback();
+      const reliable = [], state = [];
+      b.onMessage('reliable', (m) => reliable.push(m));
+      b.onMessage('state', (m) => state.push(m));
+      d.net.debugAttachGuest(a, 'smoke');
+
+      // No password on this room, so a hello with any hash is let in. The
+      // password check itself is exercised further down with one set.
+      b.send('reliable', d.net.msg.hello('smoke-guest', 'Bex', null));
+      await frames(4);
+      const welcome = reliable.find((m) => m.t === 'welcome');
+      ok('hello is answered with a welcome carrying the whole world', !!welcome && welcome.world && welcome.world.v === 8 && welcome.world.seed === G.world.seed,
+        welcome ? `v${welcome.world.v}, ${Object.keys(welcome.world.players).length} players in the record` : reliable.map((m) => m.t).join(','));
+      const guest = G.players.find((q) => q.netId === (welcome && welcome.n));
+      ok('the guest is a real player in the host\'s world', !!guest && !guest.away && guest.name === 'Bex' && guest.id === 'smoke-guest');
+      ok('the roster names both of them', !!welcome && welcome.roster.map((r) => r.name).join(',') === 'Ash,Bex', welcome && welcome.roster.map((r) => r.name).join(','));
+
+      // Intent over the wire drives the guest's player through the ordinary sim.
+      // Stand them on open ground first: they spawn beside the host, and a
+      // fence post a few pixels to their right once turned "walk right" into
+      // 23px against a wall.
+      const plotG = clearOpenPlot(G, 3);
+      guest.x = plotG.x; guest.y = plotG.y; guest.vx = 0; guest.vy = 0;
+      const gx0 = guest.x;
+      const it = api.makeIntent(); it.mx = 1; it.aimX = guest.x + 200; it.aimY = guest.y;
+      for (let i = 0; i < 40; i++) { b.send('state', d.net.msg.intent(i, it)); await frames(1); }
+      ok('a guest\'s intent moves their player', guest.x - gx0 > 30, `moved ${Math.round(guest.x - gx0)}px`);
+      const snaps = state.filter((m) => m.t === 'snap');
+      ok('snapshots arrive at about twenty a second', snaps.length >= 10 && snaps.length <= 16, `${snaps.length} in 40 frames`);
+      const last = snaps[snaps.length - 1];
+      ok('a snapshot carries every player and only nearby enemies', !!last && last.pl.length === G.players.length && Array.isArray(last.en) && Array.isArray(last.bp),
+        last ? Object.keys(last).join(',') : 'none');
+
+      // A command is validated and executed by the host, and echoed as an event.
+      G.stash.wood = (G.stash.wood || 0) + 200; G.stash.scrap = (G.stash.scrap || 0) + 200;
+      let wtx = Math.floor(guest.x / 32) + 2, wty = Math.floor(guest.y / 32);
+      for (let dx = 0; dx < 5 && !api.canPlace('woodWall', wtx, wty, guest).ok; dx++) wtx++;
+      const built0 = G.structures.length, ev0 = reliable.length;
+      b.send('reliable', d.net.msg.cmd('place', { type: 'woodWall', tx: wtx, ty: wty }));
+      await frames(4);
+      ok('a place command from a guest builds a wall', G.structures.length === built0 + 1, `${G.structures.length - built0} built`);
+      ok('...and the guest hears about it as a struct event', reliable.slice(ev0).some((m) => m.t === 'ev' && m.k === 'struct' && m.s.t === 'woodWall'));
+      // A command that should fail does nothing: out of range.
+      const far0 = G.structures.length;
+      b.send('reliable', d.net.msg.cmd('place', { type: 'woodWall', tx: wtx + 40, ty: wty }));
+      await frames(3);
+      ok('a command the rules refuse is refused for a guest too', G.structures.length === far0);
+
+      // A guest that goes quiet — paused, tab hidden, line dying — stops. Its
+      // last packet said "walk right"; silence after it must not mean "keep
+      // walking". Before the host expired stale intents, it walked 185px.
+      const walk = api.makeIntent(); walk.mx = 1; walk.aimX = guest.x + 200; walk.aimY = guest.y;
+      for (let i = 40; i < 50; i++) { b.send('state', d.net.msg.intent(i, walk)); await frames(1); }
+      await frames(45);                            // well past INTENT_TIMEOUT_MS
+      const xQuiet = guest.x;
+      await frames(30);
+      ok('a guest whose packets stop is stopped by the host', Math.abs(guest.x - xQuiet) < 1 && !guest.intent.mx,
+        `drifted ${Math.round(guest.x - xQuiet)}px after going silent, mx ${guest.intent.mx}`);
+
+      // A late packet on the unordered channel must not undo what the newest
+      // one said is held: E mid-search, sprint, sneak. It used to clear them.
+      const heldIt = api.makeIntent(); heldIt.interactHeld = true; heldIt.sprint = true; heldIt.sneak = true; heldIt.aimX = guest.x; heldIt.aimY = guest.y;
+      b.send('state', d.net.msg.intent(60, heldIt)); await frames(1);
+      const stale = api.makeIntent(); stale.aimX = guest.x; stale.aimY = guest.y;
+      b.send('state', d.net.msg.intent(55, stale)); await frames(1);
+      ok('an out-of-order packet leaves the newest held state alone', guest.intent.interactHeld && guest.intent.sprint && guest.intent.sneak,
+        `interactHeld ${guest.intent.interactHeld} sprint ${guest.intent.sprint} sneak ${guest.intent.sneak}`);
+      b.send('state', d.net.msg.intent(61, stale)); await frames(2);
+
+      // Recruiting removes a rescue from the world; a guest keeps its own list
+      // and must hear about the gap, or it goes on offering to talk to someone
+      // who is already home.
+      G.player.attrs.cha = 8; api.recomputeStats(G.player);
+      const bunks = [];
+      for (let i = 0; i < 6 && api.rosterLimits().cap <= api.liveSurvivors().length; i++) { const bk = placeNear('bunk'); if (bk) bunks.push(bk); }
+      const rescue = G.rescues[0], rescues0 = G.rescues.length, evR = reliable.length, crew0 = G.survivors.length;
+      const recruited = rescue ? api.recruit(rescue, G.player) : null;
+      await frames(3);
+      const rescueEv = reliable.slice(evR).find((m) => m.t === 'ev' && m.k === 'rescues');
+      ok('recruiting on the host tells every guest who is still out there', !!recruited && G.rescues.length === rescues0 - 1 && !!rescueEv && rescueEv.list.length === rescues0 - 1,
+        recruited ? `${rescues0} → ${G.rescues.length}, event lists ${rescueEv ? rescueEv.list.length : 'none'}` : `recruit refused (cap ${api.rosterLimits().cap}, crew ${api.liveSurvivors().length})`);
+      if (recruited) G.survivors.splice(crew0, G.survivors.length - crew0);
+      for (const bk of bunks) api.demolishStructure(bk);
+
+      // A saved world remembers the guest. Into a fresh slot — never into one
+      // the player owns.
+      G.slotId = null;
+      const data = d.api.saveGame() ? JSON.parse(localStorage.getItem(`deadline.slot.${G.slotId}`)) : null;
+      ok('the hosted world saves the guest\'s record by identity', !!data && !!data.players['smoke-guest'] && data.players['smoke-guest'].name === 'Bex',
+        data ? Object.keys(data.players).join(',') : 'no save');
+
+      // Disconnect parks, not removes; a return with the same identity gets the same player.
+      b.close();
+      await frames(4);
+      ok('a guest who drops is parked, not removed', guest.away && G.players.includes(guest) && G.net.guests.length === 0);
+      const { a: a2, b: b2 } = d.net.makeLoopback();
+      const rel2 = [];
+      b2.onMessage('reliable', (m) => rel2.push(m));
+      d.net.debugAttachGuest(a2, 'smoke2');
+      b2.send('reliable', d.net.msg.hello('smoke-guest', 'Bex again', null));
+      await frames(4);
+      const w2 = rel2.find((m) => m.t === 'welcome');
+      ok('the same identity comes back to the same character', !!w2 && w2.n === guest.netId && !guest.away && G.players.filter((q) => q.id === 'smoke-guest').length === 1,
+        w2 ? `netId ${w2.n} (was ${guest.netId})` : 'no welcome');
+      b2.close();
+      await frames(3);
+
+      // A second window of the host's own browser sends the host's identity. It
+      // must get a fresh player, never the host's.
+      const { a: a4, b: b4 } = d.net.makeLoopback();
+      const rel4 = [];
+      b4.onMessage('reliable', (m) => rel4.push(m));
+      d.net.debugAttachGuest(a4, 'smoke4');
+      b4.send('reliable', d.net.msg.hello(G.player.id, 'Me again', null));
+      await frames(4);
+      const w4 = rel4.find((m) => m.t === 'welcome');
+      ok('a guest with the host\'s own identity is a new player, not the host',
+        !!w4 && w4.n !== G.player.netId && G.players.some((q) => q.netId === w4.n && q !== G.player && q.id === `${G.player.id}#2`),
+        w4 ? `netId ${w4.n}, host is ${G.player.netId}` : rel4.map((m) => m.t + (m.reason ? ':' + m.reason : '')).join(','));
+      b4.close();
+      await frames(3);
+
+      // A password, when set, is checked by the host.
+      d.net.stopHosting();
+      const hash = await d.net.hashPassword('pumpkin');
+      d.net.hostOffline({ name: 'Ash', passwordHash: hash });
+      const { a: a3, b: b3 } = d.net.makeLoopback();
+      const rel3 = [];
+      b3.onMessage('reliable', (m) => rel3.push(m));
+      d.net.debugAttachGuest(a3, 'smoke3');
+      b3.send('reliable', d.net.msg.hello('other-guest', 'Cole', await d.net.hashPassword('wrong')));
+      await frames(4);
+      ok('the wrong password is rejected', rel3.some((m) => m.t === 'reject' && /password/.test(m.reason)) && !G.players.some((q) => q.id === 'other-guest'),
+        rel3.map((m) => m.t + (m.reason ? ':' + m.reason : '')).join(','));
+      d.net.stopHosting();
+      ok('stopping the host puts the game back to solo', G.net.role === 'solo');
+
+      // The other side of that: a guest whose host vanishes is holding a stale
+      // copy of someone else's world. It must land on the title, never carry on
+      // as a solo game (which it once did — and could then save).
+      G.net.role = 'client';
+      d.net.client.hostGone('The host left.');
+      ok('a guest whose host leaves is back at the title, not playing on alone',
+        G.scene === 'title' && G.net.role === 'solo' && G.menu.screen === 'join' && G.menu.error === 'The host left.',
+        `scene ${G.scene}, role ${G.net.role}, screen ${G.menu.screen}`);
+      G.scene = 'game'; G.menu.screen = 'main'; G.menu.error = null;
+
+      G.players.length = 1; G.localIdx = 0;   // drop the parked guest for the sections below
+      G.mode = 'solo';
+      G.enemies.length = 0;
+      G.structures.forEach((s) => { if (s.type === 'woodWall') api.demolishStructure(s); });
+    }
+
     // ----------------------------------------------------- 12. stability ---
     d.god(true);
     G.enemies.length = 0;
@@ -2367,9 +2541,14 @@
     d.god(false);
 
     // Leave the browser as we found it: only the slots that existed before the
-    // run, and the bindings the player had.
+    // run, with the bytes they had, and the bindings the player had.
     for (const s of d.saves.listSlots()) if (!slotsBefore.has(s.id)) d.saves.deleteSlot(s.id);
     G.slotId = null;
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('deadline.') && !(k in storageBefore)) localStorage.removeItem(k);
+    }
+    for (const k in storageBefore) localStorage.setItem(k, storageBefore[k]);
     {
       const saved = JSON.parse(bindsBefore);
       d.binds.resetBinds();
@@ -2377,6 +2556,9 @@
     }
     ok('the run leaves no extra save slots behind', d.saves.listSlots().every((s) => slotsBefore.has(s.id)),
       `${d.saves.listSlots().length} slots, ${slotsBefore.size} before`);
+    ok('the run leaves every pre-existing save byte for byte as it was',
+      Object.keys(storageBefore).every((k) => localStorage.getItem(k) === storageBefore[k]),
+      `${Object.keys(storageBefore).length} keys checked`);
 
     const failed = results.filter((r) => !r.pass);
     return {
