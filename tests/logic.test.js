@@ -484,6 +484,24 @@ test('xp curve rises and never stalls', () => {
   assert.ok(xpForLevel(1) <= 90);
 });
 
+test('xp curve steepens instead of drifting up in a straight line', () => {
+  const cum = (lv) => {
+    let t = 0;
+    for (let l = 1; l < lv; l++) t += xpForLevel(l);
+    return t;
+  };
+  // The first playtest hit level 7 in about ten minutes, which spent the whole
+  // attribute tree before the map had been seen. The first two levels should
+  // still be quick...
+  assert.ok(cum(3) < 500, `level 3 costs ${cum(3)}, which is not a quick start`);
+  // ...and the climb after that has to actually bite. A curve close to linear
+  // is what caused the problem: each level has to cost meaningfully more than
+  // the whole run that preceded it by the time you are in double figures.
+  assert.ok(cum(7) > 3500, `level 7 costs ${cum(7)}, still too cheap`);
+  assert.ok(cum(10) > 4 * cum(7), 'the curve flattens out again after level 7');
+  assert.ok(xpForLevel(10) > 5 * xpForLevel(3), 'late levels are not dearer than early ones');
+});
+
 test('bagWeight counts ammo lighter than bulk materials', () => {
   assert.equal(bagWeight({ wood: 10 }), 10);
   assert.ok(bagWeight({ ammoP: 100 }) < bagWeight({ wood: 100 }));

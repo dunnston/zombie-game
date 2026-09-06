@@ -4,7 +4,7 @@
 at the start of a session and updated at the end of one. If something here
 contradicts the code, the code is right and this file needs fixing — say so.
 
-- **Last updated:** 2026-09-06, after PR #4 (drivable cars) went to review
+- **Last updated:** 2026-09-06, after the first playtest
 - **Repo:** https://github.com/dunnston/zombie-game
 - **Owner:** dunnston
 
@@ -65,15 +65,14 @@ These settle arguments. When a decision is close, the pillar wins.
 
 ## 3. Where we are right now
 
-**Status: a genuinely playable game, well past MVP.** Four rounds of work
-merged or in review. Never yet played by a human — everything below is verified
-mechanically, not for feel.
+**Status: a genuinely playable game, well past MVP, now with real playtest
+feedback driving the work.** Five rounds merged.
 
 | | |
 | --- | --- |
-| Source | 28 modules, ~11,000 lines, no dependencies but Vite |
+| Source | 29 modules, ~11,200 lines, no dependencies but Vite |
 | Assets | Zero. Every sprite is drawn in code at boot; every sound is WebAudio. |
-| Tests | 52 Node assertions; browser suite 227 |
+| Tests | 53 Node assertions; browser suite 237 |
 | Save format | **v6** |
 | Performance | ~57fps with 90 active enemies |
 
@@ -86,13 +85,26 @@ mechanically, not for feel.
 | [#3](https://github.com/dunnston/zombie-game/pull/3) | Searchable furniture, bunks gating the roster, survivor jobs |
 | [#4](https://github.com/dunnston/zombie-game/pull/4) | Drivable cars with keys, lockpicks and hotwiring. Save → v6. |
 
-### The single most important outstanding thing
+### What the first playtest said
 
-**The owner has not played it yet.** Every balance number below was tuned
-against an automated harness that plays a fairly static defender. Feel — whether
-the shotgun is punchy, whether kiting a runner is tense or annoying, whether
-raid 3 lands as a spike or a chore — is unverified. A single play session should
-outrank anything on the roadmap.
+The owner played on 2026-09-06. The headline: **they could not do anything but
+fight.** They could not get their bearings, could not establish a base, and
+never found the crafting system — which exists, is bound to `C`, and is taught
+by the tutorial.
+
+That produced the current round of work:
+
+| Finding | Response |
+| --- | --- |
+| Zombies never stop coming | Quiet field — clearing ground earns a lull (PR #7) |
+| Level 7 in about ten minutes | Steeper XP curve (PR #7) |
+| No inventory, equipment slots or hotbar | Slot inventory, drag and drop (planned) |
+| Crafting "missing" | Move it into the inventory screen where people look (planned) |
+| Wants hunger and thirst | Light version, against pillar 1 but explicitly reaffirmed (planned) |
+| Wants tiered storage | Crate / Stash / Locker aggregating into one view (planned) |
+
+Everything not yet marked shipped is still guesswork about feel. Another play
+session after PR #7 outranks the rest of the roadmap.
 
 ---
 
@@ -118,7 +130,15 @@ bedroll, bunk, watchtower, generator, turret, floodlight, plus repair and
 salvage. Anywhere on the map.
 
 **Threat and raids.** A meter driven by player activity, not a calendar. Five
-authored raid tiers then endless scaling, in waves, targeting the perimeter.
+authored raid tiers then endless scaling, in waves, targeting the perimeter. A
+raid with no progress for 25 seconds breaks off rather than stranding the
+player, and pays out by the share of the horde killed.
+
+**Ambient pressure.** The spawner keeps a standing population near the player,
+but `pressure.js` holds a coarse "quiet" field: kills quieten the ground they
+happen on, structures quieten their surroundings a little, and it all decays
+over ~4.5 minutes. Clearing a site buys a real window to build in. Raids ignore
+it entirely.
 
 **Progression.** Six attributes (STR/PER/CON/CHA/INT/LCK) ranked 1–10, each with
 a perk tree gated on that attribute's rank. 27 perks. Levels grant skill points
@@ -152,6 +172,7 @@ src/
     perks.js         attributes, perk trees, the stat recompute pass
     progression.js   XP, levels, spending points
     daynight.js  survivors.js  vehicles.js
+    pressure.js      the quiet field — why cleared ground stays cleared
     save.js          LocalStorage serialisation
     game.js          update order, interactions, tutorial, camera
   render/renderer.js world drawing, y-sorted draw list, night pass
@@ -206,6 +227,8 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | No shooting while driving | Two hands on the wheel. Avoids a whole second aiming model. **Revisit if it feels bad to play.** |
 | A raid ends when nothing is happening, not only when every raider is dead | Without pathfinding, the last few raiders can always become unreachable, and "kill them all" is then unsatisfiable. Watching progress — kills, structure damage, player damage — ends the raid in every stuck case rather than only the ones anyone predicted. |
 | A raid the player did not finish pays out by share killed | Otherwise hiding until the horde gave up beat defending, and the 300s backstop handed out full salvage for a flattened base. |
+| Killing buys local, temporary quiet | The spawner keeps a standing population near the player and refills it every 0.6s, so there was no lull anywhere, ever — the first playtest could not get a base up. Quiet is earned by clearing and decays in ~4.5 minutes, so the world is still hostile (pillar 6); it is just no longer uniformly hostile everywhere at once. Raid spawning ignores it and raid kills do not earn it, so raids stay exactly as dangerous. |
+| The quiet field is sampled bilinearly | Reading the containing cell made the payoff depend on where inside a 256px square you stood: measured, the same six kills bought 40 seconds of calm or none. |
 
 ---
 
@@ -213,8 +236,13 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 
 ### Next up (highest value first)
 
-1. **The owner plays it.** Everything else is guessing until then.
-2. **A flow field for raids.** One Dijkstra map toward the base, recomputed when
+1. **Finish the playtest response.** Slot inventory with equipment slots, a
+   hotbar and drag and drop; crafting moved inside it; tiered storage; light
+   hunger and thirst. See `tasks/todo.md` for the working plan.
+2. **The owner plays it again**, after the pacing fix. The remaining feel
+   questions — is the shotgun punchy, is kiting a runner tense or annoying —
+   are still unanswered.
+3. **A flow field for raids.** One Dijkstra map toward the base, recomputed when
    a wall changes. Kills the entire stuck-AI class of problem, makes funnelling
    into a kill corridor a real readable tactic, and lets survivors path indoors.
    This is the single biggest quality upgrade available.
@@ -298,8 +326,14 @@ round. Current expected totals:
 
 | Suite | Expected |
 | --- | --- |
-| `npm test` (Node, pure logic) | 52 |
-| `tests/browser-smoke.js` | 227 |
+| `npm test` (Node, pure logic) | 53 |
+| `tests/browser-smoke.js` | 237 |
+
+**Run the browser suite with the page focused.** Its waits are counted in
+animation frames, and a backgrounded tab throttles `requestAnimationFrame` to
+about 1fps — the same suite then takes two hours instead of three minutes. In
+Playwright, call `page.bringToFront()` before running. If the budget guard
+trips it now reports the frame rate it saw and says which of the two it was.
 
 ```bash
 npm test
@@ -364,6 +398,10 @@ input (`key`, `tap`, `mouseDown`, `aimAt`) and the whole `api` surface.
 
 Newest first. One line per meaningful change.
 
+- **2026-09-06** — First playtest. Ambient spawning now relents where the player
+  has cleared: a decaying quiet field means killing a group buys ~30s with
+  nothing new arriving, measured. XP curve steepened — level 7 costs 2.5× what
+  it did, level 10 nearly 5×.
 - **2026-09-06** — Raids can no longer strand: a raid with no progress for 25s
   breaks off instead of running to the 300s backstop, and a raid the player did
   not finish pays out by share of the horde killed. Found while verifying PR #4,

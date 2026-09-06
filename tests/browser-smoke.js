@@ -34,21 +34,38 @@
   // A suite that hangs is far worse than one that fails, so every wait checks
   // an absolute deadline and aborts loudly.
   let deadline = Infinity;
+  let startedAt = 0;
+  let framesRun = 0;
   function checkDeadline() {
     if (performance.now() > deadline) {
-      throw new Error('smoke suite exceeded its time budget — likely a stuck loop');
+      // Waits here are counted in animation frames, so a throttled tab stretches
+      // the whole suite without anything actually being wrong. A background tab
+      // drops rAF to about 1fps, which turns a three-minute suite into two
+      // hours — say so, rather than sending the reader hunting for a stuck loop.
+      const fps = framesRun / ((performance.now() - startedAt) / 1000);
+      throw new Error(
+        `smoke suite exceeded its time budget after ${framesRun} frames at ` +
+        `${fps.toFixed(1)}fps. ` +
+        (fps < 30
+          ? 'That is a throttled tab, not a stuck loop — the waits here count ' +
+            'frames, so give the page focus (Playwright: page.bringToFront()) ' +
+            'and run it again.'
+          : 'Frame rate looks healthy, so this is a genuine stall.'),
+      );
     }
   }
 
   async function frames(n) {
-    for (let i = 0; i < n; i++) { checkDeadline(); clearLevelUp(); await frame(); }
+    for (let i = 0; i < n; i++) { checkDeadline(); clearLevelUp(); framesRun++; await frame(); }
     clearLevelUp();
   }
   const seconds = (s) => frames(Math.ceil(s * 60));
 
   window.runDeadlineSmoke = async function runDeadlineSmoke(budgetMs = 240000) {
     results.length = 0;
-    deadline = performance.now() + budgetMs;
+    startedAt = performance.now();
+    framesRun = 0;
+    deadline = startedAt + budgetMs;
     const d = D();
     const { G, api } = d;
 
@@ -1430,6 +1447,69 @@
       }
 
       G.pickups.length = 0;
+      G.enemies.length = 0;
+    }
+
+    // ------------------------------------------ 11e. cleared ground stays ---
+    // The first playtest could do nothing but fight, because the spawner keeps
+    // a standing population near the player and refills it every 0.6s. Killing
+    // things has to buy a local, temporary lull or there is never a window to
+    // build in.
+    {
+      d.god(true);
+      G.enemies.length = 0;
+      const plot = clearOpenPlot(G, 6);
+      d.teleport(plot.x, plot.y);
+      await frames(3);
+      // Start from genuinely untouched ground.
+      G.quiet.a.fill(0);
+      await frames(2);
+
+      const before = api.totalQuietAt(plot.x, plot.y);
+      const mulBefore = api.densityMul(plot.x, plot.y);
+      ok('untouched ground is not quiet', before === 0, `quiet ${before}`);
+      ok('untouched ground gets the full population', mulBefore > 0.99,
+        `x${mulBefore.toFixed(2)}`);
+
+      // Kill a crowd right here.
+      for (let i = 0; i < 10; i++) {
+        const e = api.spawnEnemy('walker', plot.x + (i % 5) * 12, plot.y + i * 4, {});
+        api.killEnemy(e, 'test');
+      }
+      await frames(3);
+      const after = api.totalQuietAt(plot.x, plot.y);
+      ok('killing a crowd quietens the ground it fell on', after > before,
+        `${before.toFixed(1)} -> ${after.toFixed(1)}`);
+      const mulAfter = api.densityMul(plot.x, plot.y);
+      ok('a cleared patch asks for fewer enemies', mulAfter < mulBefore - 0.1,
+        `x${mulBefore.toFixed(2)} -> x${mulAfter.toFixed(2)}`);
+      ok('but never asks for none at all', mulAfter > 0.05, `x${mulAfter.toFixed(2)}`);
+      ok('a thoroughly cleared patch turns spawns away',
+        api.suppressed(plot.x, plot.y), `quiet ${after.toFixed(1)}`);
+
+      // Somewhere else on the map should be untouched by all of that.
+      const farX = plot.x + 2000, farY = plot.y;
+      ok('clearing one place does not quieten the whole map',
+        api.quietAt(farX, farY) === 0, `${api.quietAt(farX, farY)}`);
+
+      // It has to wear off, or a cleared map stays cleared forever.
+      const held = api.quietAt(plot.x, plot.y);
+      await seconds(6);
+      const decayed = api.quietAt(plot.x, plot.y);
+      ok('quiet wears off again', decayed < held,
+        `${held.toFixed(2)} -> ${decayed.toFixed(2)}`);
+      ok('...but not instantly', decayed > 0, `${decayed.toFixed(2)}`);
+
+      // And it has to survive a reload, or saving beside your base hands the
+      // horde its opening back.
+      api.saveGame();
+      api.loadGame();
+      p = G.player;
+      await frames(3);
+      const reloaded = api.quietAt(plot.x, plot.y);
+      ok('cleared ground is still cleared after a reload', reloaded > 0,
+        `${decayed.toFixed(2)} -> ${reloaded.toFixed(2)}`);
+      d.god(true);
       G.enemies.length = 0;
     }
 

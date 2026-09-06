@@ -193,3 +193,31 @@ measurement (`stopped 80px short`) rather than just pass/fail.
 
 **Rule:** log the number, not the verdict, and read it. An assertion whose
 detail string you have never looked at is not yet a test.
+
+### A frame-counted wait is a wall-clock trap in a background tab
+
+The smoke suite's `seconds(n)` is `frames(n * 60)`. Chrome throttles
+`requestAnimationFrame` to about 1fps in a backgrounded tab, so the same suite
+that runs in three minutes with focus takes over two hours without it — and the
+only symptom was the budget guard firing with "likely a stuck loop". A good
+half hour went into hunting a stall in freshly written spawn code that was
+working correctly the whole time.
+
+**Rule:** drive the browser suite with the page fronted
+(`page.bringToFront()`), and when a time budget trips, report the observed
+frame rate in the error. The guard now says whether it saw a throttled tab or a
+real stall.
+
+### Calibrate a threshold by measuring it, not by picking a round number
+
+The quiet field started with a suppression threshold of "75% of the ceiling",
+which sounded principled and was arbitrary. Measured, the same six kills read
+back anywhere from 3.97 to 5.89 depending on where in a 256px cell the player
+happened to stand — straddling that threshold, so clearing your base site
+worked or did not by luck. Two fixes fell out: sample the field bilinearly, and
+set the threshold from the measured distributions (three kills top out at 2.84,
+five kills bottom out at 2.91, so 2.9 separates them cleanly).
+
+**Rule:** for any coarse spatial field, check that the same action gives the
+same result wherever the player is standing. And a constant that separates two
+outcomes should be derived from the measured spread of both.
