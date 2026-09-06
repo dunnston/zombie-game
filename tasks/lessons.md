@@ -463,3 +463,16 @@ success both times. The second time it dropped a whole README section.
 
 **Rule:** edit prose with the editing tool, not through a shell string. If a
 script must write text containing backticks, put the script in a file.
+
+### Drive the button, not the function behind it
+
+START HOSTING crashed for the owner with `notify is not defined` — a missing
+import in the menu's start routine. My end-to-end check had proven hosting
+worked by calling `startHosting()` from the debug API, which skipped the one
+function a real player goes through. The smoke suite clicks HOST and JOIN, but
+stops short of START HOSTING because that needs a broker. It now has no excuse
+for the layout either: subtitles were drawn at a fixed 29px in a 30px row.
+
+**Rule:** the verification path must be the player's path. If the UI has a
+button, the test clicks the button. A scan for calls to undeclared identifiers
+(`scratchpad/undeclared.cjs`) now runs over the new modules before a commit.

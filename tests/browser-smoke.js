@@ -94,6 +94,14 @@
     // what was there before so the run leaves the player's own saves alone.
     const slotsBefore = new Set(d.saves.listSlots().map((s) => s.id));
     const bindsBefore = JSON.stringify(Object.fromEntries(d.binds.ACTIONS.map((a) => [a.id, d.binds.codesFor(a.id)])));
+    // And the saves themselves. A section that saves while a pre-existing slot
+    // is current would overwrite the player's game; everything under
+    // `deadline.` is copied now and written back at the end, byte for byte.
+    const storageBefore = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('deadline.')) storageBefore[k] = localStorage.getItem(k);
+    }
 
     // ------------------------------------------------- 0. title screen ------
     // The game boots to a menu now. Drive it with real synthetic clicks on the
@@ -2407,7 +2415,9 @@
       await frames(3);
       ok('a command the rules refuse is refused for a guest too', G.structures.length === far0);
 
-      // A saved world remembers the guest.
+      // A saved world remembers the guest. Into a fresh slot — never into one
+      // the player owns.
+      G.slotId = null;
       const data = d.api.saveGame() ? JSON.parse(localStorage.getItem(`deadline.slot.${G.slotId}`)) : null;
       ok('the hosted world saves the guest\'s record by identity', !!data && !!data.players['smoke-guest'] && data.players['smoke-guest'].name === 'Bex',
         data ? Object.keys(data.players).join(',') : 'no save');
@@ -2479,9 +2489,14 @@
     d.god(false);
 
     // Leave the browser as we found it: only the slots that existed before the
-    // run, and the bindings the player had.
+    // run, with the bytes they had, and the bindings the player had.
     for (const s of d.saves.listSlots()) if (!slotsBefore.has(s.id)) d.saves.deleteSlot(s.id);
     G.slotId = null;
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('deadline.') && !(k in storageBefore)) localStorage.removeItem(k);
+    }
+    for (const k in storageBefore) localStorage.setItem(k, storageBefore[k]);
     {
       const saved = JSON.parse(bindsBefore);
       d.binds.resetBinds();
@@ -2489,6 +2504,9 @@
     }
     ok('the run leaves no extra save slots behind', d.saves.listSlots().every((s) => slotsBefore.has(s.id)),
       `${d.saves.listSlots().length} slots, ${slotsBefore.size} before`);
+    ok('the run leaves every pre-existing save byte for byte as it was',
+      Object.keys(storageBefore).every((k) => localStorage.getItem(k) === storageBefore[k]),
+      `${Object.keys(storageBefore).length} keys checked`);
 
     const failed = results.filter((r) => !r.pass);
     return {

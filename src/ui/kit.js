@@ -100,11 +100,13 @@ export function button(ctx, x, y, w, h, label, opts = {}) {
   ctx.fillStyle = enabled ? color : '#5c6650';
   const tx = center ? x + w / 2 : x + 9;
   if (center) ctx.textAlign = 'center';
-  ctx.fillText(label, tx, y + (sub ? 16 : h / 2 + 4));
+  // With a subtitle the two lines share the height proportionally, so a short
+  // button does not push its second line onto the border.
+  ctx.fillText(label, tx, y + (sub ? Math.round(h * 0.42) + 2 : h / 2 + 4));
   if (sub) {
     ctx.font = '10px "Courier New", monospace';
     ctx.fillStyle = enabled ? C.dim : '#4c5544';
-    ctx.fillText(sub, tx, y + 29);
+    ctx.fillText(sub, tx, y + Math.round(h * 0.8) + 1);
   }
   if (center) ctx.textAlign = 'left';
   if (hit) sfx('ui');

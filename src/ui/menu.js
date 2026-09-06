@@ -6,7 +6,7 @@
 // Every button's rectangle is recorded in G.menu.rects under its label, so the
 // browser suite can drive the menu with real synthetic clicks.
 
-import { G } from '../game/state.js';
+import { G, notify } from '../game/state.js';
 import { Input, keyTap } from '../core/input.js';
 import { newGame, startGame, toTitle } from '../game/game.js';
 import { seedLoot } from '../game/loot.js';
@@ -354,46 +354,50 @@ function identity() {
 
 function drawHost(ctx, W, H) {
   title(ctx, W, 64, false);
-  const slots = listSlots();
-  const w = Math.min(560, W - 40);
-  const rowH = 34;
-  const listH = Math.min(Math.max(1, slots.length + 1) * rowH, 5 * rowH);
-  const h = 250 + listH;
+  const slots = listSlots().slice(0, 4);
+  const w = Math.min(600, W - 40);
+  const rowH = 46;
+  const listH = (slots.length + 1) * rowH;
+  const h = 292 + listH;
   const x = (W - w) / 2, y = 96;
   panel(ctx, x, y, w, h, 'HOST A GAME');
   const me = identity();
+  const pad = 24;
 
   ctx.font = '11px "Courier New", monospace';
   ctx.fillStyle = C.dim;
-  ctx.fillText('Your name', x + 20, y + 52);
-  ctx.fillText('Password (optional)', x + w / 2 + 6, y + 52);
-  textField('name', x + 20, y + 60, w / 2 - 32, 30, me.name);
-  textField('password', x + w / 2 + 6, y + 60, w / 2 - 26, 30, '');
+  ctx.fillText('Your name', x + pad, y + 54);
+  ctx.fillText('Password (optional)', x + w / 2 + 8, y + 54);
+  textField('name', x + pad, y + 62, w / 2 - pad - 12, 32, me.name);
+  textField('password', x + w / 2 + 8, y + 62, w / 2 - pad - 8, 32, '');
 
   ctx.fillStyle = C.dim;
-  ctx.fillText('Which world', x + 20, y + 118);
-  let ry = y + 126;
+  ctx.fillText('Which world', x + pad, y + 126);
+  let ry = y + 134;
   const choose = (key, label, sub, id) => {
     const selected = G.menu.hostSlot === id;
-    if (menuButton(ctx, key, x + 20, ry, w - 40, rowH - 4, (selected ? '● ' : '○ ') + label, { sub, small: true, color: selected ? C.accent : C.text })) {
+    if (menuButton(ctx, key, x + pad, ry, w - pad * 2, rowH - 6, (selected ? '● ' : '○ ') + label, { sub, small: true, color: selected ? C.accent : C.text })) {
       G.menu.hostSlot = id;
     }
     ry += rowH;
   };
-  choose('WORLD:new', 'New world', null, 'new');
-  for (const s of slots.slice(0, 4)) {
+  choose('WORLD:new', 'New world', 'a fresh town in a new slot', 'new');
+  for (const s of slots) {
     choose(`WORLD:${s.id}`, s.name, `${s.mode === 'coop' ? 'Co-op' : 'Solo'}  ·  Day ${s.day}  ·  Level ${s.level}  ·  ${playtimeLabel(s.playtime)}`, s.id);
   }
 
   ctx.font = '10px "Courier New", monospace';
   ctx.fillStyle = C.dim;
-  ctx.fillText('Hosting runs the world in this browser. Friends join with the room code; the password is checked here, never sent to the server.', x + 20, y + h - 82);
-  if (G.menu.error) { ctx.fillStyle = C.warn; ctx.fillText(G.menu.error, x + 20, y + h - 66); }
-  else if (G.menu.busy) { ctx.fillStyle = C.gold; ctx.fillText(G.net.status || 'starting…', x + 20, y + h - 66); }
+  const ty = ry + 14;
+  ctx.fillText('Hosting runs the world in this browser. Friends join with the room code;', x + pad, ty);
+  ctx.fillText('the password is checked here and never sent to the server.', x + pad, ty + 14);
+  if (G.menu.error) { ctx.fillStyle = C.warn; ctx.fillText(G.menu.error, x + pad, ty + 34); }
+  else if (G.menu.busy) { ctx.fillStyle = C.gold; ctx.fillText(G.net.status || 'starting…', x + pad, ty + 34); }
 
-  const bw = (w - 52) / 2;
-  const start = menuButton(ctx, 'START HOSTING', x + 20, y + h - 58, bw, 40, 'START HOSTING', { center: true, color: C.accent, enabled: !G.menu.busy });
-  if (menuButton(ctx, 'BACK', x + 32 + bw, y + h - 58, bw, 40, 'BACK', { center: true, enabled: !G.menu.busy })) goto('multi');
+  const bw = (w - pad * 2 - 12) / 2;
+  const by = y + h - 64;
+  const start = menuButton(ctx, 'START HOSTING', x + pad, by, bw, 42, 'START HOSTING', { center: true, color: C.accent, enabled: !G.menu.busy });
+  if (menuButton(ctx, 'BACK', x + pad + bw + 12, by, bw, 42, 'BACK', { center: true, enabled: !G.menu.busy })) goto('multi');
   if (start && !G.menu.busy) beginHosting(me);
 }
 
@@ -429,29 +433,36 @@ async function beginHosting(me) {
 
 function drawJoin(ctx, W, H) {
   title(ctx, W, H * 0.2);
-  const w = 460, h = 300;
+  const w = 520, h = 324;
   const x = (W - w) / 2, y = H * 0.34;
   panel(ctx, x, y, w, h, 'JOIN A GAME');
   const me = identity();
+  const pad = 24;
 
   ctx.font = '11px "Courier New", monospace';
   ctx.fillStyle = C.dim;
-  ctx.fillText('Room code', x + 20, y + 52);
-  ctx.fillText('Password (if they set one)', x + w / 2 + 6, y + 52);
-  textField('code', x + 20, y + 60, w / 2 - 32, 30, G.menu.lastCode || '');
-  textField('password', x + w / 2 + 6, y + 60, w / 2 - 26, 30, '');
+  ctx.fillText('Room code', x + pad, y + 54);
+  ctx.fillText('Password (if they set one)', x + w / 2 + 8, y + 54);
+  textField('code', x + pad, y + 62, w / 2 - pad - 12, 32, G.menu.lastCode || '');
+  textField('password', x + w / 2 + 8, y + 62, w / 2 - pad - 8, 32, '');
   ctx.fillStyle = C.dim;
-  ctx.fillText('Your name', x + 20, y + 118);
-  textField('name', x + 20, y + 126, w - 40, 30, me.name);
+  ctx.fillText('Your name', x + pad, y + 126);
+  textField('name', x + pad, y + 134, w - pad * 2, 32, me.name);
 
   ctx.font = '10px "Courier New", monospace';
-  if (G.menu.error) { ctx.fillStyle = C.warn; ctx.fillText(G.menu.error, x + 20, y + 186); }
-  else if (G.menu.busy) { ctx.fillStyle = C.gold; ctx.fillText(G.net.status || 'connecting…', x + 20, y + 186); }
-  else { ctx.fillStyle = C.dim; ctx.fillText('Your character is kept by the host — come back with the same browser and it is yours.', x + 20, y + 186); }
+  const ty = y + 196;
+  if (G.menu.error) { ctx.fillStyle = C.warn; ctx.fillText(G.menu.error, x + pad, ty); }
+  else if (G.menu.busy) { ctx.fillStyle = C.gold; ctx.fillText(G.net.status || 'connecting…', x + pad, ty); }
+  else {
+    ctx.fillStyle = C.dim;
+    ctx.fillText('Your character is kept by the host — come back with the same', x + pad, ty);
+    ctx.fillText('browser and it is yours.', x + pad, ty + 14);
+  }
 
-  const bw = (w - 52) / 2;
-  const go = menuButton(ctx, 'CONNECT', x + 20, y + h - 58, bw, 40, 'CONNECT', { center: true, color: C.accent, enabled: !G.menu.busy });
-  if (menuButton(ctx, 'BACK', x + 32 + bw, y + h - 58, bw, 40, 'BACK', { center: true, enabled: !G.menu.busy })) goto('multi');
+  const bw = (w - pad * 2 - 12) / 2;
+  const by = y + h - 64;
+  const go = menuButton(ctx, 'CONNECT', x + pad, by, bw, 42, 'CONNECT', { center: true, color: C.accent, enabled: !G.menu.busy });
+  if (menuButton(ctx, 'BACK', x + pad + bw + 12, by, bw, 42, 'BACK', { center: true, enabled: !G.menu.busy })) goto('multi');
   if ((go || takeSubmit('code') || takeSubmit('password') || takeSubmit('name')) && !G.menu.busy) beginJoin(me);
 }
 
