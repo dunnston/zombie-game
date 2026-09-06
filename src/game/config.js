@@ -114,6 +114,9 @@ export const ARMORS = {
 export const CONSUMABLES = {
   bandage: { id: 'bandage', name: 'Bandage', heal: 28, time: 0.9, color: '#d8cfc0' },
   medkit:  { id: 'medkit',  name: 'Medkit',  heal: 80, time: 1.6, color: '#d9575f' },
+  // Not a healing item — used on car doors. Kept here so it rides along in the
+  // same inventory the rest of the small stuff uses.
+  lockpick: { id: 'lockpick', name: 'Lockpick', heal: 0, time: 0, color: '#9aa2ab', tool: true },
 };
 
 // ---------------------------------------------------------------- enemies ---
@@ -240,6 +243,7 @@ export const RECIPES = [
   { id: 'pistol', name: 'M9 Pistol', bench: 1, cost: { scrap: 28, parts: 4 }, give: { weapon: 'pistol' }, xp: 35 },
   { id: 'lightVest', name: 'Padded Vest', bench: 1, cost: { cloth: 22, scrap: 12 }, give: { armor: 'lightVest' }, xp: 25 },
   { id: 'ammoS', name: 'Shells x14', bench: 1, cost: { scrap: 12, parts: 1 }, give: { res: { ammoS: 14 } }, xp: 7 },
+  { id: 'lockpick', name: 'Lockpicks x3', bench: 1, cost: { scrap: 8, parts: 1 }, give: { item: 'lockpick', n: 3 }, xp: 6 },
   { id: 'rationPack', name: 'Ration Pack x8', bench: 1, cost: { med: 2, cloth: 3 }, give: { res: { rations: 8 } }, xp: 5 },
   { id: 'fuel', name: 'Fuel x25', bench: 1, cost: { scrap: 10, elec: 4 }, give: { res: { fuel: 25 } }, xp: 6 },
 

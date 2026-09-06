@@ -33,6 +33,7 @@ export function createWorld(seed = 20240917) {
     propGrid: new Map(),        // "tx,ty" -> harvestable prop
     chopped: [],                // tiles harvested this run, for the save file
     containers: [],
+    vehicleSpawns: [],          // turned into drivable cars at game start
     locations: LOCATIONS.map((l) => ({ ...l, discovered: false })),
     danger: new Uint8Array(W * W).fill(1),
     spawnTiles: [],
@@ -323,6 +324,12 @@ export function createWorld(seed = 20240917) {
   }
 
   // ------------------------------------------------------- cars and props --
+  /**
+   * Cars are spawned as vehicle definitions rather than scenery, because they
+   * can be driven away. The tiles they sit on are still blocked while parked,
+   * and `tiles` records exactly which ones this car claimed so they can be
+   * released when it moves without clearing a tree that was already there.
+   */
   function addCar(tx, ty, rot) {
     if (!inBounds(tx, ty)) return;
     const horizontal = rot === 0;
@@ -330,21 +337,21 @@ export function createWorld(seed = 20240917) {
     for (let j = 0; j < th; j++) for (let i = 0; i < tw; i++) {
       if (!inBounds(tx + i, ty + j) || world.blocked[idx(tx + i, ty + j)]) return;
     }
-    for (let j = 0; j < th; j++) for (let i = 0; i < tw; i++) block(tx + i, ty + j, 1);
-    world.props.push({
-      kind: 'car', si: rng.int(0, 3), rot: horizontal ? 0 : Math.PI / 2,
-      x: (tx + tw / 2) * TILE, y: (ty + th / 2) * TILE,
-    });
-    // Roughly half the cars have a lootable boot.
-    if (rng.chance(0.55)) {
-      const c = {
-        id: world.containers.length, kind: 'carTrunk',
-        x: (tx + tw / 2) * TILE, y: (ty + th / 2) * TILE,
-        tx, ty, looted: false, sprite: 'trunk', label: 'Car Trunk',
-        rolls: CONTAINERS.carTrunk.rolls, table: 'carTrunk', hidden: true,
-      };
-      world.containers.push(c);
+    const tiles = [];
+    for (let j = 0; j < th; j++) {
+      for (let i = 0; i < tw; i++) {
+        block(tx + i, ty + j, 1);
+        tiles.push([tx + i, ty + j]);
+      }
     }
+    world.vehicleSpawns.push({
+      x: (tx + tw / 2) * TILE,
+      y: (ty + th / 2) * TILE,
+      rot: horizontal ? 0 : Math.PI / 2,
+      si: rng.int(0, 3),
+      tiles,
+      seed: rng.int(1, 0x7fffffff),
+    });
   }
 
   function addWreck(tx, ty) {

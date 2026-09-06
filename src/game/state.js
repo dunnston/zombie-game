@@ -8,7 +8,7 @@ import { clamp } from '../core/util.js';
 import { Input } from '../core/input.js';
 
 export const G = {
-  version: 5,
+  version: 6,
   world: null,
   player: null,
   enemies: [],
@@ -17,7 +17,9 @@ export const G = {
   pickups: [],
   survivors: [],           // recruited NPCs garrisoning the base
   rescues: [],             // people still out there waiting to be found
+  vehicles: [],            // drivable cars
   survivorSeq: 0,
+  vehicleSeq: 0,
   day: 1,
   dayTime: 0.16,
   phase: 'day',
@@ -28,7 +30,6 @@ export const G = {
   stash: {},               // shared base storage
   camera: { x: 0, y: 0, zoom: 1, shake: 0, shakeX: 0, shakeY: 0 },
   time: 0,
-  dayTime: 0,
   threat: 0,
   threatTier: 0,
   raid: null,

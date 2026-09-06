@@ -36,6 +36,11 @@ export function rollContainer(container, lootMul = 1, opts = {}) {
     if (RES[e.id]) n = Math.max(1, Math.round(n * lootMul));
     out.set(e.id, (out.get(e.id) || 0) + n);
   }
+  // Guaranteed contents — car keys are planted in a specific container so the
+  // car they open is always findable, rather than left to a weighted roll.
+  for (const e of container.extra || []) {
+    out.set(e.id, (out.get(e.id) || 0) + e.n);
+  }
   return [...out.entries()].map(([id, n]) => ({ id, n }));
 }
 
@@ -79,6 +84,13 @@ export function giveEntry(p, entry) {
       return { text: `${a.name} equipped (+${Math.round(a.dr * 100)}% armour)`, color: '#ffe08a', major: true };
     }
     return { text: `${a.name} stowed`, color: '#a8b09a' };
+  }
+
+  if (id.startsWith('key:')) {
+    const keyId = id.slice(4);
+    if (!p.carKeys) p.carKeys = [];
+    if (!p.carKeys.includes(keyId)) p.carKeys.push(keyId);
+    return { text: 'Car keys', color: '#e8c86a', major: true };
   }
 
   if (id.startsWith('item:')) {

@@ -1,5 +1,31 @@
 # DEADLINE — Survival / Base-Building MVP
 
+## Round 4 — drivable cars
+
+### Phase A — The car itself
+- [ ] Cars become entities with condition, fuel and a boot, not scenery
+- [ ] Arcade driving: throttle, reverse, speed-scaled steering
+- [ ] Collisions hurt the car and stop you; running over the infected
+      kills them and costs you paint
+- [ ] Fuel burn, engine damage, a wreck you can strip for parts
+
+### Phase B — Getting in
+- [ ] Most cars are locked. Three ways past that:
+  - [ ] **Keys** — placed in a container near the car they open
+  - [ ] **Lockpick** — craftable, consumed, odds scale with Perception
+  - [ ] **Hotwire** — an Intelligence perk; slow and loud, but works on anything
+- [ ] Failing a pick makes noise and draws attention
+
+### Phase C — Why you want one
+- [ ] The boot is a mobile stash with real capacity — the answer to
+      hauling from the far districts
+- [ ] Headlights at night, tied into the existing lighting pass
+- [ ] Driving is loud: speed feeds Threat
+
+### Phase D — Verify
+- [ ] Node + browser suites, raid balance re-checked
+- [ ] PR, address review, merge
+
 ## Round 3 — furniture, bunks, survivor jobs
 
 ### Phase A — Searchable furniture

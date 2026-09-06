@@ -31,6 +31,14 @@ import { killPlayer } from './damage.js';
 import { initClock, updateClock, nightFactors, clockString, darkness } from './daynight.js';
 import { recomputeStats, ATTRS, PERKS, perkStatus } from './perks.js';
 import {
+  makeVehicle, updateVehicles, enterVehicle, exitVehicle, drivenCar, isDriving,
+  nearestVehicle, vehiclePrompt, tryUnlock, finishHotwire, stowInTrunk,
+  takeFromTrunk, refuelVehicle, salvageVehicle, damageVehicle, trunkLoad,
+  releaseTiles, occupyTiles, pickChance, hasKeyFor, plantVehicleKeys, CAR,
+} from './vehicles.js';
+import { RES } from './config.js';
+import { makeRng } from '../core/util.js';
+import {
   updateSurvivors, updateUpkeep, seedRescues, recruit, reviveSurvivor,
   liveSurvivors, survivorCap, refreshAllSurvivors, makeSurvivor,
   rationsHeld, rationsCarried, JOBS, JOB_IDS, rosterLimits, freeTowers,
@@ -68,6 +76,7 @@ export function newGame(seed = 20240917) {
   G.notifications.length = 0;
   G.survivors.length = 0;
   G.rescues.length = 0;
+  G.vehicles.length = 0;
   G.survivorSeq = 0;
   G.rationDebt = 0;
   initClock();
@@ -95,10 +104,39 @@ export function newGame(seed = 20240917) {
   G.camera.x = spot.x;
   G.camera.y = spot.y;
 
+  spawnVehicles();
   seedRescues(G.world, 8);
   seedArea(spot.x, spot.y, 1100, 5);
   notify('You wake up on the roadside. Find shelter before dark.', '#d8e8c0', true);
   return G;
+}
+
+/**
+ * Turns the generated car spawns into drivable vehicles, pre-loads their boots,
+ * and plants the keys for the locked ones in a container near enough that
+ * "whose car is this?" has a findable answer.
+ */
+export function spawnVehicles() {
+  G.vehicles.length = 0;
+  G.vehicleSeq = 0;
+  const spawns = G.world.vehicleSpawns || [];
+
+  for (const s of spawns) {
+    const r = makeRng(s.seed);
+    const v = makeVehicle(s, r);
+    v.tiles = s.tiles;
+    // A boot that already holds something, so opening one is worth doing.
+    if (r.chance(0.55)) {
+      const entries = rollContainer(
+        { table: 'carTrunk', rolls: [1, 2] }, 1, {},
+      );
+      for (const e of entries) if (RES[e.id]) v.trunk[e.id] = (v.trunk[e.id] || 0) + e.n;
+    }
+    G.vehicles.push(v);
+  }
+
+  plantVehicleKeys();
+  return G.vehicles.length;
 }
 
 export function startGame(preferSave = true) {
@@ -126,6 +164,12 @@ export function findInteractable() {
   }
   if (packBest) return packBest;
 
+  // While driving, E is how you get out — nothing else competes for it.
+  if (isDriving()) {
+    const car = drivenCar();
+    return { kind: 'exitCar', ref: car, label: 'Get out' };
+  }
+
   // A downed survivor is the next most urgent thing in the world.
   for (const s of G.survivors) {
     if (!s.downed || s.dead) continue;
@@ -149,6 +193,15 @@ export function findInteractable() {
     if (c.looted) continue;
     const d = dist2(p.x, p.y, c.x, c.y);
     if (d < bestD) { bestD = d; best = { kind: 'container', ref: c, label: `Search ${c.label}` }; }
+  }
+
+  for (const v of G.vehicles) {
+    const d = dist2(p.x, p.y, v.x, v.y);
+    if (d >= bestD) continue;
+    bestD = d;
+    best = v.destroyed
+      ? { kind: 'salvageCar', ref: v, label: 'Strip the wreck' }
+      : { kind: 'car', ref: v, label: vehiclePrompt(p, v) };
   }
   for (const s of G.structures) {
     if (s.destroyed) continue;
@@ -190,6 +243,15 @@ function beginInteract(target) {
       break;
     case 'rescue':
       recruit(target.ref);
+      break;
+    case 'car':
+      enterVehicle(p, target.ref);
+      break;
+    case 'exitCar':
+      exitVehicle(p);
+      break;
+    case 'salvageCar':
+      salvageVehicle(target.ref);
       break;
     case 'revive':
       reviveSurvivor(target.ref);
@@ -413,6 +475,17 @@ export function update(dt) {
   // ------------------------------------------------------------- systems --
   rebuildSpatial();
   updatePlayer(dt);
+
+  // Driving takes over movement entirely: the player rides in the car.
+  const driving = isDriving();
+  updateVehicles(dt, driving && !G.ui.panel ? {
+    forward: key('KeyW') || key('ArrowUp'),
+    back: key('KeyS') || key('ArrowDown'),
+    left: key('KeyA') || key('ArrowLeft'),
+    right: key('KeyD') || key('ArrowRight'),
+    brake: key('Space'),
+  } : {});
+
   updateCamera(dt);
 
   if (!p.dead) {
@@ -426,6 +499,22 @@ export function update(dt) {
       if (keyTap('KeyF')) {
         const st = nearestStructure(p.x, p.y, PLAYER.interactRange, (s) => s.type === 'stash');
         if (st) stashWithdrawAmmo();
+      }
+      // The boot: G stows your pack into it, shift+G takes it back out. Works
+      // from the driver's seat or standing beside the car.
+      if (keyTap('KeyG')) {
+        const car = drivenCar() || nearestVehicle(p.x, p.y, PLAYER.interactRange);
+        if (car && !car.destroyed) {
+          if (key('ShiftLeft') || key('ShiftRight')) takeFromTrunk(car);
+          else stowInTrunk(car);
+        }
+      }
+      // Fuel whatever car you are in or standing next to.
+      if (keyTap('KeyR') && (drivenCar() || nearestVehicle(p.x, p.y, PLAYER.interactRange))) {
+        const car = drivenCar() || nearestVehicle(p.x, p.y, PLAYER.interactRange);
+        if (car && !car.destroyed && car.fuel < CAR.fuelMax - 1 && countRes(p.bag, 'fuel') + countRes(G.stash, 'fuel') > 0) {
+          refuelVehicle(car);
+        }
       }
     }
 
@@ -488,6 +577,10 @@ export const api = {
   visibleRecipes, craft, nearWorkbench, upgradeBench, baseCenter,
   grantLoot, rollContainer, spawnPickup, repairStructure, demolishStructure, killPlayer,
   raiseAttribute, buyPerk, recomputeStats, ATTRS, PERKS, perkStatus,
+  spawnVehicles, makeVehicle, enterVehicle, exitVehicle, drivenCar, isDriving,
+  nearestVehicle, vehiclePrompt, tryUnlock, stowInTrunk, takeFromTrunk,
+  refuelVehicle, salvageVehicle, damageVehicle, trunkLoad,
+  releaseTiles, occupyTiles, pickChance, hasKeyFor, plantVehicleKeys, CAR,
   seedRescues, recruit, reviveSurvivor, liveSurvivors, survivorCap,
   refreshAllSurvivors, makeSurvivor, rationsHeld, rationsCarried,
   JOBS, JOB_IDS, rosterLimits, freeTowers, assignJob, SCAVENGE, BUILDER,
