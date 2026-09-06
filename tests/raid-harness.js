@@ -77,12 +77,12 @@
     clearLevelUp();
 
     G.stash.ammoP = 600;
-    p.weapons.push('shotgun');
+    d.api.slotsAdd(p.hotbar, 'shotgun', 1);
     p.mag.shotgun = 6;
-    p.bag.ammoS = 80;
-    p.items.bandage = 8;
-    p.items.medkit = 3;
-    d.api.selectSlot(p, p.weapons.indexOf('shotgun'));
+    d.api.slotsAdd(p.bag, 'ammoS', 80);
+    d.api.slotsAdd(p.bag, 'bandage', 8);
+    d.api.slotsAdd(p.bag, 'medkit', 3);
+    d.api.selectSlot(p, p.hotbar.slots.findIndex((s) => s && s.id === 'shotgun'));
 
     d.setThreat(100);
     await wait(300); clearLevelUp();

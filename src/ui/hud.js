@@ -2,7 +2,7 @@
 // immediate-mode button helper, so clicks are resolved during the draw pass.
 
 import {
-  RES, WEAPONS, ARMORS, CONSUMABLES, STRUCTURES, TILE, THREAT, TERRAIN, T,
+  RES, WEAPONS, GEAR, GEAR_SLOTS, CONSUMABLES, STRUCTURES, TILE, THREAT, TERRAIN, T,
   RECIPES, BENCH_UPGRADE_COST,
 } from '../game/config.js';
 import { G, countRes, totalRes, canAfford } from '../game/state.js';
@@ -24,6 +24,8 @@ import { threatLabel, threatColor } from '../game/threat.js';
 import { dangerAtPx } from '../game/world.js';
 import { clamp, TAU, clock } from '../core/util.js';
 import { sfx } from '../core/audio.js';
+import { drawInventoryPanel } from './inventory.js';
+import { ITEMS } from '../game/items.js';
 
 const C = {
   bg: 'rgba(12,16,10,0.92)',
@@ -90,6 +92,17 @@ function claim(x, y, w, h) {
   G.ui.hudRects.push({ x, y, w, h });
 }
 
+// Handed to panels that live in their own module, so they draw in this file's
+// style without importing it — and so `uiInteractive` still gates their input.
+const UI_KIT = {
+  panel: (...a) => panel(...a),
+  button: (...a) => button(...a),
+  claim: (...a) => claim(...a),
+  uiMouse: () => uiMouse(),
+  mouseDown: () => uiInteractive && Input.mousePressed,
+  mouseUp: () => uiInteractive && Input.mouseReleased,
+};
+
 /** Immediate-mode button. Returns true on the frame it is clicked. */
 function button(ctx, x, y, w, h, label, opts = {}) {
   const { enabled = true, sub = null, color = C.text, small = false } = opts;
@@ -154,6 +167,7 @@ export function drawHUD(ctx, deviceW, deviceH, interactive = true) {
   if (G.ui.buildMode) drawBuildBar(ctx, W, H);
 
   if (G.ui.panel === 'char') drawCharPanel(ctx, W, H);
+  else if (G.ui.panel === 'inv') drawInventoryPanel(ctx, W, H, UI_KIT);
   else if (G.ui.panel === 'craft') drawCraftPanel(ctx, W, H);
   else if (G.ui.panel === 'map') drawMapPanel(ctx, W, H);
 
@@ -194,11 +208,16 @@ function drawVitals(ctx, W, H) {
   ctx.fillText(`${Math.floor(p.xp)}/${p.xpNext}`, x + w - 4, y + 41);
   ctx.textAlign = 'left';
 
-  // Armour + carry load
+  // Armour + carry load. Armour is the total across all five slots — see
+  // recomputeStats; the breakdown lives on the inventory screen.
   ctx.font = '11px "Courier New", monospace';
-  const arm = p.armor ? ARMORS[p.armor] : null;
-  ctx.fillStyle = arm ? C.accent : C.dim;
-  ctx.fillText(arm ? `ARMOUR ${Math.round(arm.dr * 100)}%` : 'NO ARMOUR', x, y + 58);
+  const dr = p.armorDR || 0;
+  const wornCount = GEAR_SLOTS.reduce((n, s) => n + (p.equip[s] ? 1 : 0), 0);
+  ctx.fillStyle = dr > 0 ? C.accent : C.dim;
+  ctx.fillText(
+    dr > 0 ? `ARMOUR ${Math.round(dr * 100)}%  (${wornCount}/5)` : 'UNARMOURED  —  I',
+    x, y + 58,
+  );
 
   const load = bagLoad(p);
   ctx.fillStyle = load > 1 ? C.warn : load > 0.8 ? C.gold : C.dim;
@@ -206,8 +225,9 @@ function drawVitals(ctx, W, H) {
   ctx.fillText(`LOAD ${Math.round(load * 100)}%`, x + w, y + 58);
   ctx.textAlign = 'left';
 
-  // Consumables
-  const bandages = p.items.bandage || 0, kits = p.items.medkit || 0;
+  // Consumables, counted across the pack and the hotbar together.
+  const held = (id) => countRes(p.bag, id) + countRes(p.hotbar, id);
+  const bandages = held('bandage'), kits = held('medkit');
   ctx.fillStyle = bandages + kits > 0 ? C.text : C.dim;
   ctx.fillText(`Q  HEAL   bandage ${bandages}   medkit ${kits}`, x, y + 74);
 
@@ -321,19 +341,42 @@ function drawWeaponBar(ctx, W, H) {
     ctx.fillText(`MELEE  ·  ${Math.round(w.dmg * p.meleeMul)} dmg`, x, y + 34);
   }
 
-  // Slot pips
-  let sx = x + 200;
-  ctx.font = 'bold 11px "Courier New", monospace';
-  for (let i = 0; i < p.weapons.length; i++) {
+  drawHotbarStrip(ctx, x + 196, y - 2);
+}
+
+/**
+ * The always-visible hotbar. Six slots with what is in them, so "what am I
+ * carrying and what am I holding" is answerable without opening anything —
+ * which is the question the first playtest kept asking.
+ */
+function drawHotbarStrip(ctx, x, y) {
+  const p = G.player;
+  const cell = 26;
+  for (let i = 0; i < p.hotbar.slots.length; i++) {
+    const sx = x + i * (cell + 3);
     const sel = i === p.slot;
+    const s = p.hotbar.slots[i];
     ctx.fillStyle = sel ? 'rgba(143,174,106,0.4)' : 'rgba(20,26,16,0.8)';
-    ctx.fillRect(sx, y - 2, 22, 22);
+    ctx.fillRect(sx, y, cell, cell);
     ctx.strokeStyle = sel ? C.borderHi : C.border;
-    ctx.strokeRect(sx + 0.5, y - 1.5, 21, 21);
+    ctx.lineWidth = sel ? 2 : 1;
+    ctx.strokeRect(sx + 0.5, y + 0.5, cell - 1, cell - 1);
+
+    if (s) {
+      const it = ITEMS[s.id];
+      ctx.fillStyle = (it && it.color) || '#9aa2ab';
+      ctx.fillRect(sx + 7, y + 9, cell - 14, cell - 16);
+      if (s.n > 1) {
+        ctx.font = 'bold 9px "Courier New", monospace';
+        ctx.fillStyle = C.text;
+        ctx.textAlign = 'right';
+        ctx.fillText(String(s.n), sx + cell - 2, y + cell - 2);
+        ctx.textAlign = 'left';
+      }
+    }
+    ctx.font = 'bold 9px "Courier New", monospace';
     ctx.fillStyle = sel ? C.text : C.dim;
-    ctx.fillText(`${i + 1}`, sx + 8, y + 13);
-    sx += 26;
-    if (sx > x + 300) break;
+    ctx.fillText(`${i + 1}`, sx + 2, y + 9);
   }
 }
 
@@ -1025,17 +1068,27 @@ function drawStatusTab(ctx, px, py, pw, ph) {
   ctx.fillText('LOADOUT', col2, ry);
   ry += 18;
   ctx.font = '11px "Courier New", monospace';
-  for (let i = 0; i < p.weapons.length; i++) {
-    const wd = WEAPONS[p.weapons[i]];
-    ctx.fillStyle = i === p.slot ? C.gold : C.text;
-    ctx.fillText(`${i + 1}. ${wd.name}`, col2, ry);
-    ctx.fillStyle = C.dim;
-    ctx.fillText(wd.kind === 'gun' ? `${wd.dmg} x${wd.pellets || 1}  mag ${wd.mag}` : `${wd.dmg} dmg`, col2 + 175, ry);
+  for (let i = 0; i < p.hotbar.slots.length; i++) {
+    const s = p.hotbar.slots[i];
+    const wd = s ? WEAPONS[s.id] : null;
+    ctx.fillStyle = i === p.slot ? C.gold : s ? C.text : C.dim;
+    ctx.fillText(`${i + 1}. ${s ? ITEMS[s.id].name : '—'}`, col2, ry);
+    if (wd) {
+      ctx.fillStyle = C.dim;
+      ctx.fillText(wd.kind === 'gun' ? `${wd.dmg} x${wd.pellets || 1}  mag ${wd.mag}` : `${wd.dmg} dmg`, col2 + 175, ry);
+    }
     ry += 15;
   }
-  const arm = p.armor ? ARMORS[p.armor] : null;
-  ctx.fillStyle = arm ? C.accent : C.dim;
-  ctx.fillText(arm ? `${arm.name} — ${Math.round(arm.dr * 100)}% armour` : 'No armour', col2, ry + 6);
+  ry += 6;
+  for (const slot of GEAR_SLOTS) {
+    const id = p.equip[slot];
+    ctx.fillStyle = id ? C.accent : C.dim;
+    ctx.fillText(
+      `${slot.padEnd(6)} ${id ? `${GEAR[id].name}  +${Math.round(GEAR[id].dr * 100)}%` : '—'}`,
+      col2, ry,
+    );
+    ry += 15;
+  }
 }
 
 // ------------------------------------------------------------- people tab ---

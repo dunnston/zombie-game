@@ -2,19 +2,29 @@
 // interactions, the tutorial, and autosave.
 
 import {
-  TILE, PLAYER, THREAT, STRUCTURES, CAMERA, WEAPONS, RECIPES,
+  TILE, PLAYER, THREAT, STRUCTURES, CAMERA, WEAPONS, RECIPES, GEAR, GEAR_SLOTS,
 } from './config.js';
 import {
   G, notify, structAtPx, solidPx, shake, addRes, countRes, pointerOverHud,
 } from './state.js';
 import { createWorld, dangerAtPx, locationAtPx } from './world.js';
-import { createPlayer, updatePlayer, pickRandomSpawn, currentWeapon, selectSlot } from './player.js';
+import {
+  createPlayer, updatePlayer, pickRandomSpawn, currentWeapon, selectSlot,
+  heldId, carriedWeight,
+} from './player.js';
+import {
+  equipFromBag, unequip, equipBest, moveStack, dropStack, dropEquipped,
+} from './equipment.js';
+import {
+  ITEMS, slotsCount, slotsAdd, slotsTake, slotsEntries, slotsClear,
+} from './items.js';
 import {
   updateEnemies, updateSpawning, rebuildSpatial, seedArea, spawnEnemy,
 } from './enemies.js';
 import { updateBullets, updateTurrets, updateTraps } from './combat.js';
 import {
   updatePickups, rollContainer, grantLoot, collectBackpack, seedLoot, spawnPickup,
+  spawnEntryPickup,
 } from './loot.js';
 import {
   buildMenu, canPlace, placeStructure, repairStructure, demolishStructure,
@@ -29,7 +39,7 @@ import {
   addQuiet, CELL,
 } from './pressure.js';
 import { startRaid, updateRaid, forceEndRaid } from './raid.js';
-import { visibleRecipes, craft } from './crafting.js';
+import { visibleRecipes, craft, craftStatus } from './crafting.js';
 import { addXp, raiseAttribute, buyPerk } from './progression.js';
 import { killPlayer, killEnemy } from './damage.js';
 import { initClock, updateClock, nightFactors, clockString, darkness } from './daynight.js';
@@ -48,6 +58,7 @@ import {
   rationsHeld, rationsCarried, JOBS, JOB_IDS, rosterLimits, freeTowers,
   assignJob, SCAVENGE, BUILDER, SURVIVOR,
 } from './survivors.js';
+import { cancelDrag, lastZones, isDragging } from '../ui/inventory.js';
 import { updateFX, clearFX } from '../core/particles.js';
 import * as FX from '../core/particles.js';
 import { Input, key, keyTap, consumeKey, endFrame } from '../core/input.js';
@@ -104,7 +115,9 @@ export function newGame(seed = 20240917) {
   const spot = pickRandomSpawn();
   G.player = createPlayer(spot.x, spot.y);
   // A small leg-up so the first two minutes are about fighting, not scrounging.
-  G.player.bag = { wood: 20, scrap: 10, cloth: 8 };
+  addRes(G.player.bag, 'wood', 20);
+  addRes(G.player.bag, 'scrap', 10);
+  addRes(G.player.bag, 'cloth', 8);
 
   G.camera.x = spot.x;
   G.camera.y = spot.y;
@@ -312,6 +325,17 @@ function finishSearch() {
   completeTutorial('loot');
 }
 
+/**
+ * Opens or closes a panel. Routed through one place so a half-finished drag in
+ * the inventory can never survive the screen closing — the stack would be held
+ * by a panel nobody can see.
+ */
+function setPanel(name) {
+  if (G.ui.panel === 'inv' && name !== 'inv') cancelDrag();
+  G.ui.panel = name;
+  sfx('ui');
+}
+
 // ------------------------------------------------------------- build input --
 
 function updateBuildMode() {
@@ -452,13 +476,14 @@ export function update(dt) {
   G.ui.placeCd = Math.max(0, (G.ui.placeCd || 0) - dt);
 
   // -------------------------------------------------------- global input --
-  if (keyTap('KeyM')) { G.ui.panel = G.ui.panel === 'map' ? null : 'map'; sfx('ui'); }
-  if (keyTap('Tab')) { G.ui.panel = G.ui.panel === 'char' ? null : 'char'; sfx('ui'); }
+  if (keyTap('KeyI')) { setPanel(G.ui.panel === 'inv' ? null : 'inv'); }
+  if (keyTap('KeyM')) { setPanel(G.ui.panel === 'map' ? null : 'map'); }
+  if (keyTap('Tab')) { setPanel(G.ui.panel === 'char' ? null : 'char'); }
   if (keyTap('KeyP')) { const m = toggleMute(); notify(m ? 'Audio muted' : 'Audio on', '#8a8f84'); }
   if (keyTap('F5')) { saveGame() ? notify('Game saved', '#b7e08a') : notify('Save failed', '#c96a5a'); }
 
   if (keyTap('Escape')) {
-    if (G.ui.panel) { G.ui.panel = null; sfx('ui'); }
+    if (G.ui.panel) { setPanel(null); }
     else if (G.ui.buildMode) { G.ui.buildMode = false; sfx('ui'); }
     else { G.paused = !G.paused; sfx('ui'); }
   }
@@ -466,7 +491,7 @@ export function update(dt) {
   if (G.paused) { updateFX(dt); return; }
 
   const craftKey = keyTap('KeyC');
-  if (craftKey) { G.ui.panel = G.ui.panel === 'craft' ? null : 'craft'; sfx('ui'); }
+  if (craftKey) { setPanel(G.ui.panel === 'craft' ? null : 'craft'); }
 
   // Build mode is toggled in exactly one place. Handling B here *and* inside
   // updateBuildMode() meant the same edge-triggered press opened and then
@@ -590,10 +615,16 @@ export const api = {
   buildMenu, structureCost, isUnlocked, currentWeapon, selectSlot,
   startRaid, addXp, addRes, countRes, dangerAtPx, solidPx, shake,
   findInteractable, placeStructure, canPlace, spawnEnemy, forceEndRaid,
-  visibleRecipes, craft, nearWorkbench, upgradeBench, baseCenter,
+  visibleRecipes, craft, craftStatus, nearWorkbench, upgradeBench, baseCenter,
+  spawnEntryPickup, RECIPES,
   grantLoot, rollContainer, spawnPickup, repairStructure, demolishStructure, killPlayer,
   killEnemy,
   raiseAttribute, buyPerk, recomputeStats, ATTRS, PERKS, perkStatus,
+  cancelDrag, isDragging, invZones: () => lastZones,
+  equipFromBag, unequip, equipBest, moveStack, dropStack, dropEquipped,
+  ITEMS, slotsCount, slotsAdd, slotsTake, slotsEntries, GEAR, GEAR_SLOTS,
+  clearBag: (pl) => { slotsClear(pl.bag); },
+  carriedWeight, heldId,
   spawnVehicles, makeVehicle, enterVehicle, exitVehicle, drivenCar, isDriving,
   nearestVehicle, vehiclePrompt, tryUnlock, stowInTrunk, takeFromTrunk,
   refuelVehicle, salvageVehicle, damageVehicle, trunkLoad,

@@ -7,9 +7,26 @@ import { createPlayer, pickRandomSpawn } from './player.js';
 import { makeStructure } from './building.js';
 import { recomputeStats, startingAttrs } from './perks.js';
 import { makeSurvivor, refreshAllSurvivors } from './survivors.js';
-import { bestArmor, spawnPickup } from './loot.js';
+import { spawnPickup } from './loot.js';
+import { ITEMS, stackLimit } from './items.js';
+import { GEAR, GEAR_SLOTS } from './config.js';
 import { clamp } from '../core/util.js';
 import { xpForLevel, TILE } from './config.js';
+
+/**
+ * Rebuilds a slot container from saved data, dropping anything the current
+ * build no longer recognises and clamping stacks to today's limits — a save
+ * must never be able to reintroduce a deleted item or an over-full stack.
+ */
+function restoreSlots(container, saved) {
+  if (!Array.isArray(saved)) return;
+  for (let i = 0; i < container.slots.length; i++) {
+    const s = saved[i];
+    if (!s || !s.id || !ITEMS[s.id]) { container.slots[i] = null; continue; }
+    const n = Math.max(1, Math.min(stackLimit(s.id), Math.floor(s.n) || 1));
+    container.slots[i] = { id: s.id, n };
+  }
+}
 import { CAR, plantVehicleKeys, occupyTiles } from './vehicles.js';
 import { serialisePressure, loadPressure } from './pressure.js';
 
@@ -18,7 +35,11 @@ import { serialisePressure, loadPressure } from './pressure.js';
 // against a v5 world would mark unrelated furniture as searched and re-fill
 // things you had already emptied, so those saves are retired rather than
 // silently corrupted.
-const KEY = 'deadline.save.v6';
+// v7: the player's pack, hotbar and five equipment slots replaced the four
+// parallel collections (bag/items/weapons/armors) a v6 save records. There is
+// no sensible way to place a v6 player's belongings into slots without
+// guessing, so those saves are retired rather than half-restored.
+const KEY = 'deadline.save.v7';
 
 /** Where a dead player would come back, and at what health. */
 function resolveRespawn(p) {
@@ -99,8 +120,8 @@ export function saveGame() {
       })),
       player: {
         x: resolved.x, y: resolved.y, hp: resolved.hp, stam: p.stam,
-        weapons: p.weapons, slot: p.slot, mag: p.mag,
-        bag: p.bag, items: p.items, armors: p.armors,
+        slot: p.slot, mag: p.mag,
+        bag: p.bag.slots, hotbar: p.hotbar.slots, equip: p.equip,
         level: p.level, xp: p.xp, skillPoints: p.skillPoints,
         attrs: p.attrs, perks: p.perks, secondWindCd: p.secondWindCd,
         spawn: p.spawnStructure ? { tx: p.spawnStructure.tx, ty: p.spawnStructure.ty } : null,
@@ -159,12 +180,14 @@ export function loadGame() {
 
     const pd = data.player;
     const p = createPlayer(pd.x, pd.y);
-    p.weapons = pd.weapons && pd.weapons.length ? pd.weapons : p.weapons;
-    p.slot = Math.min(pd.slot || 0, p.weapons.length - 1);
+    restoreSlots(p.bag, pd.bag);
+    restoreSlots(p.hotbar, pd.hotbar);
+    for (const slot of GEAR_SLOTS) {
+      const id = pd.equip ? pd.equip[slot] : null;
+      p.equip[slot] = GEAR[id] ? id : null;
+    }
+    p.slot = clamp(pd.slot || 0, 0, p.hotbar.slots.length - 1);
     p.mag = pd.mag || {};
-    p.bag = pd.bag || {};
-    p.items = pd.items || {};
-    p.armors = pd.armors || [];
     p.level = pd.level || 1;
     p.xp = pd.xp || 0;
     p.xpNext = xpForLevel(p.level);
@@ -173,7 +196,6 @@ export function loadGame() {
     p.perks = pd.perks || {};
     p.secondWindCd = pd.secondWindCd || 0;
     recomputeStats(p);
-    p.armor = bestArmor(p);
     // Belt and braces: never restore a player who is alive on zero health,
     // whatever an older or hand-edited save claims.
     p.hp = clamp(pd.hp ?? p.maxHp, 1, p.maxHp);

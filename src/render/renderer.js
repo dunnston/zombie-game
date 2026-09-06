@@ -569,8 +569,10 @@ function drawPlayer(ctx, p) {
   ctx.beginPath();
   ctx.ellipse(0, 0, 13.5, 11.5, 0, 0, TAU);
   ctx.fill();
-  ctx.fillStyle = p.armor
-    ? (p.armor === 'milVest' ? '#7d8b58' : p.armor === 'heavyVest' ? '#6d7c8e' : '#96a271')
+  // The body slot is what reads at a glance, so that is what tints the torso.
+  const vest = p.equip ? p.equip.body : null;
+  ctx.fillStyle = vest
+    ? (vest === 'milVest' ? '#7d8b58' : vest === 'heavyVest' ? '#6d7c8e' : '#96a271')
     : '#8a9668';
   ctx.beginPath();
   ctx.ellipse(0, 0, 11.5, 9.8, 0, 0, TAU);

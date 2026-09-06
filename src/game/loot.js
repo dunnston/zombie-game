@@ -1,6 +1,11 @@
 // Loot rolls, world pickups and the death backpack.
 
-import { LOOT, RES, WEAPONS, ARMORS, CONSUMABLES, TILE, bagWeight } from './config.js';
+import { LOOT, RES, WEAPONS, GEAR, CONSUMABLES, TILE, bagWeight } from './config.js';
+import {
+  ITEMS, slotsAdd, slotsCount, slotsEntries, slotsWeight, slotsClear,
+  firstEmpty, makeSlots, packAllowance,
+} from './items.js';
+import { recomputeStats } from './perks.js';
 import { G, addResCapped, notify, solidPx } from './state.js';
 import { makeRng, weightedPick, dist2, clamp, TAU } from '../core/util.js';
 import { sfx } from '../core/audio.js';
@@ -45,12 +50,34 @@ export function rollContainer(container, lootMul = 1, opts = {}) {
 }
 
 /** True if the player already owns this weapon. */
-const hasWeapon = (p, id) => p.weapons.includes(id);
+const hasWeapon = (p, id) =>
+  slotsCount(p.bag, id) + slotsCount(p.hotbar, id) > 0;
 
 /**
- * Gives one loot entry to the player. Resources respect carry weight; the
- * overflow is returned so the caller can drop it on the ground.
- * Returns { text, color, overflow: {id,n}|null }.
+ * Puts one non-stacking item (a weapon or a piece of gear) into the first free
+ * slot, preferring the hotbar for weapons so a gun you pick up is immediately
+ * to hand. Returns false when there is nowhere to put it.
+ */
+function giveItem(p, id, preferHotbar = false) {
+  if (preferHotbar && firstEmpty(p.hotbar) >= 0) return slotsAdd(p.hotbar, id, 1) > 0;
+  if (firstEmpty(p.bag) >= 0) return slotsAdd(p.bag, id, 1) > 0;
+  if (firstEmpty(p.hotbar) >= 0) return slotsAdd(p.hotbar, id, 1) > 0;
+  return false;
+}
+
+/**
+ * Gives one loot entry to the player. Resources respect carry weight; anything
+ * that does not fit comes back as `overflow` so the caller can leave it on the
+ * ground.
+ *
+ * `overflow.entry` is a full **prefixed** entry id (`item:bandage`,
+ * `weapon:rifle`, `gear:milVest`, or a bare resource id). It has to be, because
+ * the pickup it becomes is decoded by the same grammar: an earlier version
+ * returned the bare id and hard-coded the pickup kind to 'res', so overflowing
+ * bandages became a pickup nothing could decode, which was then deleted on
+ * contact.
+ *
+ * Returns { text, color, overflow: {entry,n}|null }.
  */
 export function giveEntry(p, entry) {
   const { id, n } = entry;
@@ -63,27 +90,43 @@ export function giveEntry(p, entry) {
       // Duplicate guns convert to a useful magazine of their ammo instead.
       if (w.ammo) {
         const give = w.mag * 2;
-        const got = addResCapped(p.bag, w.ammo, give, p.carryCap);
+        const got = addResCapped(p.bag, w.ammo, give, packAllowance(p));
         return { text: `${w.name} (spare ammo +${got})`, color: '#d8c98a' };
       }
       return { text: `${w.name} (already carried)`, color: '#8a8f84' };
     }
-    p.weapons.push(wid);
+    if (!giveItem(p, wid, true)) {
+      // Never destroy it: hand it back so it stays on the ground and the player
+      // can make room and come back for it.
+      return {
+        text: `${w.name} — NO ROOM`, color: '#c96a5a',
+        overflow: { entry: id, n: 1 },
+      };
+    }
     p.mag[wid] = w.mag || 0;
     return { text: `${w.name} acquired`, color: '#ffe08a', major: true };
   }
 
-  if (id.startsWith('armor:')) {
-    const aid = id.slice(6);
-    const a = ARMORS[aid];
+  if (id.startsWith('armor:') || id.startsWith('gear:')) {
+    const aid = id.slice(id.indexOf(':') + 1);
+    const a = GEAR[aid];
     if (!a) return null;
-    if (!p.armors.includes(aid)) p.armors.push(aid);
-    const best = bestArmor(p);
-    if (best !== p.armor) {
-      p.armor = best;
-      return { text: `${a.name} equipped (+${Math.round(a.dr * 100)}% armour)`, color: '#ffe08a', major: true };
+    // Gear goes into the pack. Choosing what to wear is the player's job now —
+    // silently equipping the highest-armour piece is exactly what made the old
+    // system impossible to reason about.
+    if (!giveItem(p, aid)) {
+      return {
+        text: `${a.name} — NO ROOM`, color: '#c96a5a',
+        overflow: { entry: `gear:${aid}`, n: 1 },
+      };
     }
-    return { text: `${a.name} stowed`, color: '#a8b09a' };
+    const worn = p.equip[a.slot];
+    const better = !worn || a.dr > GEAR[worn].dr;
+    return {
+      text: better ? `${a.name} — better than what you are wearing` : `${a.name} stowed`,
+      color: better ? '#ffe08a' : '#a8b09a',
+      major: better,
+    };
   }
 
   if (id.startsWith('key:')) {
@@ -97,26 +140,35 @@ export function giveEntry(p, entry) {
     const iid = id.slice(5);
     const c = CONSUMABLES[iid];
     if (!c) return null;
-    p.items[iid] = (p.items[iid] || 0) + n;
-    return { text: `${c.name} x${n}`, color: c.color };
+    const got = addResCapped(p.bag, iid, n, packAllowance(p));
+    return {
+      text: got > 0 ? `${c.name} x${got}` : `${c.name} — PACK FULL`,
+      color: got > 0 ? c.color : '#c96a5a',
+      overflow: n - got > 0 ? { entry: `item:${iid}`, n: n - got } : null,
+    };
   }
 
   const def = RES[id];
   if (!def) return null;
-  const got = addResCapped(p.bag, id, n, p.carryCap);
+  const got = addResCapped(p.bag, id, n, packAllowance(p));
   const over = n - got;
   return {
     text: got > 0 ? `${def.name} +${got}` : `${def.name} — PACK FULL`,
     color: got > 0 ? def.color : '#c96a5a',
-    overflow: over > 0 ? { id, n: over } : null,
+    overflow: over > 0 ? { entry: id, n: over } : null,
   };
 }
 
-export function bestArmor(p) {
+/**
+ * The best piece carried for each slot. Used only by the inventory screen's
+ * quick-equip button now — nothing equips itself behind the player's back.
+ */
+export function bestGearFor(p, slot) {
   let best = null, dr = -1;
-  for (const id of p.armors) {
-    const a = ARMORS[id];
-    if (a && a.dr > dr) { dr = a.dr; best = id; }
+  for (const s of p.bag.slots) {
+    if (!s) continue;
+    const g = GEAR[s.id];
+    if (g && g.slot === slot && g.dr > dr) { dr = g.dr; best = s.id; }
   }
   return best;
 }
@@ -130,7 +182,9 @@ export function grantLoot(p, entries, x, y) {
     if (!r) continue;
     lines.push(r);
     if (r.major) anyMajor = true;
-    if (r.overflow) spawnPickup(x, y, 'res', r.overflow.id, r.overflow.n);
+    // The overflow carries its own prefixed entry id, so a bandage that did not
+    // fit becomes a bandage on the floor rather than an undecodable pickup.
+    if (r.overflow) spawnEntryPickup(x, y, r.overflow.entry, r.overflow.n);
   }
   return { lines, anyMajor };
 }
@@ -189,66 +243,91 @@ export function updatePickups(dt) {
   }
 }
 
+// Ground pickups and loot entries are the same grammar seen from two sides.
+// Both directions live here so they cannot drift apart — they already did
+// once, and the symptom was rare gear silently deleted on contact.
+
+/** Splits a prefixed entry id into the {kind, id} a pickup is stored as. */
+export function entryToPickup(entry) {
+  const c = entry.indexOf(':');
+  if (c < 0) return { kind: 'res', id: entry };
+  const prefix = entry.slice(0, c);
+  const id = entry.slice(c + 1);
+  if (prefix === 'weapon') return { kind: 'weapon', id };
+  if (prefix === 'item') return { kind: 'item', id };
+  if (prefix === 'armor' || prefix === 'gear') return { kind: 'gear', id };
+  if (prefix === 'key') return { kind: 'key', id };
+  return { kind: 'res', id: entry };
+}
+
+/** Rebuilds the entry id a pickup came from, for handing back to giveEntry. */
 const pickupEntryId = (it) =>
   it.kind === 'res' ? it.id
     : it.kind === 'item' ? `item:${it.id}`
       : it.kind === 'weapon' ? `weapon:${it.id}`
-        : `armor:${it.id}`;
+        : it.kind === 'key' ? `key:${it.id}`
+          : `gear:${it.id}`;
+
+/** Drops a loot entry on the ground, decoding its kind from the entry id. */
+export function spawnEntryPickup(x, y, entry, n) {
+  const { kind, id } = entryToPickup(entry);
+  spawnPickup(x, y, kind, id, n);
+}
 
 // ---------------------------------------------------------------- backpacks --
 
 /** Everything the player was carrying, dropped where they fell. */
 export function dropBackpack(p) {
-  const contents = {
-    bag: { ...p.bag },
-    items: { ...p.items },
-    weapons: p.weapons.filter((w) => w !== 'fists' && w !== p.startWeapon),
-    armors: [...p.armors],
-    mag: { ...p.mag },
+  // Everything carried and worn, as one id->count map. You keep the starting
+  // pipe so a respawn is never completely toothless.
+  const held = {};
+  const take = (cont) => {
+    const entries = slotsEntries(cont);
+    for (const id in entries) held[id] = (held[id] || 0) + entries[id];
   };
-  const empty = bagWeight(contents.bag) === 0 && contents.weapons.length === 0 &&
-    contents.armors.length === 0 && Object.keys(contents.items).length === 0;
-  if (empty) return null;
+  take(p.bag);
+  take(p.hotbar);
+  for (const slot in p.equip) {
+    const id = p.equip[slot];
+    if (id) held[id] = (held[id] || 0) + 1;
+  }
+  if (held[p.startWeapon]) {
+    held[p.startWeapon] -= 1;
+    if (held[p.startWeapon] <= 0) delete held[p.startWeapon];
+  }
+
+  const contents = { bag: held, mag: { ...p.mag } };
+  if (Object.keys(held).length === 0) return null;
 
   const pack = { x: p.x, y: p.y, contents, t: 0, id: Date.now() + Math.random() };
   G.backpacks.push(pack);
 
-  p.bag = {};
-  p.items = {};
-  p.armors = [];
-  p.armor = null;
-  p.weapons = p.weapons.filter((w) => w === 'fists' || w === p.startWeapon);
-  if (!p.weapons.includes(p.startWeapon)) p.weapons.push(p.startWeapon);
-  p.slot = Math.min(p.slot, p.weapons.length - 1);
+  slotsClear(p.bag);
+  slotsClear(p.hotbar);
+  for (const slot in p.equip) p.equip[slot] = null;
+  slotsAdd(p.hotbar, p.startWeapon, 1);
+  p.slot = 0;
+  // Losing your armour has to actually cost you the mitigation — armorDR is
+  // produced by recomputeStats and nothing else may write it.
+  recomputeStats(p);
   return pack;
 }
 
 export function collectBackpack(p, pack) {
   let n = 0;
-  for (const id in pack.contents.bag) {
-    const got = addResCapped(p.bag, id, pack.contents.bag[id], p.carryCap);
+  for (const id of Object.keys(pack.contents.bag)) {
+    const want = pack.contents.bag[id];
+    const got = addResCapped(p.bag, id, want, packAllowance(p));
     pack.contents.bag[id] -= got;
     if (pack.contents.bag[id] <= 0) delete pack.contents.bag[id];
+    if (got > 0 && WEAPONS[id] && p.mag[id] === undefined) {
+      p.mag[id] = pack.contents.mag[id] ?? WEAPONS[id].mag ?? 0;
+    }
     n += got;
   }
-  for (const id in pack.contents.items) {
-    p.items[id] = (p.items[id] || 0) + pack.contents.items[id];
-    n += pack.contents.items[id];
-  }
-  pack.contents.items = {};
-  for (const w of pack.contents.weapons) {
-    if (!p.weapons.includes(w)) {
-      p.weapons.push(w);
-      p.mag[w] = pack.contents.mag[w] ?? (WEAPONS[w] ? WEAPONS[w].mag : 0);
-      n++;
-    }
-  }
-  pack.contents.weapons = [];
-  for (const a of pack.contents.armors) if (!p.armors.includes(a)) { p.armors.push(a); n++; }
-  pack.contents.armors = [];
-  p.armor = bestArmor(p);
 
-  const leftover = bagWeight(pack.contents.bag);
+  let leftover = 0;
+  for (const id in pack.contents.bag) leftover += pack.contents.bag[id];
   if (leftover <= 0) {
     G.backpacks.splice(G.backpacks.indexOf(pack), 1);
     notify('Pack recovered', '#b7e08a');

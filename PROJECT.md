@@ -70,10 +70,10 @@ feedback driving the work.** Five rounds merged.
 
 | | |
 | --- | --- |
-| Source | 29 modules, ~11,200 lines, no dependencies but Vite |
+| Source | 32 modules, ~12,300 lines, no dependencies but Vite |
 | Assets | Zero. Every sprite is drawn in code at boot; every sound is WebAudio. |
-| Tests | 53 Node assertions; browser suite 239 |
-| Save format | **v6** |
+| Tests | 60 Node assertions; browser suite 279 |
+| Save format | **v7** |
 | Performance | ~57fps with 90 active enemies |
 
 ### Shipped
@@ -98,8 +98,8 @@ That produced the current round of work:
 | --- | --- |
 | Zombies never stop coming | Quiet field — clearing ground earns a lull (PR #7) |
 | Level 7 in about ten minutes | Steeper XP curve (PR #7) |
-| No inventory, equipment slots or hotbar | Slot inventory, drag and drop (planned) |
-| Crafting "missing" | Move it into the inventory screen where people look (planned) |
+| No inventory, equipment slots or hotbar | Slot inventory with five equipment slots, hotbar, drag and drop (PR #8) |
+| Crafting "missing" | Still on `C`; folding it into the inventory screen is next |
 | Wants hunger and thirst | Light version, against pillar 1 but explicitly reaffirmed (planned) |
 | Wants tiered storage | Crate / Stash / Locker aggregating into one view (planned) |
 
@@ -124,6 +124,12 @@ Walkers and runners threaten *you*; brutes are what breach a wall.
 **Scavenging.** ~24 kinds of searchable fitting, placed by building type, each
 with loot that reads true to it. Weight-capped pack, shared stash, death drops a
 recoverable backpack.
+
+**Inventory and equipment.** A 30-slot pack grid with stacking, a six-slot
+hotbar that decides what you are holding, and five equipment slots — head,
+body, hands, legs, feet — with fifteen pieces of gear across three tiers.
+Everything moves by dragging. Capacity is weight, not slot count, and the
+weight bar counts the pack and the hotbar together.
 
 **Building.** Walls in four tiers, gate, spike trap, workbench (2 tiers), stash,
 bedroll, bunk, watchtower, generator, turret, floodlight, plus repair and
@@ -173,6 +179,9 @@ src/
     progression.js   XP, levels, spending points
     daynight.js  survivors.js  vehicles.js
     pressure.js      the quiet field — why cleared ground stays cleared
+    items.js         one registry for everything, and the slot-container ops
+    equipment.js     equipping, and the moves the inventory screen makes
+  ui/inventory.js    the inventory screen: grid, gear slots, hotbar, drag/drop
     save.js          LocalStorage serialisation
     game.js          update order, interactions, tutorial, camera
   render/renderer.js world drawing, y-sorted draw list, night pass
@@ -228,6 +237,12 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | A raid ends when nothing is happening, not only when every raider is dead | Without pathfinding, the last few raiders can always become unreachable, and "kill them all" is then unsatisfiable. Watching progress — kills, structure damage, player damage — ends the raid in every stuck case rather than only the ones anyone predicted. |
 | A raid the player did not finish pays out by share killed | Otherwise hiding until the horde gave up beat defending, and the 300s backstop handed out full salvage for a flattened base. |
 | Killing buys local, temporary quiet | The spawner keeps a standing population near the player and refills it every 0.6s, so there was no lull anywhere, ever — the first playtest could not get a base up. Quiet is earned by clearing and decays in ~4.5 minutes, so the world is still hostile (pillar 6); it is just no longer uniformly hostile everywhere at once. Raid spawning ignores it and raid kills do not earn it, so raids stay exactly as dangerous. |
+| One slot model behind the existing resource API | `addRes`/`takeRes`/`countRes` kept their signatures and learned to tell a slot container from a plain id->count map. That is what let the pack become a drag-and-drop grid while building, crafting, survivor upkeep, car boots and raid rewards went untouched. |
+| The stash, car boots and survivor cargo stay plain maps | Nothing addresses an individual slot in them, so a grid would be cost without benefit. Revisit when tiered storage containers land. |
+| Loot entry ids have exactly one encoder and one decoder | The prefixed grammar (`weapon:`/`item:`/`gear:`) was decoded by three hand-written if-chains. Adding `gear:` updated one of them, and the other two turned a scavenged helmet into a pickup nothing could read, which was then deleted on contact. `entryToPickup`/`pickupEntryId` in loot.js are now the only pair. |
+| Anything that will not fit lands on the ground | A full inventory is a normal state, and "make room and come back" only works if the item is still there. No loot path may destroy something for want of a slot. |
+| Nothing equips itself any more | `bestArmor()` silently wore whatever had the highest damage reduction, so the player could neither choose nor even see what they had on. Gear now goes to the pack and waits. |
+| `carryCap` is a budget for the pack *and* the hotbar | The weight bar counts both, so the capacity check has to as well — otherwise loot keeps fitting after the bar reads 100%. `packAllowance()` is the single place that nets it off. |
 | The quiet field is sampled bilinearly | Reading the containing cell made the payoff depend on where inside a 256px square you stood: measured, the same six kills bought 40 seconds of calm or none. |
 
 ---
@@ -236,9 +251,13 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 
 ### Next up (highest value first)
 
-1. **Finish the playtest response.** Slot inventory with equipment slots, a
-   hotbar and drag and drop; crafting moved inside it; tiered storage; light
+1. **Finish the playtest response.** Crafting folded into the inventory screen
+   (the owner never found it on `C`), tiered storage containers, and light
    hunger and thirst. See `tasks/todo.md` for the working plan.
+2. **Decide what to do with `GameAssets/`.** Seven 1448x1086 art boards arrived
+   mid-session. They are presentation sheets, not sprite atlases: labelled,
+   captioned, and with **no alpha channel**. Using them means cropping and
+   keying out soft-shadowed art by hand. See §7 note below.
 2. **The owner plays it again**, after the pacing fix. The remaining feel
    questions — is the shotgun punchy, is kiting a runner tense or annoying —
    are still unanswered.
@@ -326,8 +345,8 @@ round. Current expected totals:
 
 | Suite | Expected |
 | --- | --- |
-| `npm test` (Node, pure logic) | 53 |
-| `tests/browser-smoke.js` | 239 |
+| `npm test` (Node, pure logic) | 60 |
+| `tests/browser-smoke.js` | 279 |
 
 **Run the browser suite with the page focused.** Its waits are counted in
 animation frames, and a backgrounded tab throttles `requestAnimationFrame` to
@@ -402,6 +421,10 @@ input (`key`, `tap`, `mouseDown`, `aimAt`) and the whole `api` surface.
 
 Newest first. One line per meaningful change.
 
+- **2026-09-06** — Slot inventory: a 30-slot pack grid, six-slot hotbar, five
+  equipment slots (head/body/hands/legs/feet) with fifteen gear pieces, drag
+  and drop throughout, and capacity by weight. Save → v7. Asked for three
+  times before it got built.
 - **2026-09-06** — First playtest. Ambient spawning now relents where the player
   has cleared: a decaying quiet field means killing a group buys ~30s with
   nothing new arriving, measured. XP curve steepened — level 7 costs 2.5× what

@@ -2,7 +2,7 @@
 // Kept in its own module so combat/enemies/building never need to import
 // each other.
 
-import { PLAYER, ARMORS, THREAT } from './config.js';
+import { PLAYER, THREAT } from './config.js';
 import { G, notify, shake, screenFlash, removeStructure } from './state.js';
 import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
@@ -85,7 +85,8 @@ export function damagePlayer(amount, fromX, fromY, label = '') {
   const p = G.player;
   if (!p || p.dead || p.invuln > 0 || p.godMode) return 0;
 
-  const dr = p.armor && ARMORS[p.armor] ? ARMORS[p.armor].dr : 0;
+  // recomputeStats sums the five equipment slots into armorDR — see perks.js.
+  const dr = p.armorDR || 0;
   const dealt = Math.max(1, amount * (1 - dr));
   p.hp -= dealt;
   p.invuln = PLAYER.invulnAfterHit;
