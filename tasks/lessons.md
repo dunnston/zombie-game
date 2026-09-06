@@ -356,3 +356,30 @@ found it in the first minute, because there the player actually fights.
 **Rule:** when a value changes type, grep for every consumer, and check the
 suite has a case where the *player* does the thing — not just a proxy for it.
 The smoke suite now has one.
+
+## Round 6 — title screen, save slots, key bindings
+
+### A test suite that writes to the browser must leave it as it found it
+
+Every `api.saveGame()` in the smoke suite now lands in a save slot, and the
+suite saves a dozen times from games it started itself. Without cleanup, one
+run would leave the player's LOAD GAME screen full of "Game 7", "Game 8"…
+and reset their key bindings. The suite records the slots and bindings it
+finds at the start and restores both at the end — and asserts that it did.
+
+**Rule:** if a test touches persistent state a person can see, the last thing
+it does is put that state back, and it checks.
+
+### When two modules need each other's helpers, neither should own them
+
+The title screen needed the HUD's panels and buttons; the HUD needed the
+menu's controls panel for the pause menu. Importing across both ways is a
+cycle that works until it does not. Moving the kit into `ui/kit.js` made it a
+leaf both can import, and the HUD file got shorter for it.
+
+### The keyboard is read in one place, so rebinding was a lookup table
+
+Because PR #9 had already put every simulation key read behind
+`gatherLocalIntent()`, making the keys rebindable meant replacing
+`key('KeyW')` with `act('moveUp')` in one file plus the handful of UI keys in
+`game.js`. The boundary paid for itself one round after it was drawn.

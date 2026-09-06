@@ -8,7 +8,8 @@
 // the sim never has to know about them.
 
 import { G } from './state.js';
-import { Input, key, keyTap } from '../core/input.js';
+import { Input } from '../core/input.js';
+import { act, actTap } from '../core/bindings.js';
 
 export function makeIntent() {
   return {
@@ -92,49 +93,50 @@ export function gatherLocalIntent(p) {
 
   if (panel) return it;
 
+  // Everything below asks about *actions*, never keys — see core/bindings.js.
   if (driving) {
     const d = it.drive;
-    d.forward = key('KeyW') || key('ArrowUp');
-    d.back = key('KeyS') || key('ArrowDown');
-    d.left = key('KeyA') || key('ArrowLeft');
-    d.right = key('KeyD') || key('ArrowRight');
-    d.brake = key('Space');
+    d.forward = act('moveUp');
+    d.back = act('moveDown');
+    d.left = act('moveLeft');
+    d.right = act('moveRight');
+    d.brake = act('brake');
   } else {
     let ix = 0, iy = 0;
-    if (key('KeyW') || key('ArrowUp')) iy -= 1;
-    if (key('KeyS') || key('ArrowDown')) iy += 1;
-    if (key('KeyA') || key('ArrowLeft')) ix -= 1;
-    if (key('KeyD') || key('ArrowRight')) ix += 1;
+    if (act('moveUp')) iy -= 1;
+    if (act('moveDown')) iy += 1;
+    if (act('moveLeft')) ix -= 1;
+    if (act('moveRight')) ix += 1;
     if (ix !== 0 || iy !== 0) {
       const len = Math.hypot(ix, iy);
       ix /= len; iy /= len;
     }
     it.mx = ix; it.my = iy;
-    it.sneak = key('ControlLeft') || key('ControlRight');
-    it.sprint = key('ShiftLeft') || key('ShiftRight');
+    it.sneak = act('sneak');
+    it.sprint = act('sprint');
   }
 
   // A search in progress keeps going while E stays down, build mode or not.
-  it.interactHeld = key('KeyE');
+  it.interactHeld = act('interact');
 
   // Build mode owns the mouse, the wheel, the digits and every action key —
   // you can still walk, but you are placing things, not fighting or looting.
   if (building) return it;
 
-  it.interact = keyTap('KeyE');
-  it.withdrawAmmo = keyTap('KeyF');
-  if (keyTap('KeyG')) {
-    if (key('ShiftLeft') || key('ShiftRight')) it.unstow = true;
+  it.interact = actTap('interact');
+  it.withdrawAmmo = actTap('withdraw');
+  if (actTap('stow')) {
+    if (act('sprint')) it.unstow = true;
     else it.stow = true;
   }
   // R is claimed by refuelling first, in game.js, which clears this flag.
-  it.reload = keyTap('KeyR');
+  it.reload = actTap('reload');
 
   it.fire = Input.mouseDown;
   it.firePressed = Input.mousePressed;
-  it.use = keyTap('KeyQ');
+  it.use = actTap('useHeal');
   for (let i = 0; i < 6; i++) {
-    if (keyTap(`Digit${i + 1}`)) it.slot = i;
+    if (actTap(`slot${i + 1}`)) it.slot = i;
   }
   if (Input.wheel !== 0) it.wheel = Input.wheel > 0 ? 1 : -1;
   return it;

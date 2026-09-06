@@ -26,6 +26,26 @@ import {
   ITEMS, makeSlots, slotsAdd, slotsTake, slotsCount, slotsWeight, stackLimit,
 } from '../src/game/items.js';
 import { makeRng, weightedPick, clamp, angleDelta, hash2, pruneInPlace, circleRectOverlap } from '../src/core/util.js';
+import {
+  ACTIONS, ACTION_BY_ID, codesFor, rebind, resetBinds, loadBinds, saveBinds, conflictsFor,
+  keyLabel, isDefault, boundCodes, RESERVED,
+} from '../src/core/bindings.js';
+import {
+  listSlots, createSlot, deleteSlot, renameSlot, defaultName, latestSlot, hasSave,
+  migrateLegacy, saveGame, playtimeLabel, INDEX_KEY,
+} from '../src/game/saves.js';
+import { LEGACY_KEY } from '../src/game/save.js';
+
+/** A localStorage stand-in for the Node tests: the same four calls, in memory. */
+function fakeStorage() {
+  const m = new Map();
+  return {
+    getItem: (k) => (m.has(k) ? m.get(k) : null),
+    setItem: (k, v) => { m.set(k, String(v)); },
+    removeItem: (k) => { m.delete(k); },
+    keys: () => [...m.keys()],
+  };
+}
 
 // ------------------------------------------------------------------- util ---
 
@@ -729,4 +749,138 @@ test('player tuning keeps the fantasy intact', () => {
   assert.ok(ENEMIES.runner.speed > PLAYER.speed * 0.6, 'runners still need to be scary');
   assert.ok(PLAYER.respawnTime <= 5, 'death should not mean waiting around');
   assert.ok(PLAYER.searchTime < 2, 'looting must stay snappy');
+});
+
+// -------------------------------------------------------------- bindings ---
+
+test('every action has a label, a group and at least one default key', () => {
+  const ids = new Set();
+  for (const a of ACTIONS) {
+    assert.ok(a.id && a.label && a.group, `${a.id} is described`);
+    assert.ok(Array.isArray(a.def) && a.def.length >= 1, `${a.id} has a default`);
+    assert.ok(!ids.has(a.id), `${a.id} is unique`);
+    ids.add(a.id);
+    for (const c of a.def) assert.ok(!RESERVED.has(c), `${a.id} does not default to a reserved key`);
+  }
+  // The controls the README advertises are still the defaults.
+  assert.deepEqual(codesFor('moveUp'), ['KeyW', 'ArrowUp']);
+  assert.deepEqual(codesFor('interact'), ['KeyE']);
+  assert.deepEqual(codesFor('slot3'), ['Digit3']);
+});
+
+test('rebinding replaces an action\'s keys, persists, and can be reset', () => {
+  globalThis.localStorage = fakeStorage();
+  resetBinds();
+  assert.ok(rebind('moveRight', 'KeyL'));
+  assert.deepEqual(codesFor('moveRight'), ['KeyL']);
+  assert.ok(!isDefault('moveRight'));
+  assert.ok(boundCodes().has('KeyL') && !boundCodes().has('KeyD'));
+  // A fresh load reads it back over the defaults.
+  resetBinds();
+  assert.deepEqual(codesFor('moveRight'), ['KeyD', 'ArrowRight']);
+  loadBinds();
+  assert.deepEqual(codesFor('moveRight'), ['KeyL']);
+  resetBinds();
+  saveBinds();
+  loadBinds();
+  assert.ok(isDefault('moveRight'));
+  delete globalThis.localStorage;
+});
+
+test('a key on two actions is reported as a conflict, not refused; Escape is refused', () => {
+  globalThis.localStorage = fakeStorage();
+  resetBinds();
+  rebind('moveLeft', 'KeyL');
+  rebind('moveRight', 'KeyL');
+  assert.deepEqual(conflictsFor('moveRight'), ['moveLeft']);
+  assert.deepEqual(conflictsFor('moveLeft'), ['moveRight']);
+  assert.equal(conflictsFor('interact').length, 0);
+  assert.equal(rebind('interact', 'Escape'), false);
+  assert.deepEqual(codesFor('interact'), ['KeyE']);
+  assert.equal(rebind('noSuchAction', 'KeyZ'), false);
+  resetBinds();
+  delete globalThis.localStorage;
+});
+
+test('a saved binding for an action that no longer exists is dropped, not crashed on', () => {
+  globalThis.localStorage = fakeStorage();
+  globalThis.localStorage.setItem('deadline.binds', JSON.stringify({
+    moveUp: ['KeyT'], gone: ['KeyZ'], interact: ['Escape', 'KeyY'], craft: 'KeyC',
+  }));
+  loadBinds();
+  assert.deepEqual(codesFor('moveUp'), ['KeyT']);
+  assert.equal(codesFor('gone').length, 0);
+  assert.deepEqual(codesFor('interact'), ['KeyY'], 'the reserved key is filtered out');
+  assert.deepEqual(codesFor('craft'), ACTION_BY_ID.craft.def, 'a malformed entry keeps the default');
+  resetBinds();
+  delete globalThis.localStorage;
+});
+
+test('key labels read like a keyboard, not like event codes', () => {
+  assert.equal(keyLabel('KeyW'), 'W');
+  assert.equal(keyLabel('Digit3'), '3');
+  assert.equal(keyLabel('ShiftLeft'), 'Left Shift');
+  assert.equal(keyLabel('ArrowUp'), '↑');
+  assert.equal(keyLabel('F5'), 'F5');
+  assert.equal(keyLabel(null), '—');
+});
+
+// ------------------------------------------------------------- save slots ---
+
+test('save slots are created, listed newest first, renamed and deleted', () => {
+  globalThis.localStorage = fakeStorage();
+  assert.equal(hasSave(), false);
+  assert.equal(latestSlot(), null);
+  assert.equal(defaultName('solo'), 'Game 1');
+  const a = createSlot('First run', 'solo');
+  const b = createSlot('', 'solo');
+  assert.equal(b.name, 'Game 1', 'an empty name gets the first free default');
+  assert.equal(defaultName('solo'), 'Game 2', 'and the next one moves on');
+  assert.equal(defaultName('coop'), 'Co-op world 1');
+  assert.ok(hasSave());
+  assert.equal(listSlots().length, 2);
+  // Touch b so it is the most recent.
+  b.updated = a.updated + 1000;
+  globalThis.localStorage.setItem(INDEX_KEY, JSON.stringify({ v: 1, current: b.id, slots: [a, b] }));
+  assert.equal(latestSlot().id, b.id);
+  assert.ok(renameSlot(a.id, 'Renamed'));
+  assert.equal(listSlots().find((s) => s.id === a.id).name, 'Renamed');
+  assert.ok(deleteSlot(b.id));
+  assert.equal(listSlots().length, 1);
+  assert.equal(latestSlot().id, a.id);
+  assert.equal(deleteSlot('nope'), false);
+  delete globalThis.localStorage;
+});
+
+test('the single pre-slot save is migrated into slot 1 and the old key removed', () => {
+  globalThis.localStorage = fakeStorage();
+  const legacy = { v: 6, seed: 42, time: 610, day: 3, stats: { kills: 17 }, player: { level: 5 } };
+  globalThis.localStorage.setItem(LEGACY_KEY, JSON.stringify(legacy));
+  assert.ok(migrateLegacy());
+  const slots = listSlots();
+  assert.equal(slots.length, 1);
+  assert.equal(slots[0].name, 'Game 1');
+  assert.equal(slots[0].day, 3);
+  assert.equal(slots[0].level, 5);
+  assert.equal(slots[0].kills, 17);
+  assert.equal(slots[0].seed, 42);
+  assert.equal(globalThis.localStorage.getItem(LEGACY_KEY), null, 'the old key is gone');
+  assert.deepEqual(JSON.parse(globalThis.localStorage.getItem('deadline.slot.' + slots[0].id)), legacy,
+    'the payload is carried over untouched');
+  assert.equal(migrateLegacy(), false, 'a second run finds nothing to do');
+  delete globalThis.localStorage;
+});
+
+test('saving with no game refuses rather than writing an empty slot', () => {
+  globalThis.localStorage = fakeStorage();
+  G.world = null;
+  assert.equal(saveGame(), false);
+  assert.equal(listSlots().length, 0);
+  delete globalThis.localStorage;
+});
+
+test('play time reads as minutes and hours', () => {
+  assert.equal(playtimeLabel(0), '0m');
+  assert.equal(playtimeLabel(47 * 60), '47m');
+  assert.equal(playtimeLabel(2 * 3600 + 5 * 60), '2h 05m');
 });

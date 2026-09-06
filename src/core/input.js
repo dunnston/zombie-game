@@ -17,17 +17,33 @@ export const Input = {
 
 // Keys the browser would otherwise use for scrolling, quick-find or reloading.
 // F5 is ours: we advertise it as the manual save, so the native reload has to
-// be cancelled or the page navigates away before the handler ever runs.
+// be cancelled or the page navigates away before the handler ever runs. On top
+// of this fixed set, bindings.js registers "anything currently bound", so a
+// player who moves on the arrow keys or Space is not also scrolling the page.
 const SWALLOW = new Set([
   'Space', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
   'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Slash', 'Quote', 'F5',
 ]);
+let swallowExtra = () => false;
+
+export function setSwallowPredicate(fn) { swallowExtra = fn || (() => false); }
+
+/** A real text box has focus — the keyboard is typing, not playing. */
+const typing = (e) => {
+  const t = e.target;
+  return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA');
+};
 
 export function initInput(canvas) {
   Input._canvas = canvas;
 
   window.addEventListener('keydown', (e) => {
-    if (SWALLOW.has(e.code)) e.preventDefault();
+    if (typing(e)) {
+      // Escape still has to reach the menu; everything else is the text field's.
+      if (e.code !== 'Escape') return;
+    } else if (SWALLOW.has(e.code) || swallowExtra(e.code)) {
+      e.preventDefault();
+    }
     if (e.repeat) return;
     Input.down.add(e.code);
     Input.pressed.add(e.code);

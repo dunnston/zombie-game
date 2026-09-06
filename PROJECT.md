@@ -4,7 +4,7 @@
 at the start of a session and updated at the end of one. If something here
 contradicts the code, the code is right and this file needs fixing — say so.
 
-- **Last updated:** 2026-09-06, multiplayer foundation in review
+- **Last updated:** 2026-09-06, title screen / save slots / key bindings in review
 - **Repo:** https://github.com/dunnston/zombie-game
 - **Owner:** dunnston
 
@@ -66,14 +66,14 @@ These settle arguments. When a decision is close, the pillar wins.
 ## 3. Where we are right now
 
 **Status: a genuinely playable game, well past MVP, now being made
-multiplayer.** Six rounds merged; the co-op foundation is in review.
+multiplayer.** Seven rounds merged; the menu-and-saves round is in review.
 
 | | |
 | --- | --- |
-| Source | 33 modules, ~12,700 lines, no dependencies but Vite |
+| Source | 36 modules, ~13,600 lines, no dependencies but Vite |
 | Assets | Zero. Every sprite is drawn in code at boot; every sound is WebAudio. |
-| Tests | 60 Node assertions; browser suite 305 |
-| Save format | **v7** |
+| Tests | 69 Node assertions; browser suite 330 |
+| Save format | **v7** payload, in **slots** (index v1) |
 | Performance | ~60fps with 90 active enemies |
 
 ### Multiplayer — where it stands
@@ -90,8 +90,8 @@ revive a downed teammate, guests remembered in the host's save. Two PRs:
 | PR | State | What |
 | --- | --- | --- |
 | A — foundation | [#9](https://github.com/dunnston/zombie-game/pull/9) | `G.players[]`, intent split from simulation, actor parameters everywhere, downed/revive. No visible change in solo. |
-| A2 — menu and saves | next | Title screen on boot (Continue / New Game / Multiplayer / Controls), several save slots with delete, rebindable keys. Asked for by the owner while A was in review. |
-| B — online co-op | after A2 | Broker, WebRTC transport, host/client sessions, lobby, save v8. |
+| A2 — menu and saves | **in review** | Title screen on boot (Continue / New Game / Load / Multiplayer / Controls), any number of save slots with delete, rebindable keys. Asked for by the owner while A was in review. |
+| B — online co-op | next | Broker, WebRTC transport, host/client sessions, the Host/Join buttons the Multiplayer screen already has, save v8. |
 
 The full plan is in `tasks/todo.md`.
 
@@ -184,7 +184,19 @@ eat Rations, and die permanently.
 craftable lockpick (odds scale with Perception), or the Hotwire perk. A
 400-unit boot, headlights, roadkill, and fuel/noise/bodywork as costs.
 
-**Players** *(foundation in review)*. The world holds a list of players, and
+**Title screen, save slots, controls** *(in review)*. The game boots to a menu:
+CONTINUE (the most recently played game), NEW GAME (name it; it gets its own
+slot), LOAD GAME (every slot with its day, level, kills, play time and last
+played; LOAD or DELETE-with-confirm per row), MULTIPLAYER (the screen the
+networking will fill in), CONTROLS. Saves are **slots**: an index under
+`deadline.slots` and one payload per slot, so two solo runs and a co-op world
+sit side by side; the old single save is migrated into slot 1 on first boot.
+Every key is rebindable from the controls screen (also on the pause menu):
+click a row, press a key; conflicts are shown, not refused; RESET TO DEFAULTS.
+Mouse buttons, the wheel and `Esc` are fixed. Bindings live in the browser,
+not in a save. The pause menu gained CONTROLS and QUIT TO TITLE (saves first).
+
+**Players.** The world holds a list of players, and
 `G.player` is an alias for the one at this keyboard. Each player has an
 `intent` — what they want to do this step, as data — and the simulation reads
 only that; the keyboard is read in exactly one place. Enemies go for the
@@ -202,8 +214,11 @@ No friendly fire; players walk through each other.
 
 ```
 src/
-  main.js            boot, fixed-timestep loop, debug hooks (window.DEADLINE)
+  main.js            boot (migrate the legacy save, land on the title), the
+                     fixed-timestep loop, debug hooks (window.DEADLINE)
   core/              util, input, audio, sprites, particles — no game rules
+    bindings.js      actions → keys; act()/actTap() are what the game asks.
+                     Stored in the browser. Esc, mouse and wheel are fixed.
   game/
     config.js        ALL tunables and content data. One file to balance.
     state.js         the mutable G object + shared low-level accessors;
@@ -220,10 +235,13 @@ src/
     items.js         one registry for everything, and the slot-container ops
     equipment.js     equipping, and the moves the inventory screen makes
   ui/inventory.js    the inventory screen: grid, gear slots, hotbar, drag/drop
-    save.js          LocalStorage serialisation
-    game.js          update order, interactions, tutorial, camera
+    save.js          the save FORMAT: serialiseGame() and applySaveData()
+    saves.js         WHERE saves live: slots, the index, legacy migration
+    game.js          update order, interactions, tutorial, camera, toTitle()
   render/renderer.js world drawing, y-sorted draw list, night pass
-  ui/hud.js          HUD, panels, map, menus (immediate-mode, on canvas)
+  ui/kit.js          the immediate-mode UI kit: palette, panel, button, cursor
+  ui/hud.js          HUD, panels, map, pause menu (on canvas)
+  ui/menu.js         the title screen and its sub-screens; the controls panel
 ```
 
 ### Invariants — break these and something subtle goes wrong
@@ -302,6 +320,13 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | Cull enemies far from *every* player, spawn around *each* | One player's ring would starve the other's district of a crowd, or cull the horde their teammate was fighting. Each living player is the centre of their own ring; the quiet field is read where each of them stands. |
 | A remote player's edge intents are consumed after one step | The local intent is rebuilt from the keys every step, so its edges last one step by construction. A remote intent is a packet that stays put until the next one — held as data, "E was pressed" toggled a gate 17 times in 300ms. `consumeEdges()` runs at the end of every update for everyone but the local player; held states (movement, fire, E still down) are left alone. Found by the first Codex review of PR #9. |
 | One seat per car; a leaver parks; a roadkill is the driver's | Two players could hold the same `drivingId`, the second stranded with movement disabled and nobody reading their controls. A guest leaving at the wheel left the car engine-on with its collision tiles released forever. Roadkills paid everyone. All three from the same review, all reproduced before fixing. |
+| A slot's address and a save's format are separate things | `saves.js` owns the index and the per-slot keys; `save.js` owns what a payload contains. v8 (guests remembered) changes the payload and touches nothing in the slot machinery. |
+| The legacy save is migrated, not retired | Wrapping the one pre-slot save into slot 1 is a one-line copy, unlike the v6→v7 change where the belongings had no sensible home. Nobody loses a run to a menu. |
+| Bindings live in the browser, not the save | Controls are the person's, not the world's; two saves should not have two keyboards. `deadline.binds`, per browser. |
+| Mouse, wheel and Esc are not rebindable | Esc has to reach the menu whatever state the bindings are in, and a controls screen that can lock you out of the controls screen is a bug report waiting to happen. |
+| The Multiplayer screen ships disabled, with a reason | A dead button is a broken promise; a hidden one makes the menu look unfinished when it is not. The screen explains what is coming and where it will live, and PR B only has to enable two buttons. |
+| The UI kit is its own module | `menu.js` needed the HUD's panels and buttons, and the HUD needed the menu's controls panel — an import cycle. Moving the kit to `kit.js` made both a leaf's clients instead of each other's. |
+| A game started through `newGame()` has no slot until it saves | The tests start dozens of games; giving each a slot on creation would litter the browser. The first save creates one, autosave only runs for a game that has one, and the pause menu says so. |
 
 ---
 
@@ -310,8 +335,9 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 ### Next up (highest value first)
 
 1. **Multiplayer PR B — online co-op.** The signalling broker, the WebRTC
-   transport, host and client sessions, title and lobby screens, save v8 with
-   guests remembered. Then two browsers on one world through the broker on
+   transport, host and client sessions, the lobby behind the Multiplayer
+   screen's Host/Join buttons, save v8 with guests remembered (a hosted world
+   is a `coop` slot). Then two browsers on one world through the broker on
    localhost, and a measured wire rate recorded in §9. Follow-ups already
    known: a TURN/relay fallback for symmetric NAT, binary snapshots if the
    measured rate warrants it.
@@ -440,8 +466,8 @@ round. Current expected totals:
 
 | Suite | Expected |
 | --- | --- |
-| `npm test` (Node, pure logic) | 60 |
-| `tests/browser-smoke.js` | 305 |
+| `npm test` (Node, pure logic) | 69 |
+| `tests/browser-smoke.js` | 330 |
 
 **Run the browser suite with the page visible and focused.** Its waits are
 counted in animation frames. A backgrounded tab throttles
@@ -459,6 +485,14 @@ window.__r = null;
 window.runDeadlineSmoke(360000).then((r) => { window.__r = r; });
 // later: window.__r.failed, window.__r.failures, window.DEADLINE.errors
 ```
+
+**The suite drives the menu with real clicks.** Every menu button records its
+rectangle in `G.menu.rects` under its label (`'NEW GAME'`, `'LOAD:<slotId>'`,
+`'ROW:moveRight'`…), exposed as `window.DEADLINE.menu.rects()`. Section
+*0. title screen* clicks them through `mouseMove`/`mouseDown`/`mouseUp`, types
+into the real name field through `DEADLINE.menu.setText()`, and at the end
+deletes every slot the run created and restores the bindings it found — the
+suite must leave the player's own saves alone.
 
 **Verifying the multiplayer foundation.** The smoke suite's section
 *11i. a second survivor* joins a second player with `api.joinPlayer()`, drives
@@ -535,6 +569,12 @@ input (`key`, `tap`, `mouseDown`, `aimAt`) and the whole `api` surface.
 
 Newest first. One line per meaningful change.
 
+- **2026-09-06** — Title screen, save slots, key bindings (PR A2). The game
+  boots to a menu; saves are slots (any number, delete with confirm, the old
+  single save migrated into slot 1); every key rebindable from a controls
+  screen on the title and the pause menu. `save.js` split into format
+  (`serialiseGame`/`applySaveData`) and address (`saves.js`); the UI kit moved
+  to `kit.js`. Asked for by the owner while PR #9 was in review.
 - **2026-09-06** — Multiplayer foundation (PR A): `G.players[]` with
   `G.player` as the local alias, the intent/simulation split, actor parameters
   through damage, XP, threat, cost, building, crafting, vehicles and survivors,

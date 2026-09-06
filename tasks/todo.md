@@ -49,21 +49,22 @@ change. Continue, new single player game, multiplayer. I envision being able
 to play multiple games at once — maybe I have a multiplayer save and two
 different single player saves. I should be able to delete saves as well."
 
-- [ ] Boot lands on a title screen, not straight into a game: CONTINUE (most
+- [x] Boot lands on a title screen, not straight into a game: CONTINUE (most
       recent slot), NEW GAME, MULTIPLAYER (host / join — wired in PR B), CONTROLS
-- [ ] Save slots: `deadline.slots` index + one entry per slot. Each shows name,
+- [x] Save slots: `deadline.slots` index + one entry per slot. Each shows name,
       mode (solo / multiplayer world), day, level, kills, play time, last played.
       Several solo saves side by side; a hosted world is a slot too.
-- [ ] Delete a slot, behind a confirm. Rename a slot.
-- [ ] Migrate the single `deadline.save.v7` into slot 1 so nobody loses a run.
-- [ ] Key bindings: `src/core/bindings.js` maps actions → key codes, stored in
+- [x] Delete a slot, behind a confirm. (Rename: `renameSlot()` exists; no UI yet —
+      the name is chosen at NEW GAME.)
+- [x] Migrate the single `deadline.save.v7` into slot 1 so nobody loses a run.
+- [x] Key bindings: `src/core/bindings.js` maps actions → key codes, stored in
       `deadline.binds`; `intent.js` reads actions, never codes. Controls screen
       lists every action, click a row and press a key to rebind, RESET TO DEFAULTS.
       Mouse buttons stay fixed. Conflicts shown, not silently allowed.
-- [ ] Pause menu: SAVE, CONTROLS, QUIT TO TITLE (saves first)
-- [ ] Tests: slot round-trip and deletion under Node; smoke drives the title
+- [x] Pause menu: SAVE, CONTROLS, QUIT TO TITLE (saves first)
+- [x] Tests: slot round-trip and deletion under Node; smoke drives the title
       screen by synthetic click, rebinds a key and moves with it
-- [ ] Docs: PROJECT.md §3 §4 §6 §7 §9 §11; README controls section notes rebinding,
+- [x] Docs: PROJECT.md §3 §4 §6 §7 §9 §11; README controls section notes rebinding,
       and its Testing section is refreshed (it still says 52 Node / 211 smoke and
       has the Saving heading twice)
 

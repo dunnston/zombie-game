@@ -61,6 +61,15 @@ export const G = {
   flash: { t: 0, color: '#ff0000' },
   slowmo: 0,
   spatial: null,
+  // 'title' before a game exists or after quitting to the menu; 'game' while
+  // one is running. The main loop draws the menu instead of the world on the
+  // title and does not step the simulation.
+  scene: 'title',
+  menu: { screen: 'main', from: null, pendingRebind: null, confirmDelete: null, scroll: 0, rects: {} },
+  // Which save slot this game lives in, 'solo' or 'coop', and seconds played.
+  slotId: null,
+  mode: 'solo',
+  playtime: 0,
 };
 
 // ------------------------------------------------------------------ players --

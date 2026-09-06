@@ -36,3 +36,22 @@ body {
 }
 
 #overlay.hidden { display: none; }
+
+/* The one real text box the menus use (new-game name; later the room code).
+   Positioned over the canvas by menu.js in CSS pixels. */
+#deadline-textfield {
+  position: fixed;
+  z-index: 5;
+  display: none;
+  background: #0e120b;
+  color: #d5e4c2;
+  border: 1.5px solid #4a5a38;
+  font: bold 14px 'Courier New', Courier, monospace;
+  letter-spacing: 1px;
+  padding: 0 10px;
+  outline: none;
+  cursor: text;
+  user-select: text;
+}
+
+#deadline-textfield:focus { border-color: #8fae6a; }
