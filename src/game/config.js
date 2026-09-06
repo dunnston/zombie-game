@@ -30,19 +30,22 @@ export const SOLID_TILES = new Set([T.WALL, T.WATER]);
 
 // -------------------------------------------------------------- resources ---
 
+// `wt` is weight per unit — carrying capacity is measured in weight, not slot
+// count, so a pack full of ammunition is not a pack full of scrap.
+// `stack` is how many fit in one inventory slot.
 export const RES = {
-  wood:   { name: 'Wood',        short: 'WOOD', color: '#a3763f', wt: 1 },
-  scrap:  { name: 'Scrap',       short: 'SCRP', color: '#9aa2ab', wt: 1 },
-  cloth:  { name: 'Cloth',       short: 'CLTH', color: '#c2a98a', wt: 1 },
-  elec:   { name: 'Electronics', short: 'ELEC', color: '#59b8c4', wt: 1 },
-  med:    { name: 'Medical',     short: 'MED',  color: '#d9575f', wt: 1 },
-  parts:  { name: 'Weapon Parts',short: 'PART', color: '#c9a227', wt: 1 },
-  mil:    { name: 'Military',    short: 'MIL',  color: '#7fa14a', wt: 1 },
-  fuel:   { name: 'Fuel',        short: 'FUEL', color: '#d2762c', wt: 1 },
-  rations:{ name: 'Rations',     short: 'FOOD', color: '#c4a86a', wt: 1 },
-  ammoP:  { name: '9mm Rounds',  short: '9MM',  color: '#d8c98a', wt: 0.2 },
-  ammoS:  { name: 'Shells',      short: 'SHEL', color: '#c9584e', wt: 0.3 },
-  ammoR:  { name: 'Rifle Rounds',short: 'RIFL', color: '#b8a05a', wt: 0.25 },
+  wood:   { name: 'Wood',        short: 'WOOD', color: '#a3763f', wt: 1, stack: 50 },
+  scrap:  { name: 'Scrap',       short: 'SCRP', color: '#9aa2ab', wt: 1, stack: 50 },
+  cloth:  { name: 'Cloth',       short: 'CLTH', color: '#c2a98a', wt: 1, stack: 50 },
+  elec:   { name: 'Electronics', short: 'ELEC', color: '#59b8c4', wt: 1, stack: 30 },
+  med:    { name: 'Medical',     short: 'MED',  color: '#d9575f', wt: 1, stack: 30 },
+  parts:  { name: 'Weapon Parts',short: 'PART', color: '#c9a227', wt: 1, stack: 20 },
+  mil:    { name: 'Military',    short: 'MIL',  color: '#7fa14a', wt: 1, stack: 20 },
+  fuel:   { name: 'Fuel',        short: 'FUEL', color: '#d2762c', wt: 1, stack: 20 },
+  rations:{ name: 'Rations',     short: 'FOOD', color: '#c4a86a', wt: 1, stack: 20 },
+  ammoP:  { name: '9mm Rounds',  short: '9MM',  color: '#d8c98a', wt: 0.2, stack: 120 },
+  ammoS:  { name: 'Shells',      short: 'SHEL', color: '#c9584e', wt: 0.3, stack: 60 },
+  ammoR:  { name: 'Rifle Rounds',short: 'RIFL', color: '#b8a05a', wt: 0.25, stack: 90 },
 };
 
 export const RES_IDS = Object.keys(RES);
@@ -105,11 +108,45 @@ export const WEAPONS = {
   },
 };
 
-export const ARMORS = {
-  lightVest: { id: 'lightVest', name: 'Padded Vest', dr: 0.16, color: '#6f7a52' },
-  heavyVest: { id: 'heavyVest', name: 'Riot Armor',  dr: 0.34, color: '#4d5866' },
-  milVest:   { id: 'milVest',   name: 'Plate Carrier', dr: 0.48, color: '#5b6640' },
+// ------------------------------------------------------------------- gear ---
+// Five slots, three tiers each. A full tier-3 set reaches 0.70 damage
+// reduction; a full tier-1 set 0.23. Body is far and away the biggest
+// contributor, so the vest is still the piece worth hunting, but the other
+// four slots are what take you from "survivable" to "armoured".
+
+export const GEAR_SLOTS = ['head', 'body', 'hands', 'legs', 'feet'];
+
+export const GEAR_SLOT_NAMES = {
+  head: 'Head', body: 'Body', hands: 'Hands', legs: 'Legs', feet: 'Feet',
 };
+
+export const GEAR = {
+  // head
+  hardHat:    { id: 'hardHat',    name: 'Hard Hat',      slot: 'head',  dr: 0.05, wt: 3, tier: 1, color: '#c9a227' },
+  riotHelm:   { id: 'riotHelm',   name: 'Riot Helmet',   slot: 'head',  dr: 0.10, wt: 5, tier: 2, color: '#4d5866' },
+  milHelm:    { id: 'milHelm',    name: 'Combat Helmet', slot: 'head',  dr: 0.15, wt: 6, tier: 3, color: '#5b6640' },
+  // body — the old armour set, rescaled so it is one slot of five
+  lightVest:  { id: 'lightVest',  name: 'Padded Vest',   slot: 'body',  dr: 0.10, wt: 6, tier: 1, color: '#6f7a52' },
+  heavyVest:  { id: 'heavyVest',  name: 'Riot Armor',    slot: 'body',  dr: 0.20, wt: 11, tier: 2, color: '#4d5866' },
+  milVest:    { id: 'milVest',    name: 'Plate Carrier', slot: 'body',  dr: 0.28, wt: 14, tier: 3, color: '#5b6640' },
+  // hands
+  workGloves: { id: 'workGloves', name: 'Work Gloves',   slot: 'hands', dr: 0.02, wt: 1, tier: 1, color: '#a3763f' },
+  tacGloves:  { id: 'tacGloves',  name: 'Tactical Gloves', slot: 'hands', dr: 0.04, wt: 2, tier: 2, color: '#4d5866' },
+  armGuards:  { id: 'armGuards',  name: 'Arm Guards',    slot: 'hands', dr: 0.07, wt: 4, tier: 3, color: '#5b6640' },
+  // legs
+  denimPants: { id: 'denimPants', name: 'Work Trousers', slot: 'legs',  dr: 0.04, wt: 2, tier: 1, color: '#4a5a72' },
+  paddedLegs: { id: 'paddedLegs', name: 'Padded Leggings', slot: 'legs', dr: 0.08, wt: 5, tier: 2, color: '#6f7a52' },
+  milGreaves: { id: 'milGreaves', name: 'Combat Trousers', slot: 'legs', dr: 0.12, wt: 7, tier: 3, color: '#5b6640' },
+  // feet
+  workBoots:  { id: 'workBoots',  name: 'Work Boots',    slot: 'feet',  dr: 0.02, wt: 3, tier: 1, color: '#6b4a2f' },
+  combatBoots:{ id: 'combatBoots',name: 'Combat Boots',  slot: 'feet',  dr: 0.05, wt: 4, tier: 2, color: '#3f4a38' },
+  milBoots:   { id: 'milBoots',   name: 'Assault Boots', slot: 'feet',  dr: 0.08, wt: 5, tier: 3, color: '#5b6640' },
+};
+
+/** No amount of scavenging should make you immune. */
+export const MAX_GEAR_DR = 0.72;
+
+export const GEAR_IDS = Object.keys(GEAR);
 
 export const CONSUMABLES = {
   bandage: { id: 'bandage', name: 'Bandage', heal: 28, time: 0.9, color: '#d8cfc0' },
@@ -242,6 +279,11 @@ export const RECIPES = [
   { id: 'machete', name: 'Machete', bench: 1, cost: { scrap: 24, parts: 1 }, give: { weapon: 'machete' }, xp: 25 },
   { id: 'pistol', name: 'M9 Pistol', bench: 1, cost: { scrap: 28, parts: 4 }, give: { weapon: 'pistol' }, xp: 35 },
   { id: 'lightVest', name: 'Padded Vest', bench: 1, cost: { cloth: 22, scrap: 12 }, give: { armor: 'lightVest' }, xp: 25 },
+  { id: 'workGloves', name: 'Work Gloves', bench: 0, cost: { cloth: 8 }, give: { armor: 'workGloves' }, xp: 8 },
+  { id: 'denimPants', name: 'Work Trousers', bench: 0, cost: { cloth: 14 }, give: { armor: 'denimPants' }, xp: 10 },
+  { id: 'workBoots', name: 'Work Boots', bench: 1, cost: { cloth: 10, scrap: 6 }, give: { armor: 'workBoots' }, xp: 12 },
+  { id: 'hardHat', name: 'Hard Hat', bench: 1, cost: { scrap: 14 }, give: { armor: 'hardHat' }, xp: 14 },
+  { id: 'paddedLegs', name: 'Padded Leggings', bench: 1, cost: { cloth: 24, scrap: 10 }, give: { armor: 'paddedLegs' }, xp: 26 },
   { id: 'ammoS', name: 'Shells x14', bench: 1, cost: { scrap: 12, parts: 1 }, give: { res: { ammoS: 14 } }, xp: 7 },
   { id: 'lockpick', name: 'Lockpicks x3', bench: 1, cost: { scrap: 8, parts: 1 }, give: { item: 'lockpick', n: 3 }, xp: 6 },
   { id: 'rationPack', name: 'Ration Pack x8', bench: 1, cost: { med: 2, cloth: 3 }, give: { res: { rations: 8 } }, xp: 5 },
@@ -301,9 +343,11 @@ export const LOOT = {
     { id: 'elec', min: 1, max: 2, w: 10 },
   ],
   policeLocker: [
-    { id: 'ammoP', min: 14, max: 30, w: 34 }, { id: 'ammoS', min: 6, max: 14, w: 22 },
-    { id: 'parts', min: 2, max: 4, w: 18 }, { id: 'armor:lightVest', min: 1, max: 1, w: 10 },
-    { id: 'armor:heavyVest', min: 1, max: 1, w: 5 }, { id: 'med', min: 2, max: 5, w: 11 },
+    { id: 'ammoP', min: 14, max: 30, w: 30 }, { id: 'ammoS', min: 6, max: 14, w: 20 },
+    { id: 'parts', min: 2, max: 4, w: 16 }, { id: 'gear:lightVest', min: 1, max: 1, w: 8 },
+    { id: 'gear:heavyVest', min: 1, max: 1, w: 5 }, { id: 'med', min: 2, max: 5, w: 10 },
+    { id: 'gear:riotHelm', min: 1, max: 1, w: 7 }, { id: 'gear:tacGloves', min: 1, max: 1, w: 7 },
+    { id: 'gear:combatBoots', min: 1, max: 1, w: 6 }, { id: 'gear:paddedLegs', min: 1, max: 1, w: 6 },
   ],
   gunSafe: [
     { id: 'weapon:pistol', min: 1, max: 1, w: 22 }, { id: 'weapon:shotgun', min: 1, max: 1, w: 16 },
@@ -352,11 +396,15 @@ export const LOOT = {
     { id: 'ammoP', min: 3, max: 8, w: 8 },       // a bedside pistol's spare rounds
   ],
   wardrobe: [
-    { id: 'cloth', min: 8, max: 16, w: 56 },
-    { id: 'item:bandage', min: 1, max: 3, w: 18 },
-    { id: 'armor:lightVest', min: 1, max: 1, w: 5 },
-    { id: 'scrap', min: 1, max: 3, w: 12 },
-    { id: 'rations', min: 1, max: 3, w: 9 },
+    { id: 'cloth', min: 8, max: 16, w: 46 },
+    { id: 'item:bandage', min: 1, max: 3, w: 16 },
+    { id: 'gear:lightVest', min: 1, max: 1, w: 5 },
+    { id: 'gear:denimPants', min: 1, max: 1, w: 12 },
+    { id: 'gear:workBoots', min: 1, max: 1, w: 10 },
+    { id: 'gear:hardHat', min: 1, max: 1, w: 6 },
+    { id: 'gear:workGloves', min: 1, max: 1, w: 10 },
+    { id: 'scrap', min: 1, max: 3, w: 10 },
+    { id: 'rations', min: 1, max: 3, w: 8 },
   ],
   desk: [
     { id: 'elec', min: 2, max: 6, w: 34 },
@@ -392,12 +440,16 @@ export const LOOT = {
     { id: 'item:medkit', min: 1, max: 1, w: 8 },
   ],
   footlocker: [
-    { id: 'mil', min: 3, max: 8, w: 34 },
-    { id: 'ammoR', min: 8, max: 18, w: 24 },
-    { id: 'armor:milVest', min: 1, max: 1, w: 6 },
-    { id: 'parts', min: 2, max: 5, w: 18 },
-    { id: 'item:medkit', min: 1, max: 2, w: 10 },
-    { id: 'rations', min: 3, max: 8, w: 8 },
+    { id: 'mil', min: 3, max: 8, w: 28 },
+    { id: 'ammoR', min: 8, max: 18, w: 20 },
+    { id: 'gear:milVest', min: 1, max: 1, w: 6 },
+    { id: 'gear:milHelm', min: 1, max: 1, w: 6 },
+    { id: 'gear:armGuards', min: 1, max: 1, w: 6 },
+    { id: 'gear:milGreaves', min: 1, max: 1, w: 6 },
+    { id: 'gear:milBoots', min: 1, max: 1, w: 6 },
+    { id: 'parts', min: 2, max: 5, w: 14 },
+    { id: 'item:medkit', min: 1, max: 2, w: 8 },
+    { id: 'rations', min: 3, max: 8, w: 6 },
   ],
   vending: [
     { id: 'rations', min: 5, max: 12, w: 62 },
@@ -607,6 +659,10 @@ export const PLAYER = {
   stamRegen: 20,
   stamRegenDelay: 0.65,
   carryCap: 200,
+  // The grid is generous enough that weight is normally what stops you, but
+  // finite enough that carrying thirty kinds of thing still has a cost.
+  invSlots: 30,
+  hotbarSlots: 6,
   pickupRange: 46,
   interactRange: 76,
   searchTime: 1.05,

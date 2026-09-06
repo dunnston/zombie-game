@@ -6,6 +6,7 @@
 // than a free upgrade lying in the street.
 
 import { TILE, RES } from './config.js';
+import { ITEMS, slotsEntries, packAllowance } from './items.js';
 import {
   G, notify, terrainBlocksPx, solidPx, addResCapped, addRes, takeRes, countRes,
   shake, screenFlash,
@@ -111,7 +112,9 @@ export function vehiclePrompt(p, v) {
   if (!v.locked || v.hotwired) return v.fuel > 0.5 ? 'Drive' : 'Drive  (no fuel)';
   if (hasKeyFor(p, v)) return 'Unlock with your key';
   const bits = [];
-  if ((p.items.lockpick || 0) > 0) bits.push(`Pick lock (${Math.round(pickChance(p) * 100)}%)`);
+  if (countRes(p.bag, 'lockpick') + countRes(p.hotbar, 'lockpick') > 0) {
+    bits.push(`Pick lock (${Math.round(pickChance(p) * 100)}%)`);
+  }
   if (p.hotwire) bits.push('Hotwire');
   return bits.length ? bits.join('  ·  ') : 'Locked — needs a key, a pick, or hotwiring';
 }
@@ -132,9 +135,8 @@ export function tryUnlock(p, v) {
     return true;
   }
 
-  if ((p.items.lockpick || 0) > 0) {
-    p.items.lockpick--;
-    if (p.items.lockpick <= 0) delete p.items.lockpick;
+  if (countRes(p.bag, 'lockpick') + countRes(p.hotbar, 'lockpick') > 0) {
+    if (!takeRes(p.bag, 'lockpick', 1)) takeRes(p.hotbar, 'lockpick', 1);
     if (Math.random() < pickChance(p)) {
       v.locked = false;
       sfx('reloadDone');
@@ -398,14 +400,19 @@ export const trunkLoad = (v) => Object.values(v.trunk).reduce((a, b) => a + b, 0
 export function stowInTrunk(v) {
   const p = G.player;
   let moved = 0;
-  for (const id in p.bag) {
+  // Raw materials only — the boot is for the haul, not for your rifle or the
+  // bandages you are about to need.
+  const carried = slotsEntries(p.bag);
+  for (const id of Object.keys(carried)) {
+    const it = ITEMS[id];
+    if (!it || it.kind !== 'res') continue;
     const room = CAR.trunkCap - trunkLoad(v);
     if (room <= 0) break;
-    const give = Math.min(p.bag[id], room);
+    const give = Math.min(carried[id], room);
     if (give <= 0) continue;
-    v.trunk[id] = (v.trunk[id] || 0) + give;
-    takeRes(p.bag, id, give);
-    moved += give;
+    const took = takeRes(p.bag, id, give);
+    v.trunk[id] = (v.trunk[id] || 0) + took;
+    moved += took;
   }
   if (moved > 0) { sfx('loot'); notify(`Stowed ${moved} in the boot`, '#b7e08a'); }
   else { sfx('ui'); notify(trunkLoad(v) >= CAR.trunkCap ? 'The boot is full' : 'Nothing to stow', '#8a8f84'); }
@@ -416,7 +423,7 @@ export function takeFromTrunk(v) {
   const p = G.player;
   let moved = 0;
   for (const id in v.trunk) {
-    const got = addResCapped(p.bag, id, v.trunk[id], p.carryCap);
+    const got = addResCapped(p.bag, id, v.trunk[id], packAllowance(p));
     v.trunk[id] -= got;
     if (v.trunk[id] <= 0) delete v.trunk[id];
     moved += got;

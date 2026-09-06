@@ -221,3 +221,35 @@ five kills bottom out at 2.91, so 2.9 separates them cleanly).
 **Rule:** for any coarse spatial field, check that the same action gives the
 same result wherever the player is standing. And a constant that separates two
 outcomes should be derived from the measured spread of both.
+
+### Keep the API, change what is behind it
+
+The inventory rewrite turned the player's pack from an id->count map into a
+grid of slots. It touched ~40 call sites across building, crafting, combat,
+loot, survivors and vehicles — except it did not, because `addRes`, `takeRes`
+and `countRes` kept their exact signatures and learned to recognise the new
+container shape. Every one of those call sites compiled and passed unchanged.
+
+**Rule:** when changing a representation, look for the narrow API in front of
+it first. If there isn't one, consider building it before making the change.
+
+### A partially-applied patch that writes nothing still needs reading
+
+The scripted edit helper applies a whole spec in memory and exits on the first
+miss, writing nothing. That is the right behaviour — but it means one bad entry
+silently discards the good ones alongside it. A `stowInTrunk` fix was lost that
+way and only surfaced later as `NaN in the boot`, well downstream of the cause.
+
+**Rule:** read the output of every scripted edit, not just the exit code, and
+re-check that the change you thought you made is in the file.
+
+### Two systems measuring the same thing will disagree
+
+Carry capacity was checked against the weight of the pack; the weight bar drew
+the pack *plus* the hotbar. Loot kept fitting after the bar passed 100%. Both
+halves were individually reasonable, which is why it survived review and only
+fell out of an assertion comparing the two numbers.
+
+**Rule:** when a quantity is displayed in one place and enforced in another,
+make both call the same function. `packAllowance()` is now the only answer to
+"how much more will fit".

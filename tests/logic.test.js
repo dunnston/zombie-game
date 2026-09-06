@@ -5,9 +5,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  RES, WEAPONS, ENEMIES, STRUCTURES, RECIPES, LOOT, CONTAINERS, FURNISHING,
+  RES, WEAPONS, ENEMIES, STRUCTURES, RECIPES, LOOT, CONTAINERS, FURNISHING, CONSUMABLES,
   BUILD_ORDER, THREAT, RAIDS, PLAYER, TILE, WORLD_TILES,
-  bagWeight, xpForLevel, raidSpec,
+  bagWeight, xpForLevel, raidSpec, GEAR, GEAR_SLOTS, MAX_GEAR_DR,
 } from '../src/game/config.js';
 import { createWorld, isBlockedTile, dangerAtPx, locationAtPx, propAtTile, removeProp } from '../src/game/world.js';
 import {
@@ -22,6 +22,9 @@ import {
   SURVIVOR, JOBS, JOB_IDS, SCAVENGE, BUILDER, POST_RADIUS, canSeeContainer,
 } from '../src/game/survivors.js';
 import { G } from '../src/game/state.js';
+import {
+  ITEMS, makeSlots, slotsAdd, slotsTake, slotsCount, slotsWeight, stackLimit,
+} from '../src/game/items.js';
 import { makeRng, weightedPick, clamp, angleDelta, hash2, pruneInPlace, circleRectOverlap } from '../src/core/util.js';
 
 // ------------------------------------------------------------------- util ---
@@ -157,9 +160,13 @@ test('every loot table entry references something real', () => {
     for (const e of table) {
       assert.ok(e.w > 0, `${name} has a zero-weight entry`);
       assert.ok(e.min > 0 && e.max >= e.min, `${name}/${e.id} has a bad range`);
+      // Resolve every prefixed id against its actual registry. The old version
+      // only checked the suffix was non-empty, which passed for any typo and
+      // would have shipped a loot table entry that silently granted nothing.
       if (e.id.startsWith('weapon:')) assert.ok(WEAPONS[e.id.slice(7)], `${name}: unknown ${e.id}`);
-      else if (e.id.startsWith('armor:')) assert.ok(e.id.slice(6).length > 0);
-      else if (e.id.startsWith('item:')) assert.ok(e.id.slice(5).length > 0);
+      else if (e.id.startsWith('gear:')) assert.ok(GEAR[e.id.slice(5)], `${name}: unknown ${e.id}`);
+      else if (e.id.startsWith('armor:')) assert.ok(GEAR[e.id.slice(6)], `${name}: unknown ${e.id}`);
+      else if (e.id.startsWith('item:')) assert.ok(CONSUMABLES[e.id.slice(5)], `${name}: unknown ${e.id}`);
       else assert.ok(RES[e.id], `${name}: unknown resource ${e.id}`);
     }
   }
@@ -500,6 +507,91 @@ test('xp curve steepens instead of drifting up in a straight line', () => {
   assert.ok(cum(7) > 3500, `level 7 costs ${cum(7)}, still too cheap`);
   assert.ok(cum(10) > 4 * cum(7), 'the curve flattens out again after level 7');
   assert.ok(xpForLevel(10) > 5 * xpForLevel(3), 'late levels are not dearer than early ones');
+});
+
+// --------------------------------------------------------- items and gear ---
+
+test('every resource stacks and has a weight', () => {
+  for (const [id, r] of Object.entries(RES)) {
+    assert.ok(r.stack > 0, `${id} has no stack size`);
+    assert.ok(r.wt > 0, `${id} is weightless`);
+    assert.ok(ITEMS[id], `${id} is missing from the item registry`);
+    assert.equal(ITEMS[id].kind, 'res');
+  }
+});
+
+test('gear covers all five slots at three tiers', () => {
+  for (const slot of GEAR_SLOTS) {
+    const pieces = Object.values(GEAR).filter((g) => g.slot === slot);
+    assert.ok(pieces.length >= 3, `${slot} has only ${pieces.length} pieces`);
+    const drs = pieces.map((g) => g.dr).sort((a, b) => a - b);
+    // Each tier has to be a real step up, or the slot is decoration.
+    for (let i = 1; i < drs.length; i++) {
+      assert.ok(drs[i] > drs[i - 1], `${slot} has two pieces with the same armour`);
+    }
+  }
+});
+
+test('a full set of the best gear stays under the armour cap', () => {
+  let total = 0;
+  for (const slot of GEAR_SLOTS) {
+    const best = Object.values(GEAR)
+      .filter((g) => g.slot === slot)
+      .reduce((a, b) => (b.dr > a.dr ? b : a));
+    total += best.dr;
+  }
+  assert.ok(total <= MAX_GEAR_DR + 1e-9,
+    `a full set reaches ${total.toFixed(2)}, over the ${MAX_GEAR_DR} cap`);
+  // ...and is still worth chasing.
+  assert.ok(total > 0.5, `a full set is only ${total.toFixed(2)} — not worth the hunt`);
+});
+
+test('the body slot still carries the most armour', () => {
+  const bestOf = (slot) => Object.values(GEAR)
+    .filter((g) => g.slot === slot)
+    .reduce((a, b) => (b.dr > a.dr ? b : a)).dr;
+  for (const slot of GEAR_SLOTS) {
+    if (slot === 'body') continue;
+    assert.ok(bestOf('body') > bestOf(slot), `${slot} rivals the vest`);
+  }
+});
+
+test('slot containers stack, split across slots and never exceed a stack', () => {
+  const c = makeSlots(3);
+  const limit = stackLimit('wood');
+  // One slot holds exactly one stack.
+  assert.equal(slotsAdd(c, 'wood', limit), limit);
+  assert.equal(c.slots[0].n, limit);
+  assert.equal(c.slots[1], null);
+  // The next unit opens a second slot rather than over-filling the first.
+  assert.equal(slotsAdd(c, 'wood', 1), 1);
+  assert.equal(c.slots[0].n, limit);
+  assert.equal(c.slots[1].n, 1);
+  assert.equal(slotsCount(c, 'wood'), limit + 1);
+  // A full container reports what actually fitted, so callers can spill it.
+  slotsAdd(c, 'scrap', stackLimit('scrap'));
+  const fitted = slotsAdd(c, 'cloth', 10);
+  assert.equal(fitted, 0, 'a full container accepted something anyway');
+});
+
+test('taking from a slot container empties slots as it goes', () => {
+  const c = makeSlots(4);
+  slotsAdd(c, 'ammoP', 200);
+  const before = slotsCount(c, 'ammoP');
+  assert.equal(slotsTake(c, 'ammoP', 30), 30);
+  assert.equal(slotsCount(c, 'ammoP'), before - 30);
+  assert.equal(slotsTake(c, 'ammoP', 9999), before - 30, 'take reported more than it held');
+  assert.equal(slotsCount(c, 'ammoP'), 0);
+  assert.ok(c.slots.every((s) => !s), 'emptied stacks left rubbish behind');
+});
+
+test('weight counts ammo lighter than bulk, in slots too', () => {
+  const a = makeSlots(10);
+  const b = makeSlots(10);
+  slotsAdd(a, 'wood', 40);
+  slotsAdd(b, 'ammoP', 40);
+  assert.ok(slotsWeight(b) < slotsWeight(a), 'ammo weighs as much as timber');
+  assert.equal(slotsWeight(a), 40 * RES.wood.wt);
 });
 
 test('bagWeight counts ammo lighter than bulk materials', () => {

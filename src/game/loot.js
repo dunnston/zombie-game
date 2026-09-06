@@ -1,6 +1,11 @@
 // Loot rolls, world pickups and the death backpack.
 
-import { LOOT, RES, WEAPONS, ARMORS, CONSUMABLES, TILE, bagWeight } from './config.js';
+import { LOOT, RES, WEAPONS, GEAR, CONSUMABLES, TILE, bagWeight } from './config.js';
+import {
+  ITEMS, slotsAdd, slotsCount, slotsEntries, slotsWeight, slotsClear,
+  firstEmpty, makeSlots, packAllowance,
+} from './items.js';
+import { recomputeStats } from './perks.js';
 import { G, addResCapped, notify, solidPx } from './state.js';
 import { makeRng, weightedPick, dist2, clamp, TAU } from '../core/util.js';
 import { sfx } from '../core/audio.js';
@@ -45,7 +50,20 @@ export function rollContainer(container, lootMul = 1, opts = {}) {
 }
 
 /** True if the player already owns this weapon. */
-const hasWeapon = (p, id) => p.weapons.includes(id);
+const hasWeapon = (p, id) =>
+  slotsCount(p.bag, id) + slotsCount(p.hotbar, id) > 0;
+
+/**
+ * Puts one non-stacking item (a weapon or a piece of gear) into the first free
+ * slot, preferring the hotbar for weapons so a gun you pick up is immediately
+ * to hand. Returns false when there is nowhere to put it.
+ */
+function giveItem(p, id, preferHotbar = false) {
+  if (preferHotbar && firstEmpty(p.hotbar) >= 0) return slotsAdd(p.hotbar, id, 1) > 0;
+  if (firstEmpty(p.bag) >= 0) return slotsAdd(p.bag, id, 1) > 0;
+  if (firstEmpty(p.hotbar) >= 0) return slotsAdd(p.hotbar, id, 1) > 0;
+  return false;
+}
 
 /**
  * Gives one loot entry to the player. Resources respect carry weight; the
@@ -63,27 +81,35 @@ export function giveEntry(p, entry) {
       // Duplicate guns convert to a useful magazine of their ammo instead.
       if (w.ammo) {
         const give = w.mag * 2;
-        const got = addResCapped(p.bag, w.ammo, give, p.carryCap);
+        const got = addResCapped(p.bag, w.ammo, give, packAllowance(p));
         return { text: `${w.name} (spare ammo +${got})`, color: '#d8c98a' };
       }
       return { text: `${w.name} (already carried)`, color: '#8a8f84' };
     }
-    p.weapons.push(wid);
+    if (!giveItem(p, wid, true)) {
+      return { text: `${w.name} — NO ROOM`, color: '#c96a5a', overflow: null };
+    }
     p.mag[wid] = w.mag || 0;
     return { text: `${w.name} acquired`, color: '#ffe08a', major: true };
   }
 
-  if (id.startsWith('armor:')) {
-    const aid = id.slice(6);
-    const a = ARMORS[aid];
+  if (id.startsWith('armor:') || id.startsWith('gear:')) {
+    const aid = id.slice(id.indexOf(':') + 1);
+    const a = GEAR[aid];
     if (!a) return null;
-    if (!p.armors.includes(aid)) p.armors.push(aid);
-    const best = bestArmor(p);
-    if (best !== p.armor) {
-      p.armor = best;
-      return { text: `${a.name} equipped (+${Math.round(a.dr * 100)}% armour)`, color: '#ffe08a', major: true };
+    // Gear goes into the pack. Choosing what to wear is the player's job now —
+    // silently equipping the highest-armour piece is exactly what made the old
+    // system impossible to reason about.
+    if (!giveItem(p, aid)) {
+      return { text: `${a.name} — NO ROOM`, color: '#c96a5a', overflow: null };
     }
-    return { text: `${a.name} stowed`, color: '#a8b09a' };
+    const worn = p.equip[a.slot];
+    const better = !worn || a.dr > GEAR[worn].dr;
+    return {
+      text: better ? `${a.name} — better than what you are wearing` : `${a.name} stowed`,
+      color: better ? '#ffe08a' : '#a8b09a',
+      major: better,
+    };
   }
 
   if (id.startsWith('key:')) {
@@ -97,13 +123,17 @@ export function giveEntry(p, entry) {
     const iid = id.slice(5);
     const c = CONSUMABLES[iid];
     if (!c) return null;
-    p.items[iid] = (p.items[iid] || 0) + n;
-    return { text: `${c.name} x${n}`, color: c.color };
+    const got = addResCapped(p.bag, iid, n, packAllowance(p));
+    return {
+      text: got > 0 ? `${c.name} x${got}` : `${c.name} — PACK FULL`,
+      color: got > 0 ? c.color : '#c96a5a',
+      overflow: n - got > 0 ? { id: iid, n: n - got } : null,
+    };
   }
 
   const def = RES[id];
   if (!def) return null;
-  const got = addResCapped(p.bag, id, n, p.carryCap);
+  const got = addResCapped(p.bag, id, n, packAllowance(p));
   const over = n - got;
   return {
     text: got > 0 ? `${def.name} +${got}` : `${def.name} — PACK FULL`,
@@ -112,11 +142,16 @@ export function giveEntry(p, entry) {
   };
 }
 
-export function bestArmor(p) {
+/**
+ * The best piece carried for each slot. Used only by the inventory screen's
+ * quick-equip button now — nothing equips itself behind the player's back.
+ */
+export function bestGearFor(p, slot) {
   let best = null, dr = -1;
-  for (const id of p.armors) {
-    const a = ARMORS[id];
-    if (a && a.dr > dr) { dr = a.dr; best = id; }
+  for (const s of p.bag.slots) {
+    if (!s) continue;
+    const g = GEAR[s.id];
+    if (g && g.slot === slot && g.dr > dr) { dr = g.dr; best = s.id; }
   }
   return best;
 }
@@ -199,56 +234,56 @@ const pickupEntryId = (it) =>
 
 /** Everything the player was carrying, dropped where they fell. */
 export function dropBackpack(p) {
-  const contents = {
-    bag: { ...p.bag },
-    items: { ...p.items },
-    weapons: p.weapons.filter((w) => w !== 'fists' && w !== p.startWeapon),
-    armors: [...p.armors],
-    mag: { ...p.mag },
+  // Everything carried and worn, as one id->count map. You keep the starting
+  // pipe so a respawn is never completely toothless.
+  const held = {};
+  const take = (cont) => {
+    const entries = slotsEntries(cont);
+    for (const id in entries) held[id] = (held[id] || 0) + entries[id];
   };
-  const empty = bagWeight(contents.bag) === 0 && contents.weapons.length === 0 &&
-    contents.armors.length === 0 && Object.keys(contents.items).length === 0;
-  if (empty) return null;
+  take(p.bag);
+  take(p.hotbar);
+  for (const slot in p.equip) {
+    const id = p.equip[slot];
+    if (id) held[id] = (held[id] || 0) + 1;
+  }
+  if (held[p.startWeapon]) {
+    held[p.startWeapon] -= 1;
+    if (held[p.startWeapon] <= 0) delete held[p.startWeapon];
+  }
+
+  const contents = { bag: held, mag: { ...p.mag } };
+  if (Object.keys(held).length === 0) return null;
 
   const pack = { x: p.x, y: p.y, contents, t: 0, id: Date.now() + Math.random() };
   G.backpacks.push(pack);
 
-  p.bag = {};
-  p.items = {};
-  p.armors = [];
-  p.armor = null;
-  p.weapons = p.weapons.filter((w) => w === 'fists' || w === p.startWeapon);
-  if (!p.weapons.includes(p.startWeapon)) p.weapons.push(p.startWeapon);
-  p.slot = Math.min(p.slot, p.weapons.length - 1);
+  slotsClear(p.bag);
+  slotsClear(p.hotbar);
+  for (const slot in p.equip) p.equip[slot] = null;
+  slotsAdd(p.hotbar, p.startWeapon, 1);
+  p.slot = 0;
+  // Losing your armour has to actually cost you the mitigation — armorDR is
+  // produced by recomputeStats and nothing else may write it.
+  recomputeStats(p);
   return pack;
 }
 
 export function collectBackpack(p, pack) {
   let n = 0;
-  for (const id in pack.contents.bag) {
-    const got = addResCapped(p.bag, id, pack.contents.bag[id], p.carryCap);
+  for (const id of Object.keys(pack.contents.bag)) {
+    const want = pack.contents.bag[id];
+    const got = addResCapped(p.bag, id, want, packAllowance(p));
     pack.contents.bag[id] -= got;
     if (pack.contents.bag[id] <= 0) delete pack.contents.bag[id];
+    if (got > 0 && WEAPONS[id] && p.mag[id] === undefined) {
+      p.mag[id] = pack.contents.mag[id] ?? WEAPONS[id].mag ?? 0;
+    }
     n += got;
   }
-  for (const id in pack.contents.items) {
-    p.items[id] = (p.items[id] || 0) + pack.contents.items[id];
-    n += pack.contents.items[id];
-  }
-  pack.contents.items = {};
-  for (const w of pack.contents.weapons) {
-    if (!p.weapons.includes(w)) {
-      p.weapons.push(w);
-      p.mag[w] = pack.contents.mag[w] ?? (WEAPONS[w] ? WEAPONS[w].mag : 0);
-      n++;
-    }
-  }
-  pack.contents.weapons = [];
-  for (const a of pack.contents.armors) if (!p.armors.includes(a)) { p.armors.push(a); n++; }
-  pack.contents.armors = [];
-  p.armor = bestArmor(p);
 
-  const leftover = bagWeight(pack.contents.bag);
+  let leftover = 0;
+  for (const id in pack.contents.bag) leftover += pack.contents.bag[id];
   if (leftover <= 0) {
     G.backpacks.splice(G.backpacks.indexOf(pack), 1);
     notify('Pack recovered', '#b7e08a');

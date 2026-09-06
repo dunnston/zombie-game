@@ -1,6 +1,12 @@
 // The player: stats, movement, aiming, attacking, healing, death and respawn.
 
 import { PLAYER, WEAPONS, CONSUMABLES, xpForLevel, bagWeight } from './config.js';
+import {
+  makeSlots, makeEquip, slotsAdd, slotsTake, slotsWeight, slotsCount, ITEMS,
+  packAllowance,
+} from './items.js';
+
+export { packAllowance };
 import { startingAttrs, recomputeStats } from './perks.js';
 import { G, moveCircle, notify, unstick } from './state.js';
 import { Input, key, keyTap } from '../core/input.js';
@@ -21,14 +27,18 @@ export function createPlayer(x, y) {
     stamLock: 0,
     dead: false, respawnT: 0, invuln: 0, hurtFlash: 0, lastHurt: 99,
 
-    weapons: ['fists', 'pipe'],
+    // One addressable list for everything carried. Capacity is by weight, not
+    // slot count — a pack of ammunition is not a pack of scrap — but the grid
+    // is finite too, so hoarding thirty kinds of thing still costs you.
+    bag: makeSlots(PLAYER.invSlots),
+    // Kept so a death drop always leaves you something to swing.
     startWeapon: 'pipe',
-    slot: 1,
+    // Six slots along the bottom of the screen. Holds weapons and consumables;
+    // keys 1-6 select, and the selected one is what you are holding.
+    hotbar: makeSlots(PLAYER.hotbarSlots),
+    slot: 0,
+    equip: makeEquip(),
     mag: {},
-    bag: {},
-    items: { bandage: 2 },
-    armors: [],
-    armor: null,
 
     attackCd: 0,
     reloading: null,
@@ -54,14 +64,46 @@ export function createPlayer(x, y) {
   recomputeStats(p);
   p.hp = p.maxHp;
   p.stam = p.maxStam;
-  for (const w of p.weapons) if (WEAPONS[w].mag) p.mag[w] = WEAPONS[w].mag;
+  // You start holding a pipe and carrying a couple of bandages.
+  slotsAdd(p.hotbar, 'pipe', 1);
+  slotsAdd(p.hotbar, 'bandage', 2);
+  p.mag.pipe = undefined;
+  for (const id in WEAPONS) if (WEAPONS[id].mag) p.mag[id] = p.mag[id] || 0;
+  p.mag.pipe = 0;
   return p;
 }
 
-export const currentWeapon = (p) => WEAPONS[p.weapons[p.slot]] || WEAPONS.fists;
+// --------------------------------------------------------------- hotbar ---
+
+/** The item id in the selected hotbar slot, or null for empty hands. */
+export function heldId(p) {
+  const s = p.hotbar.slots[p.slot];
+  return s ? s.id : null;
+}
+
+/**
+ * What the player is swinging or firing. An empty hotbar slot, or one holding
+ * something that is not a weapon, means fists — you can still punch.
+ */
+export function currentWeapon(p) {
+  const id = heldId(p);
+  const w = id ? WEAPONS[id] : null;
+  return w || WEAPONS.fists;
+}
+
+/** Every weapon the player is carrying anywhere, for reload and ammo checks. */
+export function carriedWeapons(p) {
+  const out = [];
+  for (const s of p.hotbar.slots) if (s && WEAPONS[s.id]) out.push(s.id);
+  for (const s of p.bag.slots) if (s && WEAPONS[s.id]) out.push(s.id);
+  return out;
+}
+
+export const hasItem = (p, id) =>
+  slotsCount(p.bag, id) + slotsCount(p.hotbar, id) > 0;
 
 export function selectSlot(p, i) {
-  if (i < 0 || i >= p.weapons.length || i === p.slot) return;
+  if (i < 0 || i >= p.hotbar.slots.length || i === p.slot) return;
   p.slot = i;
   p.reloading = null;
   p.attackCd = Math.max(p.attackCd, 0.14);
@@ -69,8 +111,33 @@ export function selectSlot(p, i) {
 }
 
 export function cycleSlot(p, dir) {
-  const n = p.weapons.length;
+  const n = p.hotbar.slots.length;
   selectSlot(p, ((p.slot + dir) % n + n) % n);
+}
+
+/**
+ * Uses whatever is in the selected hotbar slot, if it is usable. Lets the
+ * hotbar hold bandages and have them mean something, rather than being a
+ * weapon rack with a separate heal key.
+ */
+export function useHeld(p) {
+  const id = heldId(p);
+  if (!id || !CONSUMABLES[id] || CONSUMABLES[id].tool) return false;
+  return useConsumable(p, id);
+}
+
+/** Starts the use channel for a specific consumable the player is carrying. */
+export function useConsumable(p, id) {
+  if (p.using || p.dead) return false;
+  const c = CONSUMABLES[id];
+  if (!c || c.tool) return false;
+  if (!hasItem(p, id)) { sfx('deny'); return false; }
+  if (c.heal > 0 && p.hp >= p.maxHp) {
+    notify('Already at full health', '#8a8f84');
+    return false;
+  }
+  p.using = { id, t: 0, dur: c.time * p.healSpeedMul };
+  return true;
 }
 
 export function useHealing(p) {
@@ -78,15 +145,14 @@ export function useHealing(p) {
   if (p.hp >= p.maxHp) { notify('Already at full health', '#8a8f84'); return false; }
   const missing = p.maxHp - p.hp;
   // Spend the smaller item unless the wound is big enough to justify a medkit.
+  const bandages = slotsCount(p.bag, 'bandage') + slotsCount(p.hotbar, 'bandage');
+  const kits = slotsCount(p.bag, 'medkit') + slotsCount(p.hotbar, 'medkit');
   let pick = null;
-  if (missing > 45 && (p.items.medkit || 0) > 0) pick = 'medkit';
-  else if ((p.items.bandage || 0) > 0) pick = 'bandage';
-  else if ((p.items.medkit || 0) > 0) pick = 'medkit';
+  if (missing > 45 && kits > 0) pick = 'medkit';
+  else if (bandages > 0) pick = 'bandage';
+  else if (kits > 0) pick = 'medkit';
   if (!pick) { sfx('deny'); notify('No medical supplies', '#c96a5a'); return false; }
-
-  const c = CONSUMABLES[pick];
-  p.using = { id: pick, t: 0, dur: c.time * p.healSpeedMul };
-  return true;
+  return useConsumable(p, pick);
 }
 
 function finishUse(p) {
@@ -98,8 +164,9 @@ function finishUse(p) {
     return;
   }
   const c = CONSUMABLES[p.using.id];
-  p.items[p.using.id]--;
-  if (p.items[p.using.id] <= 0) delete p.items[p.using.id];
+  // Spend it from the hotbar first, so the stack you can see going down is the
+  // one you were watching.
+  if (!slotsTake(p.hotbar, p.using.id, 1)) slotsTake(p.bag, p.using.id, 1);
   healPlayer(c.heal);
   p.using = null;
 }
@@ -231,9 +298,19 @@ export function updatePlayer(dt) {
 }
 
 /** Fraction of carry capacity used, by weight — matches what addResCapped enforces. */
-export function bagLoad(p) {
-  return bagWeight(p.bag) / p.carryCap;
+/**
+ * Carried weight as a fraction of capacity. The hotbar counts: a shotgun on
+ * the bar is still a shotgun on your back.
+ */
+export function carriedWeight(p) {
+  return slotsWeight(p.bag) + slotsWeight(p.hotbar);
 }
+
+export function bagLoad(p) {
+  return carriedWeight(p) / p.carryCap;
+}
+
+
 
 // ------------------------------------------------------------------ respawn --
 
@@ -276,8 +353,8 @@ export function respawnPlayer() {
   p.reloading = null;
   p.searching = null;
   p.using = null;
-  p.slot = clamp(p.slot, 0, p.weapons.length - 1);
-  for (const w of p.weapons) {
+  p.slot = clamp(p.slot, 0, p.hotbar.slots.length - 1);
+  for (const w of carriedWeapons(p)) {
     const def = WEAPONS[w];
     if (def && def.mag) p.mag[w] = Math.max(p.mag[w] || 0, 0);
   }

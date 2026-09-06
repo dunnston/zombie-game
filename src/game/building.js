@@ -8,6 +8,7 @@ import {
   notify, addRes, addResCapped, takeRes, countRes,
 } from './state.js';
 import { isBlockedTile } from './world.js';
+import { ITEMS, slotsEntries, packAllowance } from './items.js';
 import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
 import { addThreat } from './threat.js';
@@ -315,18 +316,25 @@ export function raidTarget(from) {
 export function stashDepositAll() {
   const p = G.player;
   let moved = 0;
-  for (const id in p.bag) {
-    const n = p.bag[id];
+  // Deposits raw materials and ammunition. Weapons, gear and medical supplies
+  // stay on you: the stash is for the haul, and a deposit-all that stripped
+  // your rifle and your bandages would be a trap rather than a convenience.
+  const entries = slotsEntries(p.bag);
+  for (const id of Object.keys(entries)) {
+    const it = ITEMS[id];
+    if (!it || it.kind !== 'res') continue;
+    const n = takeRes(p.bag, id, entries[id]);
     if (n > 0) { addRes(G.stash, id, n); moved += n; }
   }
-  p.bag = {};
-  for (const id in p.items) {
-    // Consumables stay on the player — you always want your bandages.
-    if (p.items[id] > 4) {
-      const keep = 4;
-      G.stashItems[id] = (G.stashItems[id] || 0) + (p.items[id] - keep);
-      moved += p.items[id] - keep;
-      p.items[id] = keep;
+  // Spare consumables beyond a working supply go to the stash.
+  for (const id of Object.keys(slotsEntries(p.bag))) {
+    const it = ITEMS[id];
+    if (!it || it.kind !== 'consumable') continue;
+    const have = countRes(p.bag, id);
+    if (have > 4) {
+      const give = takeRes(p.bag, id, have - 4);
+      G.stashItems[id] = (G.stashItems[id] || 0) + give;
+      moved += give;
     }
   }
   if (moved > 0) { sfx('loot'); notify(`Deposited ${moved} items`, '#b7e08a'); }
@@ -341,17 +349,16 @@ export function stashWithdrawAmmo() {
   for (const id of ['ammoP', 'ammoS', 'ammoR', 'med', 'fuel']) {
     const have = countRes(G.stash, id);
     if (have <= 0) continue;
-    const got = addResCapped(p.bag, id, have, p.carryCap);
+    const got = addResCapped(p.bag, id, have, packAllowance(p));
     takeRes(G.stash, id, got);
     moved += got;
   }
   for (const id in G.stashItems) {
     const n = G.stashItems[id] | 0;
-    if (n > 0) {
-      p.items[id] = (p.items[id] || 0) + n;
-      moved += n;
-      G.stashItems[id] = 0;
-    }
+    if (n <= 0) continue;
+    const got = addResCapped(p.bag, id, n, packAllowance(p));
+    moved += got;
+    G.stashItems[id] = n - got;
   }
   if (moved > 0) { sfx('loot'); notify(`Took ${moved} items from stash`, '#b7e08a'); }
   else { sfx('ui'); notify('Stash has no ammo or supplies', '#8a8f84'); }

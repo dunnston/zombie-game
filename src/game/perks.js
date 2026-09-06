@@ -9,7 +9,7 @@
 // makes save/load, respawns and refunds trivially correct: there is exactly one
 // place where a modifier can come from.
 
-import { PLAYER } from './config.js';
+import { PLAYER, GEAR, GEAR_SLOTS, MAX_GEAR_DR } from './config.js';
 
 export const ATTR_MIN = 1;
 export const ATTR_MAX = 10;
@@ -233,7 +233,24 @@ export function baseStats() {
 
     adrenaline: false, secondWind: false,
     hotwire: false, hotwireSpeedMul: 1,
+
+    // Summed from equipped gear by recomputeStats. Nothing else may write it —
+    // damage.js reads this rather than inspecting what is worn, so gear, perks
+    // and any future source of mitigation all arrive through one number.
+    armorDR: 0,
   };
+}
+
+/** Damage reduction from the five equipment slots, capped. */
+function applyGear(p) {
+  if (!p.equip) return;
+  let dr = 0;
+  for (const slot of GEAR_SLOTS) {
+    const id = p.equip[slot];
+    const g = id ? GEAR[id] : null;
+    if (g) dr += g.dr;
+  }
+  p.armorDR = Math.min(MAX_GEAR_DR, p.armorDR + dr);
 }
 
 function applyAttributes(p, attrs) {
@@ -272,6 +289,7 @@ export function recomputeStats(p) {
     const rank = p.perks[perk.id] || 0;
     if (rank > 0) perk.apply(p, rank);
   }
+  applyGear(p);
   p.maxHp = Math.round(p.maxHp);
   p.maxStam = Math.round(p.maxStam);
   p.carryCap = Math.round(p.carryCap);

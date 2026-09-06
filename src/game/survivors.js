@@ -312,12 +312,16 @@ function killSurvivor(s) {
 export function reviveSurvivor(s) {
   if (!s.downed || s.dead) return false;
   const cost = 1;
-  if ((G.player.items.medkit || 0) >= cost) {
-    G.player.items.medkit -= cost;
-    if (G.player.items.medkit <= 0) delete G.player.items.medkit;
-  } else if ((G.player.items.bandage || 0) >= 2) {
-    G.player.items.bandage -= 2;
-    if (G.player.items.bandage <= 0) delete G.player.items.bandage;
+  const rp = G.player;
+  const held = (id) => countRes(rp.bag, id) + countRes(rp.hotbar, id);
+  const spendItem = (id, n) => {
+    const fromBag = takeRes(rp.bag, id, n);
+    if (fromBag < n) takeRes(rp.hotbar, id, n - fromBag);
+  };
+  if (held('medkit') >= cost) {
+    spendItem('medkit', cost);
+  } else if (held('bandage') >= 2) {
+    spendItem('bandage', 2);
   } else {
     sfx('deny');
     notify('Need a medkit, or two bandages', '#c96a5a');

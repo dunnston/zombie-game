@@ -3,6 +3,9 @@
 // system modules so this file stays cycle-free.
 
 import { TILE, RES, bagWeight } from './config.js';
+import {
+  ITEMS, isSlots, slotsAdd, slotsTake, slotsCount, slotsWeight, itemWeight,
+} from './items.js';
 import { isBlockedTile } from './world.js';
 import { clamp } from '../core/util.js';
 import { Input } from '../core/input.js';
@@ -52,9 +55,23 @@ export const G = {
 };
 
 // ------------------------------------------------------------ resource bag --
+//
+// Two container shapes live behind these four functions. The player's pack is
+// a slot container (see items.js) because it has to be drawn, dragged and
+// rearranged; the stash, car boots and survivor cargo stay as plain id->count
+// maps because nothing addresses an individual slot in them. Keeping the
+// signatures identical is what let the inventory rewrite leave ~40 call sites
+// across building, crafting, combat, loot and survivors completely untouched.
+
+/** Weight of either container shape. */
+export function containerWeight(bag) {
+  return isSlots(bag) ? slotsWeight(bag) : bagWeight(bag);
+}
 
 export function addRes(bag, id, n) {
-  if (!RES[id] || n <= 0) return 0;
+  if (n <= 0) return 0;
+  if (isSlots(bag)) return ITEMS[id] ? slotsAdd(bag, id, n) : 0;
+  if (!RES[id]) return 0;
   bag[id] = (bag[id] || 0) + n;
   return n;
 }
@@ -64,16 +81,20 @@ export function addRes(bag, id, n) {
  * callers can tell the player what overflowed.
  */
 export function addResCapped(bag, id, n, cap) {
-  if (!RES[id] || n <= 0) return 0;
-  const room = cap - bagWeight(bag);
-  const perUnit = RES[id].wt;
+  if (n <= 0) return 0;
+  const perUnit = isSlots(bag) ? itemWeight(id) : (RES[id] ? RES[id].wt : -1);
+  if (perUnit < 0) return 0;
+  const room = cap - containerWeight(bag);
   const fits = perUnit <= 0 ? n : Math.floor(room / perUnit + 1e-9);
   const give = Math.max(0, Math.min(n, fits));
-  if (give > 0) bag[id] = (bag[id] || 0) + give;
-  return give;
+  if (give <= 0) return 0;
+  // A slot container can still refuse it: weight allows it, but every slot is
+  // full. addRes reports what actually fitted.
+  return addRes(bag, id, give);
 }
 
 export function takeRes(bag, id, n) {
+  if (isSlots(bag)) return slotsTake(bag, id, n);
   const have = bag[id] || 0;
   const took = Math.min(have, n);
   bag[id] = have - took;
@@ -81,7 +102,8 @@ export function takeRes(bag, id, n) {
   return took;
 }
 
-export const countRes = (bag, id) => bag[id] || 0;
+export const countRes = (bag, id) =>
+  (isSlots(bag) ? slotsCount(bag, id) : (bag[id] || 0));
 
 /** Total of `id` across the player's pack and the stash. */
 export function totalRes(id) {

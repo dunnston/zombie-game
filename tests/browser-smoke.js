@@ -123,10 +123,10 @@
     ok('melee damages enemies', e1.dead || e1.hp < hpBefore, `${hpBefore} -> ${e1.hp}`);
 
     // Firearms
-    p.weapons.push('pistol');
+    api.slotsAdd(p.hotbar, 'pistol', 1);
     p.mag.pistol = 12;
-    p.bag.ammoP = 40;
-    api.selectSlot(p, p.weapons.indexOf('pistol'));
+    api.slotsAdd(p.bag, 'ammoP', 40);
+    api.selectSlot(p, p.hotbar.slots.findIndex((s) => s && s.id === 'pistol'));
     G.enemies.length = 0;
     const e2 = api.spawnEnemy('walker', p.x + 200, p.y);
     await frames(2);
@@ -179,21 +179,24 @@
     await seconds(2.6);
     d.key('KeyE', false);
     await frames(3);
-    const carried = Object.values(p.bag).reduce((a, b) => a + b, 0);
+    const unitsHeld = () => p.bag.slots.reduce((a, s) => a + (s ? s.n : 0), 0);
     ok('searching loots a container', container.looted, `looted=${container.looted}`);
-    ok('loot lands in the pack', carried > 0, `${carried} units`);
+    ok('loot lands in the pack', unitsHeld() > 0, `${unitsHeld()} units`);
 
     // Carry capacity is enforced by the real loot-granting path, and the
     // overflow is dropped on the ground rather than vanishing.
-    p.bag = {};
+    api.clearBag(p);
     const pickups0 = G.pickups.length;
     const result = api.grantLoot(p, [{ id: 'wood', n: p.carryCap + 250 }], p.x, p.y);
-    const held = Object.values(p.bag).reduce((a, b) => a + b, 0);
-    ok('pack never exceeds carry capacity', held <= p.carryCap, `${held} / ${p.carryCap}`);
+    // Capacity is weight, not unit count — that is the rule the inventory
+    // screen shows and the one grantLoot enforces.
+    const heldWeight = api.carriedWeight(p);
+    ok('pack never exceeds carry capacity', heldWeight <= p.carryCap + 1e-6,
+      `${heldWeight.toFixed(1)} / ${p.carryCap}`);
     ok('overflow loot drops on the ground', G.pickups.length > pickups0,
       `${G.pickups.length - pickups0} dropped`);
     void result;
-    p.bag = {};
+    api.clearBag(p);
     G.pickups.length = 0;
 
     // --------------------------------- 5. building (keyboard-driven first) --
@@ -279,14 +282,15 @@
 
     const recipe = api.RECIPES.find((r) => r.id === 'machete');
     const craftedOk = api.craft(recipe, 1);
-    ok('crafting produces the item', craftedOk && p.weapons.includes('machete'), `${p.weapons.join(',')}`);
+    const carries = (id) => api.slotsCount(p.bag, id) + api.slotsCount(p.hotbar, id) > 0;
+    ok('crafting produces the item', craftedOk && carries('machete'), 'machete');
 
     const upgraded = api.upgradeBench(bench);
     ok('workbench upgrades to tier II', upgraded && bench.tier === 2, `tier ${bench.tier}`);
     const t2 = api.RECIPES.find((r) => r.id === 'shotgun');
     ok('tier II recipe locked at tier I', !api.craft(t2, 1) || true);
     api.craft(t2, 2);
-    ok('tier II recipe crafts at tier II', p.weapons.includes('shotgun'), p.weapons.join(','));
+    ok('tier II recipe crafts at tier II', carries('shotgun'), 'shotgun');
 
     // Bedroll sets the respawn point
     const bed = placeNear('bedroll');
@@ -311,7 +315,7 @@
       gen.fuel = 50;
       gen.on = true;
       G.stash.fuel = 0;
-      p.bag.fuel = 0;
+      api.slotsTake(p.bag, 'fuel', 9999);
       await frames(2);
       d.teleport(gen.x + 30, gen.y);
       await frames(3);
@@ -334,7 +338,7 @@
     d.teleport(deathSpot.x, deathSpot.y);
     await frames(3);
     d.god(false);
-    p.bag = { scrap: 40, wood: 20 };
+    api.clearBag(p); api.slotsAdd(p.bag, 'scrap', 40); api.slotsAdd(p.bag, 'wood', 20);
     p.hp = 1;
     p.invuln = 0;
     const packs0 = G.backpacks.length;
@@ -352,10 +356,14 @@
     ok('base survives death', G.structures.length > 0, `${G.structures.length} structures`);
     ok('stash survives death', (G.stash.scrap || 0) > 0, `scrap ${G.stash.scrap}`);
     ok('level and upgrades survive death', p.level >= 1 && p.xpNext > 0);
-    ok('starting weapon is never lost', p.weapons.includes('pipe'), p.weapons.join(','));
+    ok('starting weapon is never lost',
+      api.slotsCount(p.hotbar, 'pipe') + api.slotsCount(p.bag, 'pipe') > 0,
+      p.hotbar.slots.map((s) => (s ? s.id : '-')).join(','));
+    // A death drop is now one id->count map covering everything carried and
+    // worn, rather than four parallel lists.
     ok('carried weapons go into the pack, not the void',
-      G.backpacks.some((b) => b.contents.weapons.includes('machete')),
-      G.backpacks.map((b) => b.contents.weapons.join('+')).join(' | '));
+      G.backpacks.some((b) => (b.contents.bag.machete || 0) > 0),
+      G.backpacks.map((b) => Object.keys(b.contents.bag).join('+')).join(' | '));
 
     // Recover the pack
     d.god(true);
@@ -368,7 +376,8 @@
       ok('dropped pack is interactable', h && h.kind === 'backpack', h && h.kind);
       d.tap('KeyE');
       await frames(4);
-      ok('pack contents are recovered', (p.bag.scrap || 0) > 0, `scrap ${p.bag.scrap || 0}`);
+      ok('pack contents are recovered', api.slotsCount(p.bag, 'scrap') > 0,
+        `scrap ${api.slotsCount(p.bag, 'scrap')}`);
     }
 
     // ---------------------------------------------------------- 7. threat --
@@ -522,7 +531,7 @@
     // Death itself is covered above; this drives the death path directly so the
     // assertion is about save/load behaviour and nothing else.
     G.enemies.length = 0;
-    p.bag = { scrap: 12 };
+    api.clearBag(p); api.slotsAdd(p.bag, 'scrap', 12);
     api.killPlayer();
     await frames(2);
     if (p.dead) {
@@ -742,7 +751,7 @@
 
       G.enemies.length = 0;
       sv.hp = 0; sv.downed = true; sv.downT = 8;
-      p.items.medkit = 2;
+      api.slotsAdd(p.bag, 'medkit', 2);
       d.teleport(sv.x + 24, sv.y);
       await frames(4);
       const downHover = api.findInteractable();
@@ -764,7 +773,7 @@
       G.survivors.push(api.makeSurvivor(p.x, p.y, {}));
       G.rationDebt = 0;
       G.stash.rations = 40;
-      p.bag.rations = 0;
+      api.slotsTake(p.bag, 'rations', 9999);
       const foodBefore = G.stash.rations;
       await seconds(12);
       ok('survivors consume Rations over time', (G.stash.rations || 0) < foodBefore,
@@ -938,8 +947,9 @@
         const scrapBefore = G.stash.scrap || 0;
         // The player is standing right there and will magnet the dropped gear
         // up within a frame, so measure what they end up holding.
-        const medkitsBefore = p.items.medkit || 0;
-        p.weapons = p.weapons.filter((w) => w !== 'pistol');
+        const heldCount = (id) => api.slotsCount(p.bag, id) + api.slotsCount(p.hotbar, id);
+        const medkitsBefore = heldCount('medkit');
+        api.slotsTake(p.bag, 'pistol', 9); api.slotsTake(p.hotbar, 'pistol', 9);
         // Survivors correctly refuse to do chores while something is shooting at
         // them, so keep the area clear for this measurement.
         for (let i = 0; i < 12 && scav.carrying; i++) {
@@ -950,8 +960,8 @@
         ok('materials are delivered into the stash', (G.stash.scrap || 0) > scrapBefore,
           `${scrapBefore} -> ${G.stash.scrap || 0}`);
         ok('equipment a scavenger found is not destroyed',
-          (p.items.medkit || 0) > medkitsBefore || p.weapons.includes('pistol') || G.pickups.length > 0,
-          `medkits ${medkitsBefore} -> ${p.items.medkit || 0}, pistol=${p.weapons.includes('pistol')}, ${G.pickups.length} on the ground`);
+          heldCount('medkit') > medkitsBefore || heldCount('pistol') > 0 || G.pickups.length > 0,
+          `medkits ${medkitsBefore} -> ${heldCount('medkit')}, pistol=${heldCount('pistol')}, ${G.pickups.length} on the ground`);
         ok('the haul is cleared once handed over', !scav.carrying && !scav.carryItems?.length);
 
         // Reassigning mid-haul must not delete the cargo either.
@@ -1032,7 +1042,7 @@
         doomed.downT = 0.2;
         await seconds(1.5);
         ok('a dead scavenger drops their haul rather than deleting it',
-          G.pickups.length > 0 || (p.items.medkit || 0) > 0,
+          G.pickups.length > 0 || api.slotsCount(p.bag, 'medkit') > 0,
           `${G.pickups.length} on the ground`);
         G.survivors.length = 0;
         G.pickups.length = 0;
@@ -1174,7 +1184,7 @@
       const car = lockedCars.find((v) => v.keyId) || G.vehicles[0];
       d.teleport(car.x + 40, car.y);
       await frames(3);
-      p.items = {};
+      api.slotsTake(p.bag, 'lockpick', 999); api.slotsTake(p.hotbar, 'lockpick', 999);
       p.carKeys = [];
       p.hotwire = false;
       car.locked = true; car.hotwired = false;
@@ -1197,18 +1207,20 @@
         `${lowOdds.toFixed(2)} -> ${highOdds.toFixed(2)}`);
       ok('the odds are never a certainty', highOdds < 1, `${highOdds.toFixed(2)}`);
 
-      p.items.lockpick = 60;
-      const picksBefore = p.items.lockpick;
+      api.slotsAdd(p.bag, 'lockpick', 60);
+      const picks = () => api.slotsCount(p.bag, 'lockpick') + api.slotsCount(p.hotbar, 'lockpick');
+      const picksBefore = picks();
       let opened = false;
       for (let i = 0; i < 50 && !opened; i++) opened = api.tryUnlock(p, car2);
       ok('a lock can be picked open', opened && !car2.locked);
-      ok('picks are consumed whether they work or not', (p.items.lockpick || 0) < picksBefore,
-        `${picksBefore} -> ${p.items.lockpick || 0}`);
+      ok('picks are consumed whether they work or not', picks() < picksBefore,
+        `${picksBefore} -> ${picks()}`);
 
       // Hotwiring: the Intelligence perk, slow but universal.
       const car3 = G.vehicles.find((v) => v.locked && v !== car && v !== car2);
       if (car3) {
-        p.items = {}; p.carKeys = [];
+        api.slotsTake(p.bag, 'lockpick', 999); api.slotsTake(p.hotbar, 'lockpick', 999);
+        p.carKeys = [];
         p.hotwire = true; p.hotwireSpeedMul = 1;
         d.teleport(car3.x + 40, car3.y);
         await frames(3);
@@ -1276,11 +1288,13 @@
       await seconds(1.2);
 
       // ------------------------------------------------------------ boot --
-      p.bag = { wood: 90, scrap: 40 };
+      api.clearBag(p); api.slotsAdd(p.bag, 'wood', 90); api.slotsAdd(p.bag, 'scrap', 40);
       const stowed = api.stowInTrunk(ride);
       ok('the boot takes your haul', stowed > 0 && api.trunkLoad(ride) > 0,
         `${api.trunkLoad(ride)} in the boot`);
-      ok('stowing empties your pack', Object.keys(p.bag).length === 0);
+      ok('stowing empties your pack of materials',
+        p.bag.slots.every((s) => !s || api.ITEMS[s.id].kind !== 'res'),
+        p.bag.slots.filter(Boolean).map((s) => s.id).join(','));
       ok('the boot holds far more than you can carry', api.CAR.trunkCap > p.carryCap,
         `${api.CAR.trunkCap} vs ${p.carryCap}`);
       api.takeFromTrunk(ride);
@@ -1419,11 +1433,12 @@
         fuelCar.locked = false;
         d.teleport(fuelCar.x + 40, fuelCar.y);
         await frames(3);
-        p.weapons = ['fists', 'pipe', 'pistol'];
+        api.slotsTake(p.hotbar, 'pistol', 9);
+        api.slotsAdd(p.hotbar, 'pistol', 1);
         p.mag.pistol = 3;
-        api.selectSlot(p, 2);
-        p.bag.ammoP = 50;
-        p.bag.fuel = 60;
+        api.selectSlot(p, p.hotbar.slots.findIndex((s) => s && s.id === 'pistol'));
+        api.slotsAdd(p.bag, 'ammoP', 50);
+        api.slotsAdd(p.bag, 'fuel', 60);
         await frames(2);
         const magBefore = p.mag.pistol;
         const fuelBefore = fuelCar.fuel;
@@ -1469,6 +1484,229 @@
 
       G.pickups.length = 0;
       G.enemies.length = 0;
+    }
+
+
+    // -------------------------------------------- 11f. inventory and gear ---
+    // The owner asked for this three times: a visual inventory, equipment
+    // slots, a hotbar, drag to equip, stacking, and capacity by weight. Drive
+    // it through real mouse events at the panel's own reported slot rects, so
+    // the test breaks if the layout moves rather than testing its own maths.
+    {
+      d.god(true);
+      G.enemies.length = 0;
+      G.ui.panel = null;
+      p = G.player;
+
+      // A clean pack, then a spread of things to move about.
+      for (let i = 0; i < p.bag.slots.length; i++) p.bag.slots[i] = null;
+      for (let i = 0; i < p.hotbar.slots.length; i++) p.hotbar.slots[i] = null;
+      for (const s of api.GEAR_SLOTS) p.equip[s] = null;
+      api.recomputeStats(p);
+      api.slotsAdd(p.hotbar, 'pipe', 1);
+      api.grantLoot(p, [
+        { id: 'wood', n: 30 },
+        { id: 'gear:riotHelm', n: 1 },
+        { id: 'gear:lightVest', n: 1 },
+        { id: 'item:bandage', n: 2 },
+      ], p.x, p.y);
+      await frames(3);
+
+      ok('the pack is a grid of slots', p.bag.slots.length >= 20,
+        `${p.bag.slots.length} slots`);
+      ok('there are five equipment slots', api.GEAR_SLOTS.length === 5,
+        api.GEAR_SLOTS.join(','));
+      ok('gear goes into the pack rather than equipping itself',
+        api.slotsCount(p.bag, 'riotHelm') === 1 && !p.equip.head,
+        `head=${p.equip.head}`);
+
+      // ---- stacking ----
+      const woodBefore = api.slotsCount(p.bag, 'wood');
+      api.slotsAdd(p.bag, 'wood', 40);
+      ok('materials stack up to a limit and spill into a new slot',
+        api.slotsCount(p.bag, 'wood') === woodBefore + 40 &&
+        p.bag.slots.filter((s) => s && s.id === 'wood').length >= 2,
+        `${p.bag.slots.filter((s) => s && s.id === 'wood').map((s) => s.n).join('+')}`);
+      const overStack = p.bag.slots.some((s) => s && s.n > api.ITEMS[s.id].stack);
+      ok('no stack ever exceeds its limit', !overStack);
+
+      // ---- weight is the capacity ----
+      const wBefore = api.carriedWeight(p);
+      api.slotsAdd(p.bag, 'ammoP', 100);
+      const wAfterAmmo = api.carriedWeight(p);
+      api.slotsAdd(p.bag, 'scrap', 100);
+      const wAfterScrap = api.carriedWeight(p);
+      ok('carry capacity is measured by weight, not slots',
+        wAfterAmmo - wBefore < wAfterScrap - wAfterAmmo,
+        `100 ammo = ${(wAfterAmmo - wBefore).toFixed(0)}, 100 scrap = ${(wAfterScrap - wAfterAmmo).toFixed(0)}`);
+
+
+      // ---- the panel opens on I ----
+      d.tap('KeyI');
+      await frames(4);
+      ok('I opens the inventory', G.ui.panel === 'inv', `panel=${G.ui.panel}`);
+      await frames(2);
+      const zones = api.invZones();
+      ok('the inventory reports its slot layout', zones.length > 30,
+        `${zones.length} zones`);
+
+      // Convert a CSS-pixel panel rect to a client point the canvas will map back.
+      const rect = d.canvas.getBoundingClientRect();
+      const toClient = (z) => ({
+        x: rect.left + (z.x + z.w / 2) * ((G.dpr || 1) * rect.width / d.canvas.width),
+        y: rect.top + (z.y + z.h / 2) * ((G.dpr || 1) * rect.height / d.canvas.height),
+      });
+      const zoneOf = (kind, key) => zones.find((z) =>
+        z.kind === kind && (kind === 'equip' ? z.slot === key : z.i === key));
+
+      async function dragBetween(fromZone, toZone) {
+        const a = toClient(fromZone), b = toClient(toZone);
+        d.mouseMove(a.x, a.y);
+        await frames(2);
+        d.mouseDown(0);
+        await frames(2);
+        d.mouseMove(b.x, b.y);
+        await frames(2);
+        d.mouseUp(0);
+        await frames(3);
+      }
+
+      // ---- drag a helmet from the pack onto the head slot ----
+      const helmIndex = p.bag.slots.findIndex((s) => s && s.id === 'riotHelm');
+      const helmZone = zoneOf('bag', helmIndex);
+      const headZone = zoneOf('equip', 'head');
+      ok('the helmet and the head slot both have hit areas', !!helmZone && !!headZone);
+      if (helmZone && headZone) {
+        const drBefore = p.armorDR || 0;
+        await dragBetween(helmZone, headZone);
+        ok('dragging a helmet onto the head slot equips it', p.equip.head === 'riotHelm',
+          `head=${p.equip.head}`);
+        ok('...and it leaves the pack', api.slotsCount(p.bag, 'riotHelm') === 0);
+        ok('...and it actually raises your armour', (p.armorDR || 0) > drBefore,
+          `${(drBefore * 100).toFixed(0)}% -> ${((p.armorDR || 0) * 100).toFixed(0)}%`);
+      }
+
+      // ---- gear only goes in the slot it belongs to ----
+      await frames(2);
+      const zones2 = api.invZones();
+      const vestIndex = p.bag.slots.findIndex((s) => s && s.id === 'lightVest');
+      const vestZone = zones2.find((z) => z.kind === 'bag' && z.i === vestIndex);
+      const feetZone = zones2.find((z) => z.kind === 'equip' && z.slot === 'feet');
+      if (vestZone && feetZone) {
+        await dragBetween(vestZone, feetZone);
+        ok('a vest cannot be worn on your feet', !p.equip.feet,
+          `feet=${p.equip.feet}`);
+        ok('...and the vest stays in the pack', api.slotsCount(p.bag, 'lightVest') === 1);
+      }
+
+      // ---- unequip by dragging back to an empty pack slot ----
+      await frames(2);
+      const zones3 = api.invZones();
+      const emptyIndex = p.bag.slots.findIndex((s) => !s);
+      const headZone3 = zones3.find((z) => z.kind === 'equip' && z.slot === 'head');
+      const emptyZone = zones3.find((z) => z.kind === 'bag' && z.i === emptyIndex);
+      if (headZone3 && emptyZone) {
+        await dragBetween(headZone3, emptyZone);
+        ok('dragging worn gear back to the pack takes it off',
+          !p.equip.head && api.slotsCount(p.bag, 'riotHelm') === 1,
+          `head=${p.equip.head}`);
+        ok('...and your armour drops again', (p.armorDR || 0) === 0,
+          `${((p.armorDR || 0) * 100).toFixed(0)}%`);
+      }
+
+      // ---- moving a stack between two pack slots ----
+      await frames(2);
+      const zones4 = api.invZones();
+      const woodIndex = p.bag.slots.findIndex((s) => s && s.id === 'wood');
+      const freeIndex = p.bag.slots.findIndex((s) => !s);
+      const woodZone = zones4.find((z) => z.kind === 'bag' && z.i === woodIndex);
+      const freeZone = zones4.find((z) => z.kind === 'bag' && z.i === freeIndex);
+      if (woodZone && freeZone && woodIndex >= 0 && freeIndex >= 0) {
+        const n = p.bag.slots[woodIndex].n;
+        await dragBetween(woodZone, freeZone);
+        ok('a stack can be dragged to an empty slot',
+          p.bag.slots[freeIndex] && p.bag.slots[freeIndex].id === 'wood' &&
+          p.bag.slots[freeIndex].n === n && !p.bag.slots[woodIndex],
+          `moved ${n}`);
+      }
+
+      // ---- pack to hotbar ----
+      await frames(2);
+      const zones5 = api.invZones();
+      const bandIndex = p.bag.slots.findIndex((s) => s && s.id === 'bandage');
+      const freeHb = p.hotbar.slots.findIndex((s) => !s);
+      const bandZone = zones5.find((z) => z.kind === 'bag' && z.i === bandIndex);
+      const hbZone = zones5.find((z) => z.kind === 'hotbar' && z.i === freeHb);
+      if (bandZone && hbZone && bandIndex >= 0 && freeHb >= 0) {
+        await dragBetween(bandZone, hbZone);
+        ok('items can be dragged onto the hotbar',
+          api.slotsCount(p.hotbar, 'bandage') > 0,
+          `hotbar bandages ${api.slotsCount(p.hotbar, 'bandage')}`);
+      }
+
+      // ---- the hotbar chooses what you are holding ----
+      d.tap('Escape');
+      await frames(4);
+      ok('ESC closes the inventory', G.ui.panel === null);
+      const pipeSlot = p.hotbar.slots.findIndex((s) => s && s.id === 'pipe');
+      if (pipeSlot >= 0) {
+        d.tap(`Digit${pipeSlot + 1}`);
+        await frames(4);
+        ok('a hotbar key selects what you are holding',
+          api.heldId(p) === 'pipe' && api.currentWeapon(p).id === 'pipe',
+          `holding ${api.heldId(p)}`);
+      }
+      const emptyHb = p.hotbar.slots.findIndex((s) => !s);
+      if (emptyHb >= 0) {
+        d.tap(`Digit${emptyHb + 1}`);
+        await frames(4);
+        ok('an empty hotbar slot means bare hands, not a crash',
+          api.currentWeapon(p).id === 'fists', api.currentWeapon(p).id);
+        d.tap(`Digit${pipeSlot + 1}`);
+        await frames(3);
+      }
+
+      // ---- dropping puts it on the ground where it can be picked back up ----
+      G.pickups.length = 0;
+      const dropIndex = p.bag.slots.findIndex((s) => s && s.id === 'wood');
+      if (dropIndex >= 0) {
+        const n = p.bag.slots[dropIndex].n;
+        api.dropStack(p, 'bag', dropIndex, true);
+        // Checked before the next frame: the player is standing on the spot,
+        // so the magnet would pick it straight back up and the assertion would
+        // pass or fail on pickup timing rather than on the drop.
+        ok('dropping a stack puts it on the ground', G.pickups.length > 0,
+          `${G.pickups.length} on the floor`);
+        ok('...and it leaves your pack', !p.bag.slots[dropIndex], `dropped ${n}`);
+        await frames(3);
+      }
+      G.pickups.length = 0;
+
+      // ---- equipment and the grid survive a save/load ----
+      api.equipBest(p);
+      await frames(2);
+      const wornBefore = { ...p.equip };
+      const drBefore2 = p.armorDR || 0;
+      const packBefore = p.bag.slots.map((s) => (s ? `${s.id}:${s.n}` : '-')).join(',');
+      const hotBefore = p.hotbar.slots.map((s) => (s ? `${s.id}:${s.n}` : '-')).join(',');
+      api.saveGame();
+      api.loadGame();
+      p = G.player;
+      await frames(4);
+      ok('worn equipment survives a save and load',
+        api.GEAR_SLOTS.every((s) => p.equip[s] === wornBefore[s]),
+        JSON.stringify(p.equip));
+      ok('...and so does the armour it grants',
+        Math.abs((p.armorDR || 0) - drBefore2) < 1e-6,
+        `${(drBefore2 * 100).toFixed(0)}% -> ${((p.armorDR || 0) * 100).toFixed(0)}%`);
+      ok('every pack slot comes back where it was',
+        p.bag.slots.map((s) => (s ? `${s.id}:${s.n}` : '-')).join(',') === packBefore);
+      ok('and so does the hotbar',
+        p.hotbar.slots.map((s) => (s ? `${s.id}:${s.n}` : '-')).join(',') === hotBefore);
+
+      d.god(true);
+      G.enemies.length = 0;
+      G.pickups.length = 0;
     }
 
     // ------------------------------------------ 11e. cleared ground stays ---

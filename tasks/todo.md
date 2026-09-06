@@ -17,10 +17,19 @@ or find crafting. Plan approved covering three PRs.
 - [x] Tests: unit (curve steepening), browser (suppression + decay)
 - [x] Measured pacing check: time-to-level and longest quiet gap near base
 
-### PR 2 — Slot inventory, equipment, hotbar  (next)
+### PR 2 — Slot inventory, equipment, hotbar  (done, PR #8)
 
-Full slot grid for everything, behind the existing state.js resource API.
-Save -> v7. New `src/ui/inventory.js`. Crafting becomes a tab.
+Done. 30-slot pack grid, 6-slot hotbar, five equipment slots (head/body/hands/
+legs/feet), 15 gear pieces across three tiers, drag and drop everywhere,
+capacity by weight. Save -> v7.
+
+- [x] Slot model behind the existing addRes/takeRes/countRes API
+- [x] Five equipment slots, gear DR summed by recomputeStats
+- [x] Hotbar decides what you are holding; keys 1-6
+- [x] Drag to move, equip, unequip; right click to wear or shuttle
+- [x] Weight bar counts pack + hotbar; packAllowance() is the one check
+- [x] Save v7 round-trips slots, hotbar and worn gear
+- [ ] Crafting folded in as a tab (owner never found it on C)
 
 ### PR 3 — Storage tiers, hunger and thirst  (not started)
 

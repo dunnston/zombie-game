@@ -251,7 +251,8 @@ function finishReloadStep(p, w) {
 export function updateReload(p, dt) {
   if (!p.reloading) return;
   const w = WEAPONS[p.reloading.w];
-  if (!w || p.weapons[p.slot] !== w.id) { p.reloading = null; return; }
+  const held = p.hotbar.slots[p.slot];
+  if (!w || !held || held.id !== w.id) { p.reloading = null; return; }
   p.reloading.t += dt;
   if (p.reloading.t >= p.reloading.dur) finishReloadStep(p, w);
 }
