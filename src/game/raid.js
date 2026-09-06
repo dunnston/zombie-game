@@ -18,6 +18,8 @@ export const WARNING_TIME = 12;
 const STALL_INTERVAL = 4;      // seconds between progress checks
 const STALL_LIMIT = 12;        // seconds of no progress before relocating
 const MAX_RAID_SECONDS = 300;  // absolute ceiling on a single raid
+const BREAKOFF_TIME = 25;      // seconds of no progress at all before the horde gives up
+const BREAKOFF_RADIUS = 900;   // how far from the raid centre still counts as "the base"
 
 export function startRaid() {
   const index = G.raidsDone;
@@ -163,12 +165,42 @@ export function updateRaid(dt) {
     }
   }
 
+  // A raid ends only when every raider is dead, so anything that leaves the
+  // last few unkillable strands it — and the player with it. It happens for
+  // real: the base falls, you die, you respawn across the map, and the
+  // survivors of the horde set off after you but wedge on terrain they cannot
+  // path around. Nothing can then change until the backstop below fires three
+  // minutes later. So watch actual progress — kills, structure damage, damage
+  // to the player — and if none of it moves for long enough, the horde gives up
+  // and drifts away. The relocation above cannot fix this on its own: it only
+  // considers raiders far from the base, and a raider wedged in the ruins is
+  // not one of them.
+  raid.progressCheck = (raid.progressCheck ?? 1) - dt;
+  if (raid.progressCheck <= 0) {
+    raid.progressCheck = 1;
+    let structHp = 0;
+    let standing = 0;
+    for (const s of G.structures) {
+      if (s.destroyed) continue;
+      structHp += s.hp;
+      if (dist2(s.x, s.y, raid.cx, raid.cy) < BREAKOFF_RADIUS * BREAKOFF_RADIUS) standing++;
+    }
+    const sig = `${raid.killed}|${Math.round(structHp)}|${Math.round(p.hp)}|${p.dead ? 1 : 0}`;
+    raid.idle = sig === raid.lastSig ? (raid.idle || 0) + 1 : 0;
+    raid.lastSig = sig;
+    raid.standing = standing;
+  }
+  if ((raid.idle || 0) >= BREAKOFF_TIME) {
+    scatterRaid(raid.standing
+      ? 'The horde loses interest and drifts away'
+      : 'Nothing left to take — the horde scatters');
+    return;
+  }
+
   // Hard backstop: no raid may outlast this, whatever goes wrong.
   raid.elapsed = (raid.elapsed || 0) + dt;
   if (raid.elapsed > MAX_RAID_SECONDS) {
-    notify('The horde breaks off and scatters', '#d9c46a', true);
-    for (let i = G.enemies.length - 1; i >= 0; i--) if (G.enemies[i].raid) G.enemies.splice(i, 1);
-    finishRaid();
+    scatterRaid('The horde breaks off and scatters');
     return;
   }
 
@@ -184,25 +216,45 @@ export function updateRaid(dt) {
   }
 }
 
-function finishRaid() {
+/**
+ * Ends a raid the player did not finish: the horde wanders off rather than
+ * being killed to the last. Sending stragglers home through here instead of
+ * `finishRaid` matters, because a full salvage payout for a raid that flattened
+ * your base would make hiding until it ended better than defending.
+ */
+function scatterRaid(message) {
+  notify(message, '#d9c46a', true);
+  for (let i = G.enemies.length - 1; i >= 0; i--) if (G.enemies[i].raid) G.enemies.splice(i, 1);
+  finishRaid(false);
+}
+
+function finishRaid(repelled = true) {
   const raid = G.raid;
   const spec = raid.spec;
+  // Paid on the share of the horde actually put down, so breaking off early
+  // still earns what was earned and nothing more.
+  const share = repelled ? 1 : Math.max(0, Math.min(1, raid.killed / Math.max(1, raid.total)));
   G.raid = null;
   G.raidsDone++;
   resetThreatAfterRaid();
 
-  for (const id in spec.reward) addRes(G.stash, id, spec.reward[id]);
-  addXp(spec.xp);
+  const reward = {};
+  for (const id in spec.reward) {
+    const n = Math.floor(spec.reward[id] * share);
+    if (n > 0) { reward[id] = n; addRes(G.stash, id, n); }
+  }
+  addXp(Math.round(spec.xp * (repelled ? 1 : 0.5 + share * 0.5)));
 
   // Clean up stragglers that were part of the raid but wandered off.
   for (const e of G.enemies) if (e.raid) e.raid = false;
 
   sfx('raidWin');
-  screenFlash('#2a6a3a', 0.4);
-  const rewardText = Object.entries(spec.reward).map(([k, v]) => `${k} +${v}`).join('  ');
-  notify(`${spec.name} REPELLED`, '#b7e08a', true);
-  notify(`Salvage delivered to stash — ${rewardText}`, '#b7e08a', true);
-  if (G.player) FX.ring(G.player.x, G.player.y, 10, 200, 0.9, '#b7e08a', 4);
+  screenFlash(repelled ? '#2a6a3a' : '#4a4a2a', 0.4);
+  const rewardText = Object.entries(reward).map(([k, v]) => `${k} +${v}`).join('  ');
+  const tint = repelled ? '#b7e08a' : '#d9c46a';
+  notify(repelled ? `${spec.name} REPELLED` : `${spec.name} OVER`, tint, true);
+  notify(rewardText ? `Salvage delivered to stash — ${rewardText}` : 'No salvage worth taking', tint, true);
+  if (G.player) FX.ring(G.player.x, G.player.y, 10, 200, 0.9, tint, 4);
 }
 
 /** Debug/testing helper — ends a raid instantly. */

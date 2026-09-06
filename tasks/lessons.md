@@ -161,3 +161,35 @@ stable, not by generation order.
 silently emptied `README.md`. Restored from git, but the lesson is broader:
 prefer the dedicated edit tooling over ad-hoc string surgery on files that
 matter, and check the result when you do reach for a script.
+
+### A measuring tool that stops measuring reads as a pass
+
+The raid harness plays the defender itself. After the defender's first death it
+respawned across the map, never again found an enemy within its 250px engage
+radius, and logged an identical sample every second for the rest of the run.
+That flat line looked exactly like a stalled game engine — and it sent a session
+hunting a pathfinding bug that was really a harness that had stopped playing.
+
+**Rule:** when a measurement looks broken, check the instrument before the
+subject. The harness now walks back to the base after a respawn.
+
+### Reproduce on `main` before blaming the branch
+
+The stalled raid surfaced while verifying the cars PR and looked like its
+fallout. A `git worktree` of `main`, a second dev server on another port, and
+ten minutes produced identical numbers — which kept an unrelated fix out of that
+PR and stopped a review conversation going the wrong way.
+
+**Rule:** a defect found during verification is not automatically a defect of
+what you are verifying.
+
+### A new assertion that passes proves nothing until you know why
+
+"A car cannot drive through your own wall" passed on the first run — while the
+car was actually being stopped by scenery an earlier test section had built
+several tiles short of the wall. The verdict was right and the reasoning was
+wrong. The only reason it was caught is that the assertion logged its
+measurement (`stopped 80px short`) rather than just pass/fail.
+
+**Rule:** log the number, not the verdict, and read it. An assertion whose
+detail string you have never looked at is not yet a test.

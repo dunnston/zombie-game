@@ -71,10 +71,10 @@ mechanically, not for feel.
 
 | | |
 | --- | --- |
-| Source | 27 modules, ~10,500 lines, no dependencies but Vite |
+| Source | 28 modules, ~11,000 lines, no dependencies but Vite |
 | Assets | Zero. Every sprite is drawn in code at boot; every sound is WebAudio. |
-| Tests | 52 Node assertions; browser suite 175 on `main`, 211 with PR #4 |
-| Save format | **v6** (on the cars branch); v5 on `main` |
+| Tests | 52 Node assertions; browser suite 227 |
+| Save format | **v6** |
 | Performance | ~57fps with 90 active enemies |
 
 ### Shipped
@@ -84,7 +84,7 @@ mechanically, not for feel.
 | [#1](https://github.com/dunnston/zombie-game/pull/1) | The MVP: world, combat, scavenging, building, threat, raids, progression, save |
 | [#2](https://github.com/dunnston/zombie-game/pull/2) | SPECIAL attribute trees, day/night cycle, survivor NPCs |
 | [#3](https://github.com/dunnston/zombie-game/pull/3) | Searchable furniture, bunks gating the roster, survivor jobs |
-| [#4](https://github.com/dunnston/zombie-game/pull/4) | **In review** — drivable cars with keys, lockpicks and hotwiring |
+| [#4](https://github.com/dunnston/zombie-game/pull/4) | Drivable cars with keys, lockpicks and hotwiring. Save → v6. |
 
 ### The single most important outstanding thing
 
@@ -204,6 +204,8 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | Scavengers/builders prefer targets with line of sight | No pathfinding. They work the accessible stuff, the player clears buildings. |
 | Cars cost fuel, bodywork and noise | All three are existing systems. No new resource invented for them. |
 | No shooting while driving | Two hands on the wheel. Avoids a whole second aiming model. **Revisit if it feels bad to play.** |
+| A raid ends when nothing is happening, not only when every raider is dead | Without pathfinding, the last few raiders can always become unreachable, and "kill them all" is then unsatisfiable. Watching progress — kills, structure damage, player damage — ends the raid in every stuck case rather than only the ones anyone predicted. |
+| A raid the player did not finish pays out by share killed | Otherwise hiding until the horde gave up beat defending, and the 300s backstop handed out full salvage for a flattened base. |
 
 ---
 
@@ -271,6 +273,22 @@ a two-tone ground ring and a brighter palette, not better art.
 four PRs, several of them silent no-ops. Reproduce each finding against the
 running game before fixing, and say so in the reply.
 
+**A test tool that stops measuring looks like a passing test.** The raid harness
+quietly stopped playing after the defender's first death — it respawned across
+the map, never found a target, and logged a flat line for the rest of the run.
+The flat line read as an engine stall. Before believing a bad measurement, check
+the instrument is still measuring.
+
+**Reproduce against `main` before blaming the branch.** The stalled raid looked
+like fallout from the cars work. Ten minutes in a `git worktree` of `main`
+showed identical numbers, which kept an unrelated fix out of that PR.
+
+**A new assertion that passes proves nothing until you know why.** The first
+version of "a car cannot drive through your own wall" passed while the car was
+actually stopping on scenery left behind by an earlier test. The detail string
+(`stopped 80px short`) is what gave it away — always log the measurement, not
+just the verdict.
+
 ---
 
 ## 9. How to verify
@@ -278,10 +296,10 @@ running game before fixing, and say so in the reply.
 **The gate is zero failures, not a particular count** — the suites grow every
 round. Current expected totals:
 
-| Suite | `main` | with PR #4 (cars) |
-| --- | --- | --- |
-| `npm test` (Node, pure logic) | 52 | 52 |
-| `tests/browser-smoke.js` | 175 | 211 |
+| Suite | Expected |
+| --- | --- |
+| `npm test` (Node, pure logic) | 52 |
+| `tests/browser-smoke.js` | 227 |
 
 ```bash
 npm test
@@ -297,13 +315,25 @@ Then in the page: fetch and eval `tests/browser-smoke.js` and call
 `window.runDeadlineSmoke()`. Check `window.DEADLINE.errors` is empty too.
 
 `tests/raid-harness.js` builds a standard compound and plays a raid of a given
-tier. **Current reference figures — a change that moves these needs a reason:**
+tier. **The number you pass is `G.raidsDone`, a zero-based index, not the raid's
+ordinal** — `buildTestBase(2)` is the third raid, `HEAVY HORDE`. Reading it as
+"raid 3" makes the table below look like a balance collapse when nothing has
+moved; it cost a session an hour. The compound it builds is fixed at roughly
+first-raid strength whatever index you pass, so high indices are *meant* to
+flatten it.
 
-| Raid | Duration | Structures lost | Walls dropped to |
-| --- | --- | --- | --- |
-| 1 | ~40s | 0 | ~100% |
-| 3 | ~70s | 0–2 | ~12–28% |
-| 5 | overwhelming | the whole base | 0% |
+**Current reference figures — a change that moves these needs a reason:**
+
+| Index | Spec | Duration | Structures lost | Walls dropped to |
+| --- | --- | --- | --- | --- |
+| 1 | RUNNING HORDE | ~70s | 0 | ~90% |
+| 2 | HEAVY HORDE | ~80s | 0–2 | ~12–34% |
+| 3 | SIEGE | ~120–180s | the whole base | 0% |
+| 5 | BEHEMOTH SIEGE +1 | overwhelming | the whole base | 0% |
+
+The harness plays the defender itself, and after a death it now walks back to
+the base on foot. Without that it respawned across the map, never found another
+target, and every later sample was a flat line that read as a stalled raid.
 
 `window.DEADLINE` exposes `newGame`, `teleport`, `god`, `giveAll`, synthetic
 input (`key`, `tap`, `mouseDown`, `aimAt`) and the whole `api` surface.
@@ -334,10 +364,15 @@ input (`key`, `tap`, `mouseDown`, `aimAt`) and the whole `api` surface.
 
 Newest first. One line per meaningful change.
 
+- **2026-09-06** — Raids can no longer strand: a raid with no progress for 25s
+  breaks off instead of running to the 300s backstop, and a raid the player did
+  not finish pays out by share of the horde killed. Found while verifying PR #4,
+  reproduced on `main`, fixed separately.
+- **2026-09-06** — PR #4 merged: drivable cars, keys/lockpicks/hotwiring, boot
+  storage, headlights. Save → v6. Five review findings, three P1, including a
+  soft-lock when the car you were driving was wrecked.
 - **2026-09-06** — Added this document and a root `CLAUDE.md` so sessions start
   oriented.
-- **2026-09-06** — PR #4 opened: drivable cars, keys/lockpicks/hotwiring, boot
-  storage, headlights. Save → v6.
 - **2026-09-05** — PR #3 merged: ~24 searchable furniture types, bunks gating
   the roster, four survivor jobs. Save → v5. Three review rounds, 14 defects.
 - **2026-09-05** — PR #2 merged: SPECIAL attribute trees replacing the upgrade

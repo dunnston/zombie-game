@@ -381,6 +381,44 @@
       ok('threat resets after a raid', G.threat < 60, `${G.threat.toFixed(1)}`);
     }
 
+    // A raid ends only when every raider is dead, so anything that makes the
+    // last few unreachable used to strand it until the 300s backstop — three
+    // minutes the player cannot influence. The horde must give up instead.
+    G.enemies.length = 0;
+    d.setThreat(100);
+    await seconds(1.2);
+    if (G.raid) {
+      G.raid.timer = 0.1;
+      await seconds(2.5);
+      // Park every raider miles away so nothing can happen: they cannot reach
+      // the player, the player cannot reach them, and there is nothing to chew.
+      const far = { x: 200, y: 200 };
+      for (const e of G.enemies) {
+        if (!e.raid) continue;
+        e.x = far.x + Math.random() * 60;
+        e.y = far.y + Math.random() * 60;
+        e.aggro = false;
+      }
+      d.god(true);
+      G.raid.toSpawn = 0;
+      const idle0 = G.raid.idle || 0;
+      await seconds(5);
+      ok('a raid with nothing happening notices it has stalled',
+        G.raid && (G.raid.idle || 0) > idle0 + 2,
+        G.raid ? `idle ${idle0} -> ${G.raid.idle}` : 'raid already ended');
+      const stashBefore = (G.stash.parts || 0);
+      const raidsBefore2 = G.raidsDone;
+      if (G.raid) G.raid.idle = 90;   // jump the clock rather than idle for 25s
+      await seconds(1.5);
+      ok('a stalled raid breaks off instead of running to the backstop',
+        !G.raid && G.raidsDone === raidsBefore2 + 1, `raid=${!!G.raid}`);
+      ok('a raid nobody finished pays only for what was killed',
+        (G.stash.parts || 0) === stashBefore,
+        `parts ${stashBefore} -> ${G.stash.parts || 0}`);
+      for (let i = G.enemies.length - 1; i >= 0; i--) G.enemies.splice(i, 1);
+      d.god(false);
+    }
+
     // -------------------------------- 9. levelling, attributes and perks ---
     G.ui.panel = null;
     const lvl0 = p.level, sp0 = p.skillPoints;
