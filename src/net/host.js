@@ -11,9 +11,10 @@ import { serialiseGame, playerRecord } from '../game/save.js';
 import { saveGame } from '../game/saves.js';
 import { hostRoom, signalUrl } from './transport.js';
 import {
-  PROTOCOL, MAX_PLAYERS, SNAP_EVERY, SYNC_INTERVAL, msg, mergeIntent, packSnapshot, packRoster,
-  packStructure, makeStats, tickStats,
+  PROTOCOL, MAX_PLAYERS, SNAP_EVERY, SYNC_INTERVAL, INTENT_TIMEOUT_MS, msg, mergeIntent, mergeLateIntent,
+  packSnapshot, packRoster, packStructure, makeStats, tickStats,
 } from './protocol.js';
+import { clearIntent } from '../game/intent.js';
 import { emit, drainEvents, clearEvents, broadcastNotify } from './events.js';
 import { executeCommand } from './actions.js';
 
@@ -97,7 +98,7 @@ export function stopHosting() {
 // ------------------------------------------------------------------- guests --
 
 function attachGuest(peer, gid) {
-  const guest = { peer, gid, player: null, name: '', invHash: '', lastSeq: -1 };
+  const guest = { peer, gid, player: null, name: '', invHash: '', lastSeq: -1, lastIntentAt: 0, quiet: false };
   H.guests.set(peer, guest);
   peer.onMessage('reliable', (m) => onReliable(guest, m));
   peer.onMessage('state', (m) => onState(guest, m));
@@ -118,14 +119,22 @@ function onState(guest, m) {
   // Out-of-order on the unreliable channel: an older packet must not undo a
   // newer one, but its edges are still real presses.
   if (typeof m.q === 'number' && m.q < guest.lastSeq) {
-    const held = { ...guest.player.intent };
-    mergeIntent(guest.player.intent, m.i);
-    guest.player.intent.mx = held.mx; guest.player.intent.my = held.my;
-    guest.player.intent.aimX = held.aimX; guest.player.intent.aimY = held.aimY;
+    mergeLateIntent(guest.player.intent, m.i);
     return;
   }
   guest.lastSeq = m.q;
+  guest.lastIntentAt = performance.now();
+  guest.quiet = false;
   mergeIntent(guest.player.intent, m.i);
+}
+
+/** A guest that has gone silent holds nothing. Their edges were consumed by the step anyway. */
+function expireSilentIntents() {
+  const now = performance.now();
+  for (const g of H.guests.values()) {
+    if (!g.player || g.quiet || !g.lastIntentAt) continue;
+    if (now - g.lastIntentAt > INTENT_TIMEOUT_MS) { clearIntent(g.player.intent); g.quiet = true; }
+  }
 }
 
 function admit(guest, m) {
@@ -190,6 +199,7 @@ export function hostAfterUpdate(dt) {
   if (!isHosting()) return;
   H.step++;
   tickStats(G.net.stats, dt);
+  expireSilentIntents();
 
   if (H.step % SNAP_EVERY === 0) {
     H.seq++;

@@ -476,3 +476,20 @@ for the layout either: subtitles were drawn at a fixed 29px in a 30px row.
 **Rule:** the verification path must be the player's path. If the UI has a
 button, the test clicks the button. A scan for calls to undeclared identifiers
 (`scratchpad/undeclared.cjs`) now runs over the new modules before a commit.
+
+### Silence is not neutral, and the guest's side has no test unless you build one
+
+Codex's two P1s on the co-op PR were both about a guest *stopping*: a paused
+guest sent nothing, so the host kept acting on its last intent (a silent
+"walk right" carried the player 185px); a guest whose host vanished was left
+in the game scene, simulating a stale copy of someone else's world as solo.
+Neither showed in the loopback suite, because that suite drives the host and
+only the host — the guest's transitions (pause, host gone) live in code it
+never runs.
+
+**Rules:** a protocol that keeps the last received state must also expire it
+(the host now clears a guest's held intent after 400ms of silence, and a paused
+guest sends "holding nothing" every step rather than nothing). And every
+role-transition on the client — join, leave, host gone, pause — needs a hook
+the suite can call in one browser; `client.hostGone()` is exposed for exactly
+that.

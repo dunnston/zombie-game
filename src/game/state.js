@@ -429,7 +429,9 @@ notify.onBroadcast = null;
  * they — and state.js — call through here. The host session installs `emit`;
  * everywhere else it stays null and these are no-ops.
  */
-export const netHooks = { emit: null };
+// `emit` is set by the host session; `toTitle` by game.js at load, for the
+// guest session, which must not import game.js (cycle).
+export const netHooks = { emit: null, toTitle: null };
 export const netEmit = (kind, fields, to = null) => { if (netHooks.emit) netHooks.emit(kind, fields, to); };
 
 /**

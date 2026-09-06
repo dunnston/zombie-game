@@ -130,6 +130,27 @@ export function mergeIntent(into, fresh) {
   return into;
 }
 
+/**
+ * An older packet arriving after a newer one — the state channel is unordered.
+ * Nothing it says about held state is still true, but its edges were real
+ * presses that no other packet carries. Only those are taken.
+ */
+export function mergeLateIntent(into, fresh) {
+  const late = unpackIntent(fresh, { drive: {} });
+  into.firePressed ||= late.firePressed; into.reload ||= late.reload; into.interact ||= late.interact;
+  into.use ||= late.use; into.stow ||= late.stow; into.unstow ||= late.unstow; into.withdrawAmmo ||= late.withdrawAmmo;
+  if (into.slot < 0 && late.slot >= 0) into.slot = late.slot;
+  if (into.wheel === 0) into.wheel = late.wheel;
+  return into;
+}
+
+/**
+ * A guest whose packets stop — paused, tab hidden, line dying — must not keep
+ * doing whatever it last said. After this long without an intent the host
+ * treats them as holding nothing.
+ */
+export const INTENT_TIMEOUT_MS = 400;
+
 function flags(...bits) {
   let f = 0;
   for (let i = 0; i < bits.length; i++) if (bits[i]) f |= 1 << i;

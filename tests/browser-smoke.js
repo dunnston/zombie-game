@@ -2420,6 +2420,42 @@
       await frames(3);
       ok('a command the rules refuse is refused for a guest too', G.structures.length === far0);
 
+      // A guest that goes quiet — paused, tab hidden, line dying — stops. Its
+      // last packet said "walk right"; silence after it must not mean "keep
+      // walking". Before the host expired stale intents, it walked 185px.
+      const walk = api.makeIntent(); walk.mx = 1; walk.aimX = guest.x + 200; walk.aimY = guest.y;
+      for (let i = 40; i < 50; i++) { b.send('state', d.net.msg.intent(i, walk)); await frames(1); }
+      await frames(45);                            // well past INTENT_TIMEOUT_MS
+      const xQuiet = guest.x;
+      await frames(30);
+      ok('a guest whose packets stop is stopped by the host', Math.abs(guest.x - xQuiet) < 1 && !guest.intent.mx,
+        `drifted ${Math.round(guest.x - xQuiet)}px after going silent, mx ${guest.intent.mx}`);
+
+      // A late packet on the unordered channel must not undo what the newest
+      // one said is held: E mid-search, sprint, sneak. It used to clear them.
+      const heldIt = api.makeIntent(); heldIt.interactHeld = true; heldIt.sprint = true; heldIt.sneak = true; heldIt.aimX = guest.x; heldIt.aimY = guest.y;
+      b.send('state', d.net.msg.intent(60, heldIt)); await frames(1);
+      const stale = api.makeIntent(); stale.aimX = guest.x; stale.aimY = guest.y;
+      b.send('state', d.net.msg.intent(55, stale)); await frames(1);
+      ok('an out-of-order packet leaves the newest held state alone', guest.intent.interactHeld && guest.intent.sprint && guest.intent.sneak,
+        `interactHeld ${guest.intent.interactHeld} sprint ${guest.intent.sprint} sneak ${guest.intent.sneak}`);
+      b.send('state', d.net.msg.intent(61, stale)); await frames(2);
+
+      // Recruiting removes a rescue from the world; a guest keeps its own list
+      // and must hear about the gap, or it goes on offering to talk to someone
+      // who is already home.
+      G.player.attrs.cha = 8; api.recomputeStats(G.player);
+      const bunks = [];
+      for (let i = 0; i < 6 && api.rosterLimits().cap <= api.liveSurvivors().length; i++) { const bk = placeNear('bunk'); if (bk) bunks.push(bk); }
+      const rescue = G.rescues[0], rescues0 = G.rescues.length, evR = reliable.length, crew0 = G.survivors.length;
+      const recruited = rescue ? api.recruit(rescue, G.player) : null;
+      await frames(3);
+      const rescueEv = reliable.slice(evR).find((m) => m.t === 'ev' && m.k === 'rescues');
+      ok('recruiting on the host tells every guest who is still out there', !!recruited && G.rescues.length === rescues0 - 1 && !!rescueEv && rescueEv.list.length === rescues0 - 1,
+        recruited ? `${rescues0} → ${G.rescues.length}, event lists ${rescueEv ? rescueEv.list.length : 'none'}` : `recruit refused (cap ${api.rosterLimits().cap}, crew ${api.liveSurvivors().length})`);
+      if (recruited) G.survivors.splice(crew0, G.survivors.length - crew0);
+      for (const bk of bunks) api.demolishStructure(bk);
+
       // A saved world remembers the guest. Into a fresh slot — never into one
       // the player owns.
       G.slotId = null;
@@ -2472,6 +2508,17 @@
         rel3.map((m) => m.t + (m.reason ? ':' + m.reason : '')).join(','));
       d.net.stopHosting();
       ok('stopping the host puts the game back to solo', G.net.role === 'solo');
+
+      // The other side of that: a guest whose host vanishes is holding a stale
+      // copy of someone else's world. It must land on the title, never carry on
+      // as a solo game (which it once did — and could then save).
+      G.net.role = 'client';
+      d.net.client.hostGone('The host left.');
+      ok('a guest whose host leaves is back at the title, not playing on alone',
+        G.scene === 'title' && G.net.role === 'solo' && G.menu.screen === 'join' && G.menu.error === 'The host left.',
+        `scene ${G.scene}, role ${G.net.role}, screen ${G.menu.screen}`);
+      G.scene = 'game'; G.menu.screen = 'main'; G.menu.error = null;
+
       G.players.length = 1; G.localIdx = 0;   // drop the parked guest for the sections below
       G.mode = 'solo';
       G.enemies.length = 0;

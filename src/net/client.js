@@ -6,9 +6,9 @@
 // reported position. Anything that changes shared state goes to the host as a
 // command (see actions.js) and comes back as an event.
 
-import { G, notify, removeStructure, structAt } from '../game/state.js';
+import { G, notify, netHooks, removeStructure, structAt } from '../game/state.js';
 import { ENEMIES, TILE } from '../game/config.js';
-import { gatherLocalIntent } from '../game/intent.js';
+import { gatherLocalIntent, clearIntent } from '../game/intent.js';
 import { movePlayer, createPlayer } from '../game/player.js';
 import { applySaveData, restorePlayerRecord } from '../game/save.js';
 import { makeStructure } from '../game/building.js';
@@ -79,14 +79,28 @@ export async function joinGame({ code, passwordHash, identity }) {
   applyWelcome(welcome, identity);
   peer.onMessage('reliable', onReliable);
   peer.onMessage('state', onState);
-  peer.onClose(() => {
-    if (!isClient()) return;
-    leaveGame(false);
-    notify('The host left. Back to the title.', '#e05a4a', true);
-    G.net.error = 'the host left';
-  });
+  peer.onClose(() => hostGone('The host left.'));
   G.net.status = 'in game';
   return true;
+}
+
+/**
+ * The host closed the room or the line died. The world in G is a stale copy
+ * of theirs — it must not carry on as a solo game (and never be saved), so the
+ * guest goes back to the JOIN screen with the code still filled in and the
+ * reason on the status line. The teardown itself is game.js's toTitle(),
+ * reached through netHooks: importing game.js from here closes an import cycle
+ * that broke boot.
+ */
+function hostGone(text) {
+  if (!isClient()) return;
+  leaveGame(false);
+  if (netHooks.toTitle) netHooks.toTitle(false);
+  else { G.scene = 'title'; G.paused = false; }
+  G.menu.screen = 'join';
+  G.menu.busy = false;
+  G.menu.error = text;
+  G.net.error = text;
 }
 
 export function leaveGame(sayBye = true) {
@@ -145,7 +159,7 @@ function applyRoster(roster) {
 
 function onReliable(m) {
   if (!m || m.t !== 'ev') {
-    if (m && m.t === 'bye') { leaveGame(false); notify('The host ended the game.', '#e05a4a', true); }
+    if (m && m.t === 'bye') hostGone('The host ended the game.');
     return;
   }
   switch (m.k) {
@@ -367,10 +381,23 @@ function angleTo(a, b) {
   return d;
 }
 
+/**
+ * While paused (or otherwise not playing) the host must hear "holding nothing",
+ * not silence: silence leaves the last intent in force until the host's
+ * timeout, and a paused player must stop the instant they pause.
+ */
+export function sendIdleIntent() {
+  const me = G.player;
+  if (!me || !C.peer) return;
+  clearIntent(me.intent);
+  C.seq++;
+  C.peer.send('state', msg.intent(C.seq, me.intent));
+}
+
 /** Sends a command to the host. */
 export function sendCommand(name, args) {
   if (!C.peer) return false;
   return C.peer.send('reliable', msg.cmd(name, args));
 }
 
-export const clientDebug = { state: C, unpackIntent, clamp, TILE, PROTOCOL };
+export const clientDebug = { state: C, unpackIntent, clamp, TILE, PROTOCOL, hostGone };

@@ -929,6 +929,23 @@ test('an intent survives the wire: packed, unpacked, and merged without losing a
   assert.equal(held.slot, 3, 'nor the slot change');
 });
 
+test('a late packet on the unordered channel contributes its edges and none of its held state', async () => {
+  const { packIntent, mergeIntent, mergeLateIntent } = await import('../src/net/protocol.js');
+  const { makeIntent } = await import('../src/game/intent.js');
+  // The newest packet: E held mid-search, sprinting, driving forward, firing.
+  const newest = makeIntent();
+  newest.interactHeld = true; newest.sprint = true; newest.fire = true; newest.drive.forward = true; newest.mx = 1;
+  const held = mergeIntent(makeIntent(), packIntent(newest));
+  // Then an older one arrives: nothing held, but it carried a reload press and a slot change.
+  const older = makeIntent();
+  older.reload = true; older.slot = 2;
+  mergeLateIntent(held, packIntent(older));
+  assert.ok(held.interactHeld && held.sprint && held.fire && held.drive.forward, 'held state stays as the newest packet said');
+  assert.equal(held.mx, 1, 'movement too');
+  assert.equal(held.reload, true, 'the late press is still a press');
+  assert.equal(held.slot, 2, 'and the late slot change lands when nothing newer chose one');
+});
+
 test('a snapshot describes only what is near the guest, and every player', async () => {
   const { packSnapshot, INTEREST_RADIUS } = await import('../src/net/protocol.js');
   const far = INTEREST_RADIUS * 2;

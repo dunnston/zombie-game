@@ -63,9 +63,9 @@ import {
 import { cancelDrag, lastZones, isDragging } from '../ui/inventory.js';
 import { act } from '../net/actions.js';
 import { hostAfterUpdate } from '../net/host.js';
-import { updateClient } from '../net/client.js';
+import { updateClient, sendIdleIntent } from '../net/client.js';
 import { emit } from '../net/events.js';
-import { structChanged } from './state.js';
+import { structChanged, netHooks } from './state.js';
 import { updateFX, clearFX } from '../core/particles.js';
 import * as FX from '../core/particles.js';
 // Only UI keys are read here — panels, build mode, pause. Everything the
@@ -253,6 +253,10 @@ export function toTitle(save = true) {
   G.menu.pendingRebind = null;
   G.menu.confirmDelete = null;
 }
+// The guest session needs this when its host vanishes, and cannot import it
+// without an import cycle (game → client → game left `isDragging` in its
+// temporal dead zone at boot). The hook object in state.js carries it instead.
+netHooks.toTitle = toTitle;
 
 // ------------------------------------------------------------- interaction --
 
@@ -660,7 +664,13 @@ export function update(dt) {
     else { G.paused = !G.paused; sfx('ui'); }
   }
 
-  if (G.paused) { updateFX(dt); return; }
+  if (G.paused) {
+    updateFX(dt);
+    // A paused guest tells the host it is holding nothing; going silent would
+    // leave whatever it was doing — running, firing, driving — in force.
+    if (G.net.role === 'client') sendIdleIntent();
+    return;
+  }
   G.playtime += dt;
 
   if (!rebinding && actTap('craft')) { setPanel(G.ui.panel === 'craft' ? null : 'craft'); }

@@ -70,7 +70,7 @@ different single player saves. I should be able to delete saves as well."
 
 ### PR B — online co-op  (branch `feat/online-coop`, in review)
 
-Verified: npm test 74/74; smoke 359/359 with a loopback guest; real WebRTC
+Verified: npm test 75/75; smoke 361/361 with a loopback guest; real WebRTC
 through the broker between two browsers on this machine — join 1.8s, 66 KB/s
 per guest, a guest's wall built and echoed, disconnect parks the character.
 
@@ -84,6 +84,19 @@ per guest, a guest's wall built and echoed, disconnect parks the character.
       script: Playwright is not a dependency; the two-browser check was done by
       hand through the broker and is written up in PROJECT.md §9.)
 - [x] Docs, measured wire rate in PROJECT.md §9
+
+Codex review, four findings, each reproduced against the running game first:
+
+- [x] P1 guest left in the game scene when the host leaves (pane guest: role
+      solo, scene game, playtime advancing) → `hostGone()` tears down through
+      `netHooks.toTitle` and lands on JOIN with the reason
+- [x] P1 paused guest keeps its last intent on the host (silent "walk right"
+      moved 185px) → idle packet every paused step + 400ms expiry on the host
+- [x] P2 late packet cleared held fields (fire/interactHeld/sprint all false
+      after a stale packet) → `mergeLateIntent` takes edges only
+- [x] P2 recruit not replicated (no `rescues` producer) → emitted on recruit
+- [x] Assertions for all four in Node (75) and the smoke suite; README
+      walkthrough for two developers testing from source
 
 ## Previous round — playtest response (pacing, inventory, survival)
 

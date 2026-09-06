@@ -72,7 +72,7 @@ Eight rounds merged; online co-op is in review.
 | --- | --- |
 | Source | 42 modules, ~15,400 lines. Browser bundle depends on Vite only; the broker on `ws`. |
 | Assets | Zero. Every sprite is drawn in code at boot; every sound is WebAudio. |
-| Tests | 74 Node assertions; browser suite 357 |
+| Tests | 75 Node assertions; browser suite 361 |
 | Save format | **v8** payload (players by identity), in **slots** (index v1) |
 | Performance | ~60fps with 90 active enemies; ~66 KB/s per guest on the wire |
 
@@ -97,7 +97,10 @@ revive a downed teammate, guests remembered in the host's save. Two PRs:
 strict NATs will not connect (the follow-up is to relay through the broker);
 snapshots are JSON at 20Hz — about 66 KB/s per guest with two dozen enemies
 in range — and binary packing is the follow-up if that ever matters; a guest's
-pause is local (the world runs on without them); guests cannot save.
+pause is local (the world runs on without them, they stand still in it);
+guests cannot save. When the host leaves, guests land back on the JOIN screen
+with the reason shown; a guest that goes silent (hidden tab, dying line) is
+stopped by the host within 400ms rather than left doing its last action.
 
 ### Shipped
 
@@ -377,6 +380,8 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | The host's identity keys its own record; guests are keyed by theirs | `deadline.identity` in each browser. A returning guest with the same browser gets the same character; a stranger gets a fresh one beside the host. |
 | Kill XP for a remote player's own kill goes to them | The player object is the bullet's owner on the host, as in solo. Automated kills still pay everyone present. |
 | No TURN server in v1 | Public STUN gets most pairs through. Strict NATs will fail with a readable message. Relaying through the broker is the follow-up, not a reason to hold the PR. |
+| A guest's held intent expires after 400ms of silence, and a paused guest sends "holding nothing" every step | The host keeps the last intent it heard, so silence used to mean "carry on": a paused guest kept running, a hidden tab kept firing. Codex review of PR B. The timeout covers the cases the guest cannot announce (tab hidden, line dying); the explicit idle packet makes pausing stop you instantly. A late packet on the unordered channel now contributes only its edges — its held state is stale by definition. |
+| `client.js` reaches `toTitle()` through `netHooks`, not an import | Importing game.js from the guest session closed a cycle (game → inventory → actions → client → game) that evaluated game.js before inventory.js and broke boot with a temporal-dead-zone error. game.js fills `netHooks.toTitle` at load. Same rule as `damage.js` (invariant 3): break cycles with a hook, not a re-export. |
 
 ---
 
@@ -508,6 +513,16 @@ foundation touched 19 files and every system. Landing it first, gated on "solo
 plays byte-identically and every suite is green", means the networking PR can
 be reviewed for networking rather than for whether the game still works.
 
+**Silence is not neutral, and the guest's side has no test unless you build
+one.** Both P1s on the co-op review were about a guest *stopping*: a paused
+guest sent nothing, so the host kept acting on its last intent (a silent "walk
+right" carried the player 185px in the reproduction); a guest whose host
+vanished was left in the game scene, simulating a stale copy of the world as
+solo. The loopback suite drives the host only, so the guest's transitions —
+pause, host gone — were never exercised. A protocol that keeps the last state
+must also expire it; and every client-side transition needs a hook the suite
+can call in one browser (`DEADLINE.net.client.hostGone()` now).
+
 ---
 
 ## 9. How to verify
@@ -517,8 +532,8 @@ round. Current expected totals:
 
 | Suite | Expected |
 | --- | --- |
-| `npm test` (Node, pure logic) | 74 |
-| `tests/browser-smoke.js` | 357 |
+| `npm test` (Node, pure logic) | 75 |
+| `tests/browser-smoke.js` | 361 |
 
 **Run the browser suite with the page visible and focused.** Its waits are
 counted in animation frames. A backgrounded tab throttles
@@ -656,6 +671,13 @@ input (`key`, `tap`, `mouseDown`, `aimAt`) and the whole `api` surface.
 
 Newest first. One line per meaningful change.
 
+- **2026-09-06** — PR B review round. A paused guest now tells the host it is
+  holding nothing, the host expires a silent guest's intent after 400ms, a late
+  packet on the unordered channel contributes only its edges, recruiting a
+  rescue is replicated to guests, and a guest whose host leaves goes back to the
+  JOIN screen instead of playing on in a stale world. Each reproduced against
+  the running game first. README gained a step-by-step for two developers
+  testing a branch together from source.
 - **2026-09-06** — Online co-op (PR B). A signalling broker (`server/signal.js`,
   the one new dependency, `ws`), WebRTC transport with an in-memory loopback for
   the suite, host and guest sessions, HOST and JOIN screens, save → v8 with
