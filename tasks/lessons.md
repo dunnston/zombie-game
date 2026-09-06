@@ -383,3 +383,15 @@ Because PR #9 had already put every simulation key read behind
 `gatherLocalIntent()`, making the keys rebindable meant replacing
 `key('KeyW')` with `act('moveUp')` in one file plus the handful of UI keys in
 `game.js`. The boundary paid for itself one round after it was drawn.
+
+### Assert the rule, not the prop
+
+The roadkill check planted one walker in the road and asserted that *that
+walker* died. The driver got exactly one walker's XP and the local player got
+none — the rule held — but the car had met an ambient walker first, so the
+planted one survived and the test failed. The assertion now reads: a kill
+happened, it paid the driver, it paid nobody else. Two walkers in the road for
+good measure.
+
+**Rule:** when a test sets up a prop to provoke behaviour, assert the
+behaviour. The prop is scaffolding; the world is allowed to supply its own.
