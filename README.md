@@ -39,8 +39,9 @@ npm test
 npm run build
 ```
 
-`npm test` runs 52 Node assertions over the pure logic (world generation, loot
-tables, balance invariants, progression curves, perk trees, the day curve).
+`npm test` runs 69 Node assertions over the pure logic (world generation, loot
+tables, balance invariants, progression curves, perk trees, the day curve, save
+slots and key bindings).
 `npm run build` produces a static bundle in `dist/` that can be opened from any
 static host.
 

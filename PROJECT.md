@@ -90,7 +90,7 @@ revive a downed teammate, guests remembered in the host's save. Two PRs:
 | PR | State | What |
 | --- | --- | --- |
 | A — foundation | [#9](https://github.com/dunnston/zombie-game/pull/9) | `G.players[]`, intent split from simulation, actor parameters everywhere, downed/revive. No visible change in solo. |
-| A2 — menu and saves | **in review** | Title screen on boot (Continue / New Game / Load / Multiplayer / Controls), any number of save slots with delete, rebindable keys. Asked for by the owner while A was in review. |
+| A2 — menu and saves | [#10](https://github.com/dunnston/zombie-game/pull/10) | Title screen on boot (Continue / New Game / Load / Multiplayer / Controls), any number of save slots with delete, rebindable keys. Asked for by the owner while A was in review. |
 | B — online co-op | next | Broker, WebRTC transport, host/client sessions, the Host/Join buttons the Multiplayer screen already has, save v8. |
 
 The full plan is in `tasks/todo.md`.
@@ -107,6 +107,7 @@ The full plan is in `tasks/todo.md`.
 | [#7](https://github.com/dunnston/zombie-game/pull/7) | The quiet field; steeper XP curve |
 | [#8](https://github.com/dunnston/zombie-game/pull/8) | Slot inventory, equipment slots, hotbar. Save → v7. |
 | [#9](https://github.com/dunnston/zombie-game/pull/9) | Multiplayer foundation: players array, intent split, downed and revive |
+| [#10](https://github.com/dunnston/zombie-game/pull/10) | Title screen, save slots, rebindable keys |
 
 ### What the first playtest said
 
