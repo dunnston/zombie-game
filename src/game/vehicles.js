@@ -7,7 +7,7 @@
 
 import { TILE, RES } from './config.js';
 import {
-  G, notify, terrainBlocksPx, addResCapped, addRes, takeRes, countRes,
+  G, notify, terrainBlocksPx, solidPx, addResCapped, addRes, takeRes, countRes,
   shake, screenFlash,
 } from './state.js';
 import { damageEnemy } from './damage.js';
@@ -188,8 +188,14 @@ export function enterVehicle(p, v) {
   return true;
 }
 
-export function exitVehicle(p) {
-  const v = drivenCar();
+/**
+ * Gets the player out. `which` lets the wrecking path pass the car explicitly —
+ * `drivenCar()` filters out destroyed vehicles, so resolving through it after
+ * marking one destroyed would silently fail to clear `drivingId` and strand the
+ * player with neither walking nor combat.
+ */
+export function exitVehicle(p, which = null) {
+  const v = which || drivenCar();
   if (!v) return false;
   p.drivingId = null;
   v.engineOn = false;
@@ -267,8 +273,12 @@ function driveCar(v, dt, input) {
   const nx = v.x + Math.cos(v.angle) * step;
   const ny = v.y + Math.sin(v.angle) * step;
 
-  const hitX = terrainBlocksPx(nx, v.y);
-  const hitY = terrainBlocksPx(v.x, ny);
+  // Cars collide with player-built structures too, not just terrain. The
+  // terrain-only helper is for bullets; a car that drives through your own gate
+  // makes the gate pointless. The driven car has released its own tiles, so it
+  // cannot collide with itself.
+  const hitX = solidPx(nx, v.y);
+  const hitY = solidPx(v.x, ny);
   if (!hitX) v.x = nx;
   if (!hitY) v.y = ny;
 
@@ -347,14 +357,15 @@ export function damageVehicle(v, dmg, cause = 'hit') {
 }
 
 function wreckVehicle(v, cause) {
-  v.destroyed = true;
-  v.hp = 0;
   const p = G.player;
+  // Get the driver out *before* the car is marked destroyed — see exitVehicle.
   if (p && p.drivingId === v.id) {
-    exitVehicle(p);
+    exitVehicle(p, v);
     // Getting out of a car as it dies costs you.
     if (cause === 'crash') screenFlash('#8c1a1a', 0.5);
   }
+  v.destroyed = true;
+  v.hp = 0;
   // Anything in the boot spills onto the road rather than vanishing.
   for (const id in v.trunk) {
     if (v.trunk[id] > 0) spillTrunk(v, id, v.trunk[id]);

@@ -10,7 +10,7 @@ import { makeSurvivor, refreshAllSurvivors } from './survivors.js';
 import { bestArmor, spawnPickup } from './loot.js';
 import { clamp } from '../core/util.js';
 import { xpForLevel, TILE } from './config.js';
-import { CAR, plantVehicleKeys } from './vehicles.js';
+import { CAR, plantVehicleKeys, occupyTiles } from './vehicles.js';
 
 // v5: furnishing changed how many containers each building gets, which shifts
 // the ordinal container ids that `looted` is stored against. A v4 save loaded
@@ -228,17 +228,33 @@ export function loadGame() {
     }
 
     // Cars, with whatever state they were left in.
+    //
+    // createWorld() re-blocks every car's *original* spawn footprint, but a car
+    // may have been driven and parked somewhere else — or saved mid-drive with
+    // no footprint at all. Without reconciling, the old spot keeps an invisible
+    // obstacle and the car where it actually stands is not solid. So: clear
+    // every generated footprint first, then let each parked car claim the tiles
+    // it occupies now.
+    for (const s of G.world.vehicleSpawns || []) {
+      for (const [tx, ty] of s.tiles || []) {
+        if (tx < 0 || ty < 0 || tx >= G.world.w || ty >= G.world.h) continue;
+        G.world.blocked[ty * G.world.w + tx] = 0;
+      }
+    }
+
     G.vehicles.length = 0;
     G.vehicleSeq = data.vehicleSeq || 0;
     for (const vd of data.vehicles || []) {
-      G.vehicles.push({
+      const v = {
         id: vd.id, x: vd.x, y: vd.y, angle: vd.angle || 0, si: vd.si || 0,
         vx: 0, vy: 0, speed: 0,
         hp: vd.hp, maxHp: CAR.maxHp, fuel: vd.fuel,
         locked: !!vd.locked, keyId: vd.keyId || null, hotwired: !!vd.hotwired,
-        destroyed: !!vd.destroyed, trunk: vd.trunk || {}, tiles: vd.tiles || [],
+        destroyed: !!vd.destroyed, trunk: vd.trunk || {}, tiles: [],
         keyHint: vd.keyHint, engineOn: false, flash: 0, headlights: true,
-      });
+      };
+      G.vehicles.push(v);
+      if (!v.destroyed) occupyTiles(v);
     }
     // Key markers live on freshly generated container objects, so they have to
     // be re-planted after a load or every locked car becomes keyless.

@@ -46,7 +46,7 @@ import {
 } from './survivors.js';
 import { updateFX, clearFX } from '../core/particles.js';
 import * as FX from '../core/particles.js';
-import { Input, key, keyTap, endFrame } from '../core/input.js';
+import { Input, key, keyTap, consumeKey, endFrame } from '../core/input.js';
 import { sfx, resumeAudio, toggleMute } from '../core/audio.js';
 import { saveGame, loadGame, hasSave, clearSave } from './save.js';
 import { clamp, dist2, smooth, lerp } from '../core/util.js';
@@ -474,6 +474,20 @@ export function update(dt) {
 
   // ------------------------------------------------------------- systems --
   rebuildSpatial();
+
+  // Refuelling claims R before updatePlayer can read it as a reload. keyTap is
+  // non-consuming, so without this one press did both — reloading the weapon
+  // and quietly spending fuel.
+  if (!G.ui.panel && !G.ui.buildMode && !p.dead && keyTap('KeyR')) {
+    const car = drivenCar() || nearestVehicle(p.x, p.y, PLAYER.interactRange);
+    const canFuel = car && !car.destroyed && car.fuel < CAR.fuelMax - 1 &&
+      countRes(p.bag, 'fuel') + countRes(G.stash, 'fuel') > 0;
+    if (canFuel) {
+      consumeKey('KeyR');
+      refuelVehicle(car);
+    }
+  }
+
   updatePlayer(dt);
 
   // Driving takes over movement entirely: the player rides in the car.
@@ -509,13 +523,8 @@ export function update(dt) {
           else stowInTrunk(car);
         }
       }
-      // Fuel whatever car you are in or standing next to.
-      if (keyTap('KeyR') && (drivenCar() || nearestVehicle(p.x, p.y, PLAYER.interactRange))) {
-        const car = drivenCar() || nearestVehicle(p.x, p.y, PLAYER.interactRange);
-        if (car && !car.destroyed && car.fuel < CAR.fuelMax - 1 && countRes(p.bag, 'fuel') + countRes(G.stash, 'fuel') > 0) {
-          refuelVehicle(car);
-        }
-      }
+      // Refuelling is handled earlier in the frame, before updatePlayer can
+      // read the same R press as a reload.
     }
 
     if (p.searching) {

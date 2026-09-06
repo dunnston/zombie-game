@@ -73,6 +73,19 @@ export function initInput(canvas) {
 export const key = (code) => Input.down.has(code);
 export const keyTap = (code) => Input.pressed.has(code);
 
+/**
+ * Takes a tap so nothing else this frame can also act on it.
+ *
+ * `keyTap` is non-consuming, so two systems reading the same key both fire —
+ * one press once reloaded a weapon *and* refuelled a car. Use this when a
+ * context should win the key outright.
+ */
+export function consumeKey(code) {
+  if (!Input.pressed.has(code)) return false;
+  Input.pressed.delete(code);
+  return true;
+}
+
 export function endFrame() {
   Input.pressed.clear();
   Input.released.clear();
