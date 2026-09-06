@@ -484,7 +484,7 @@ and perk actually changing a stat, perk gating by rank and cost, recompute
 idempotency, the day/night curve and clock, and survivor scaling.
 
 `tests/browser-smoke.js` is injected into the running dev server and drives the
-live game through 355 assertions using synthetic input events — the title
+live game through 357 assertions using synthetic input events — the title
 screen, save slots and key rebinding driven by real clicks, movement, aiming,
 melee, gunfire, ammo, reloading, enemy pursuit, taking damage, searching
 containers, carry-capacity overflow, structure placement and cost, walls

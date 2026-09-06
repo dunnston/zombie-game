@@ -2390,6 +2390,11 @@
       ok('the roster names both of them', !!welcome && welcome.roster.map((r) => r.name).join(',') === 'Ash,Bex', welcome && welcome.roster.map((r) => r.name).join(','));
 
       // Intent over the wire drives the guest's player through the ordinary sim.
+      // Stand them on open ground first: they spawn beside the host, and a
+      // fence post a few pixels to their right once turned "walk right" into
+      // 23px against a wall.
+      const plotG = clearOpenPlot(G, 3);
+      guest.x = plotG.x; guest.y = plotG.y; guest.vx = 0; guest.vy = 0;
       const gx0 = guest.x;
       const it = api.makeIntent(); it.mx = 1; it.aimX = guest.x + 200; it.aimY = guest.y;
       for (let i = 0; i < 40; i++) { b.send('state', d.net.msg.intent(i, it)); await frames(1); }
