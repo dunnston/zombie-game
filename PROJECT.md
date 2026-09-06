@@ -4,7 +4,7 @@
 at the start of a session and updated at the end of one. If something here
 contradicts the code, the code is right and this file needs fixing — say so.
 
-- **Last updated:** 2026-09-06, online co-op in review
+- **Last updated:** 2026-09-06, online co-op merged (PR #11)
 - **Repo:** https://github.com/dunnston/zombie-game
 - **Owner:** dunnston
 
@@ -66,7 +66,7 @@ These settle arguments. When a decision is close, the pillar wins.
 ## 3. Where we are right now
 
 **Status: a genuinely playable game, well past MVP, and now a co-op one.**
-Eight rounds merged; online co-op is in review.
+Nine rounds merged, online co-op among them. Not yet played between two houses.
 
 | | |
 | --- | --- |
@@ -91,7 +91,7 @@ revive a downed teammate, guests remembered in the host's save. Two PRs:
 | --- | --- | --- |
 | A — foundation | [#9](https://github.com/dunnston/zombie-game/pull/9) | `G.players[]`, intent split from simulation, actor parameters everywhere, downed/revive. No visible change in solo. |
 | A2 — menu and saves | [#10](https://github.com/dunnston/zombie-game/pull/10) | Title screen on boot (Continue / New Game / Load / Multiplayer / Controls), any number of save slots with delete, rebindable keys. Asked for by the owner while A was in review. |
-| B — online co-op | **in review** | Broker, WebRTC transport, host and guest sessions, HOST / JOIN screens, save v8. Verified browser-to-browser through the broker on this machine. |
+| B — online co-op | [#11](https://github.com/dunnston/zombie-game/pull/11) | Broker, WebRTC transport, host and guest sessions, HOST / JOIN screens, save v8. Verified browser-to-browser through the broker on this machine; one review round (four findings, all reproduced first). |
 
 **Known limits, stated plainly:** no TURN relay yet, so some pairs of players behind
 strict NATs will not connect (the follow-up is to relay through the broker);
@@ -115,6 +115,7 @@ stopped by the host within 400ms rather than left doing its last action.
 | [#8](https://github.com/dunnston/zombie-game/pull/8) | Slot inventory, equipment slots, hotbar. Save → v7. |
 | [#9](https://github.com/dunnston/zombie-game/pull/9) | Multiplayer foundation: players array, intent split, downed and revive |
 | [#10](https://github.com/dunnston/zombie-game/pull/10) | Title screen, save slots, rebindable keys |
+| [#11](https://github.com/dunnston/zombie-game/pull/11) | Online co-op: broker, WebRTC, host and guest sessions. Save → v8. |
 
 ### What the first playtest said
 

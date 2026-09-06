@@ -68,7 +68,7 @@ different single player saves. I should be able to delete saves as well."
       and its Testing section is refreshed (it still says 52 Node / 211 smoke and
       has the Saving heading twice)
 
-### PR B — online co-op  (branch `feat/online-coop`, in review)
+### PR B — online co-op  (PR #11, merged)
 
 Verified: npm test 75/75; smoke 361/361 with a loopback guest; real WebRTC
 through the broker between two browsers on this machine — join 1.8s, 66 KB/s
