@@ -72,7 +72,7 @@ feedback driving the work.** Five rounds merged.
 | --- | --- |
 | Source | 29 modules, ~11,200 lines, no dependencies but Vite |
 | Assets | Zero. Every sprite is drawn in code at boot; every sound is WebAudio. |
-| Tests | 53 Node assertions; browser suite 237 |
+| Tests | 53 Node assertions; browser suite 239 |
 | Save format | **v6** |
 | Performance | ~57fps with 90 active enemies |
 
@@ -327,7 +327,7 @@ round. Current expected totals:
 | Suite | Expected |
 | --- | --- |
 | `npm test` (Node, pure logic) | 53 |
-| `tests/browser-smoke.js` | 237 |
+| `tests/browser-smoke.js` | 239 |
 
 **Run the browser suite with the page focused.** Its waits are counted in
 animation frames, and a backgrounded tab throttles `requestAnimationFrame` to
@@ -362,8 +362,12 @@ flatten it.
 | --- | --- | --- | --- | --- |
 | 1 | RUNNING HORDE | ~70s | 0 | ~90% |
 | 2 | HEAVY HORDE | ~80s | 0–2 | ~12–34% |
-| 3 | SIEGE | ~120–180s | the whole base | 0% |
+| 3 | SIEGE | ~150–260s | the whole base | 0% |
 | 5 | BEHEMOTH SIEGE +1 | overwhelming | the whole base | 0% |
+
+**These are single runs of a stochastic harness — treat them as ranges, not
+figures.** Index 3 has been measured at 154s, 177s and 261s on identical code.
+What matters is that no raid reaches the 300s backstop, not the exact number.
 
 The harness plays the defender itself, and after a death it now walks back to
 the base on foot. Without that it respawned across the map, never found another

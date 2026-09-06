@@ -388,6 +388,27 @@
       G.raid.timer = 0.1;
       await seconds(2.5);
       ok('raid spawns enemies', G.enemies.some((e) => e.raid), `${G.enemies.length} enemies`);
+
+      // Raid progress must count raiders and nothing else. The counter drives
+      // the HUD readout, the stall detector and — once a broken-off raid pays
+      // by share killed — the salvage, so counting passing wildlife would let
+      // you farm ambient zombies for a raid you never fought.
+      {
+        const killedBefore = G.raid.killed;
+        const bystander = api.spawnEnemy('walker', p.x + 90, p.y + 90, {});
+        bystander.raid = false;
+        api.killEnemy(bystander, 'test');
+        await frames(3);
+        ok('killing a passing zombie is not raid progress',
+          G.raid.killed === killedBefore, `${killedBefore} -> ${G.raid.killed}`);
+
+        const raider = api.spawnEnemy('walker', p.x + 110, p.y + 110, {});
+        raider.raid = true;
+        api.killEnemy(raider, 'test');
+        await frames(3);
+        ok('killing an actual raider is', G.raid.killed === killedBefore + 1,
+          `${killedBefore} -> ${G.raid.killed}`);
+      }
       const raidsBefore = G.raidsDone;
       const xpBefore = G.player.level * 1000 + G.player.xp;
       api.forceEndRaid();
