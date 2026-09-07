@@ -273,6 +273,45 @@ function rockSprite(seed) {
   });
 }
 
+/**
+ * Ground litter. Small, low-contrast enough not to clutter the screen, but
+ * with a warm rim so the eye catches it against grass — this is the first
+ * thing a new player has to notice, so it errs toward visible.
+ */
+function litterSprite(kind, seed) {
+  return mk(22, 20, (g, w, h) => {
+    if (kind === 'sticks') {
+      g.strokeStyle = '#6b4e2e'; g.lineWidth = 2.2;
+      for (let i = 0; i < 3; i++) {
+        const a = hash2(seed, i) * Math.PI;
+        const cx = 8 + hash2(seed + i, 4) * 6, cy = 8 + hash2(seed + i, 7) * 5;
+        const dx = Math.cos(a) * 7, dy = Math.sin(a) * 4;
+        g.beginPath(); g.moveTo(cx - dx, cy - dy); g.lineTo(cx + dx, cy + dy); g.stroke();
+      }
+      g.strokeStyle = '#8a6a3c'; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(4, 12); g.lineTo(17, 9); g.stroke();
+    } else if (kind === 'stone') {
+      for (let i = 0; i < 3; i++) {
+        const cx = 7 + hash2(seed + i, 3) * 8, cy = 8 + hash2(seed + i, 5) * 6;
+        const r = 2.6 + hash2(seed + i, 11) * 2.2;
+        ellipse(g, cx, cy, r, r * 0.8, i ? '#6b675b' : '#7d766b');
+        ellipse(g, cx - r * 0.3, cy - r * 0.3, r * 0.4, r * 0.3, '#8d867a');
+      }
+    } else {
+      // Fiber: a tuft of dry grass.
+      g.strokeStyle = '#8a9a4a'; g.lineWidth = 1.6;
+      for (let i = 0; i < 6; i++) {
+        const x = 5 + i * 2.4 + hash2(seed, i) * 1.5;
+        g.beginPath(); g.moveTo(x, 16);
+        g.quadraticCurveTo(x + (hash2(seed + i, 2) - 0.5) * 6, 9, x + (hash2(seed + i, 3) - 0.5) * 9, 3);
+        g.stroke();
+      }
+      g.strokeStyle = '#6d7a38'; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(6, 16); g.lineTo(16, 16); g.stroke();
+    }
+  });
+}
+
 /** A boulder: a rock the size of a car, with a lit cap and a long shadow side. */
 function boulderSprite(seed) {
   return mk(46, 44, (g, w, h) => {
@@ -982,6 +1021,11 @@ export function buildSprites() {
   Sprites.bushes = [0, 1, 2].map((i) => bushSprite(i * 19 + 5));
   Sprites.rocks = [0, 1].map((i) => rockSprite(i * 23 + 3));
   Sprites.boulders = [0, 1, 2].map((i) => boulderSprite(i * 29 + 7));
+  Sprites.litter = {
+    sticks: [0, 1, 2].map((i) => litterSprite('sticks', i * 17 + 2)),
+    stone: [0, 1, 2].map((i) => litterSprite('stone', i * 13 + 5)),
+    fiber: [0, 1, 2].map((i) => litterSprite('fiber', i * 19 + 9)),
+  };
   Sprites.thickets = [0, 1, 2].map((i) => thicketSprite(i * 31 + 13));
   Sprites.pines = [0, 1, 2, 3].map((i) => pineSprite(i * 41 + 7));
   Sprites.hay = [0, 1, 2].map((i) => hayBaleSprite(i * 17 + 9));

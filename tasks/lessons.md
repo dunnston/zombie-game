@@ -593,3 +593,80 @@ than rewriting a Playwright script per session, and make it assert its own
 preconditions: server reachable, page booted, frames actually running. And
 match the check to the change — the four-minute suite belongs once per branch,
 not once per edit.
+
+### A prompt that appears is not a mechanic that works
+
+Ground litter shipped with a `harvest` key (`litter_sticks`) that had no
+matching `HARVEST` rule. The interact prompt read "Pick up sticks" correctly,
+because the label came from a different map — and pressing E did nothing at
+all. No error, no message, no resource. The label and the rule were two
+sources of truth for one thing, and only one of them existed.
+
+Caught by playing it: six presses, `got: {}` every time. A Node test now walks
+every hand-gatherable prop the generator makes and fails if its harvest key has
+no rule behind it.
+
+**Rule:** when a label and a behaviour come from different tables, a test has
+to tie them together — otherwise the UI cheerfully advertises a no-op.
+
+### The player starts where the map is thinnest
+
+Woodland density was a function of distance from the town's *edge*, which made
+the town centre the barest ground on the map. The spawn point is the town
+centre. Measured after the first playtest complaint: **zero** bushes and
+**zero** rocks within ten tiles of where the player wakes up, when the whole
+opening depends on gathering.
+
+**Rule:** whatever the opening loop needs, assert it is present *at the spawn*,
+not on average across the map. Averages hide a hole exactly where the player
+is standing.
+
+### The local player is the one nobody replicates
+
+A guest could not see its own weapon swing. Every other player's swing worked,
+on both machines. The snapshot even carries a swing flag — but the branch that
+applies it is the `else` of `if (p === G.player)`, because *your own* player is
+supposed to be predicted rather than copied. Prediction covered movement,
+death, downed and driving. Nobody had added the swing, so it fell down the gap
+between the two: not predicted, and deliberately not applied.
+
+This is the second bug in this shape (the first: a guest's held intent never
+expiring). Both live in the seam where "predict it" and "receive it" meet, and
+both only affect the person doing the thing — so the host sees it working
+perfectly and reports nothing wrong.
+
+**Rule:** for anything a player does to themselves, ask the question twice —
+once as "does the other side see it?" and once as "does the *actor* see it?"
+The second is the one the tests miss, because the loopback suite drives the
+host. It now has a section that makes the page a guest and runs
+`updateClient()` for real.
+
+### Changing the generator is changing the save format
+
+Raising a probability in world generation looks like a content tweak. It is
+not: saves store a seed, and everything else — which props were felled, where
+structures stand — is replayed against a world rebuilt from it. Move the rng
+stream and the replay lands on different props. Measured on one such change:
+containers and vehicles were identical (generated before the woodland pass),
+but 308 props had left their tile and 141 had changed kind, and a tree could
+regrow inside a wall the player had built.
+
+The fix is a version bump, which the project has always done for content
+changes — but nothing enforced it, so it was missed. A Node test now
+fingerprints the generated world (tiles, container ordinals, prop grid,
+vehicle count) and fails unless the fingerprint and `G.version` move together.
+
+**Rule:** if the world is rebuilt from a seed at load time, the generator *is*
+part of the save format. Pin it with a test, not with discipline.
+
+### Refusing to load is not enough; say why
+
+Bumping the version made two silent paths visible. CONTINUE, on a save it
+could not read, quietly started a *brand new world* — which to a player is
+"the game deleted my run". LOAD did nothing at all: a dead button. Both had
+been that way for as long as save versions have existed, and neither had ever
+been hit because nobody had loaded a stale save.
+
+**Rule:** every refusal needs a sentence. "That save is from an older build
+(v9, this is v10) — the map changed" costs one line and turns a bug report
+into a shrug.

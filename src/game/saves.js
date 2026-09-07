@@ -107,6 +107,18 @@ function summarise(slot) {
 }
 
 /** Writes the live game into a slot and refreshes its summary. */
+/** The payload version stored in a slot, or null if there is nothing readable. */
+export function slotPayloadVersion(id) {
+  const s = store();
+  if (!s) return null;
+  try {
+    const raw = JSON.parse(s.getItem(SLOT_PREFIX + id) || 'null');
+    return raw && typeof raw.v === 'number' ? raw.v : null;
+  } catch {
+    return null;
+  }
+}
+
 export function saveToSlot(id) {
   const s = store();
   if (!s || !G.world || !G.player) return false;

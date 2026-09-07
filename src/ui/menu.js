@@ -8,10 +8,11 @@
 
 import { G, notify } from '../game/state.js';
 import { Input, keyTap } from '../core/input.js';
-import { newGame, startGame, toTitle } from '../game/game.js';
+import { newGame, toTitle } from '../game/game.js';
 import { seedLoot } from '../game/loot.js';
 import {
   listSlots, latestSlot, createSlot, deleteSlot, loadSlot, saveToSlot, defaultName, slotById,
+  slotPayloadVersion,
   playtimeLabel, whenLabel,
 } from '../game/saves.js';
 import {
@@ -154,10 +155,24 @@ function goto(screen) {
   G.menu.screen = screen;
   G.menu.pendingRebind = null;
   G.menu.confirmDelete = null;
+  G.menu.error = null;
   G.menu.scroll = 0;
 }
 
 // ------------------------------------------------------------------ screens --
+
+/**
+ * Why a slot would not load. Almost always because the world changed shape
+ * under it — saying which version it is beats "that save could not be loaded".
+ */
+export function staleReason(id) {
+  const v = slotPayloadVersion(id);
+  if (v === null) return 'that save is missing or unreadable';
+  if (v !== G.version) {
+    return `that save is from an older build (v${v}, this is v${G.version}) — the map changed, so it cannot be loaded`;
+  }
+  return 'that save could not be loaded';
+}
 
 function drawMain(ctx, W, H) {
   title(ctx, W, H * 0.3);
@@ -173,9 +188,11 @@ function drawMain(ctx, W, H) {
     if (loadSlot(latest.id)) {
       seedLoot((G.world.seed ^ 0x9E3779B9) >>> 0);
     } else {
-      startGame(false);
+      // Silently starting a *new* world here reads as "CONTINUE lost my game".
+      G.menu.error = staleReason(latest.id);
     }
   }
+  drawMenuError(ctx, bx, by - 12, bw);
   by += bh + gap;
   if (menuButton(ctx, 'NEW GAME', bx, by, bw, bh, 'NEW GAME', { sub: 'a fresh town, in its own save slot' })) {
     goto('new');
@@ -228,9 +245,22 @@ function drawNew(ctx, W, H) {
   ctx.textAlign = 'left';
 }
 
+/** The one place a menu error is drawn on the title and slot screens. */
+function drawMenuError(ctx, x, y, w) {
+  if (!G.menu.error) return;
+  ctx.font = '11px "Courier New", monospace';
+  ctx.fillStyle = C.warn;
+  ctx.fillText(G.menu.error, x, y);
+  ctx.font = '12px "Courier New", monospace';
+}
+
 function drawSlots(ctx, W, H) {
   title(ctx, W, 64, false);
   const slots = listSlots();
+  drawSlotsBody(ctx, W, H, slots);
+}
+
+function drawSlotsBody(ctx, W, H, slots) {
   const w = Math.min(680, W - 40);
   const rowH = 58;
   const listH = Math.min(slots.length * rowH, H - 260);
@@ -272,6 +302,7 @@ function drawSlots(ctx, W, H) {
       const bx = x + w - 20 - 84 * 2;
       if (menuButton(ctx, `LOAD:${s.id}`, bx, ry + 13, 76, 32, 'LOAD', { center: true, color: C.accent, enabled: !modal })) {
         if (loadSlot(s.id)) seedLoot((G.world.seed ^ 0x9E3779B9) >>> 0);
+        else G.menu.error = staleReason(s.id);   // a dead button is a bug report
       }
       if (menuButton(ctx, `DELETE:${s.id}`, bx + 84, ry + 13, 76, 32, 'DELETE', { center: true, color: C.warn, enabled: !modal })) {
         G.menu.confirmDelete = s.id;
@@ -280,6 +311,8 @@ function drawSlots(ctx, W, H) {
     ry += rowH;
   }
   ctx.restore();
+
+  drawMenuError(ctx, x + 20, y + h - 44, w - 40);
 
   if (slots.length === 0) {
     ctx.font = '12px "Courier New", monospace';
@@ -606,6 +639,8 @@ export function drawMenu(ctx, deviceW, deviceH) {
 /** Test and debug hooks: read the button rectangles, type into a field. */
 export const menuDebug = {
   rects: () => G.menu.rects,
+  staleReason,
+  error: () => G.menu.error,
   setText: (v, key = 'name') => setFieldValue(v, key),
   screen: () => G.menu.screen,
   goto,

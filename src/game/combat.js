@@ -156,6 +156,11 @@ export const HARVEST = {
   fiber:   { res: 'fiber', min: 2, max: 4, bonus: 'sticks', bonusMin: 1, bonusMax: 2, boost: 'scythe', xp: 2, debris: '#4a6a2a', label: 'FIBER' },
   stone:   { res: 'stone', min: 2, max: 4, boost: 'pick', xp: 2, debris: '#6a6660', label: 'STONE' },
   boulder: { res: 'stone', min: 9, max: 16, needs: 'pick', xp: 5, debris: '#6a6660', label: 'STONE' },
+  // Ground litter: taken by hand with the interact key, never swung at. Small
+  // yields, but there is a lot of it and it costs nothing but the walk.
+  litter_sticks: { res: 'sticks', min: 2, max: 4, xp: 1, debris: '#6b4e2e', label: 'STICKS' },
+  litter_stone:  { res: 'stone',  min: 1, max: 3, xp: 1, debris: '#6a6660', label: 'STONE' },
+  litter_fiber:  { res: 'fiber',  min: 2, max: 4, xp: 1, debris: '#4a6a2a', label: 'FIBER' },
   thicket: { res: 'fiber', min: 9, max: 15, bonus: 'sticks', bonusMin: 2, bonusMax: 4, needs: 'scythe', xp: 4, debris: '#4a6a2a', label: 'FIBER' },
 };
 

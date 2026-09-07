@@ -352,6 +352,10 @@ function drawProp(ctx, p) {
   else if (p.kind === 'silo') spr = Sprites.silo;
   else if (p.kind === 'rock') spr = Sprites.rocks[p.si % Sprites.rocks.length];
   else if (p.kind === 'boulder') spr = Sprites.boulders[p.si % Sprites.boulders.length];
+  else if (p.kind === 'litter') {
+    const set = Sprites.litter[p.res] || Sprites.litter.sticks;
+    spr = set[p.si % set.length];
+  }
   else if (p.kind === 'thicket') spr = Sprites.thickets[p.si % Sprites.thickets.length];
   else if (p.kind === 'car') spr = Sprites.cars[p.si % Sprites.cars.length];
   else if (p.kind === 'wreck') spr = Sprites.wrecks[p.si % Sprites.wrecks.length];
@@ -360,7 +364,7 @@ function drawProp(ctx, p) {
   ctx.save();
   ctx.translate(p.x, p.y);
   if (p.rot) ctx.rotate(p.rot);
-  if (p.kind !== 'reed') {
+  if (p.kind !== 'reed' && p.kind !== 'litter') {
     ctx.globalAlpha = 0.4;
     ctx.fillStyle = '#000';
     ctx.beginPath();

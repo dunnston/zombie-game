@@ -9,7 +9,7 @@
 import { G, notify, netHooks, removeStructure, structAt } from '../game/state.js';
 import { ENEMIES, TILE } from '../game/config.js';
 import { gatherLocalIntent, clearIntent } from '../game/intent.js';
-import { movePlayer, createPlayer } from '../game/player.js';
+import { movePlayer, createPlayer, currentWeapon } from '../game/player.js';
 import { applySaveData, restorePlayerRecord } from '../game/save.js';
 import { makeStructure } from '../game/building.js';
 import { makeSurvivor } from '../game/survivors.js';
@@ -332,6 +332,32 @@ function applySnapshot(s) {
 // ------------------------------------------------------------ per update --
 
 /** One fixed step on a guest: send intent, predict self, ease everyone else. */
+/**
+ * A guest swings its own weapon locally, for the picture only.
+ *
+ * The snapshot carries a swing flag, but only for *other* players — the branch
+ * that applies it is the `else` of `p === G.player`. So a guest's own swing
+ * arc was never created and never drawn: you saw your teammates swing and the
+ * host saw you swing, but your own weapon did nothing. Waiting for the host to
+ * tell you would be wrong anyway; at 20Hz a 0.26s animation would arrive late
+ * and stutter.
+ *
+ * This is the same bargain as movement and as tracers: the guest predicts the
+ * *picture* and the host still decides every hit. Nothing here deals damage.
+ */
+function predictSwing(me, dt) {
+  if (me.swing) {
+    me.swing.t += dt;
+    if (me.swing.t >= me.swing.dur) me.swing = null;
+  }
+  const w = currentWeapon(me);
+  if (!w || w.kind !== 'melee' || !me.intent.fire || me.attackCd > 0) return;
+  const reach = w.range + me.r;
+  me.swing = { t: 0, dur: Math.min(0.26, w.cd * 0.75), angle: me.angle, arc: w.arc, range: reach };
+  me.attackCd = w.cd;
+  sfx('swing');
+}
+
 export function updateClient(dt) {
   const me = G.player;
   if (!me || !C.peer) return;
@@ -347,6 +373,7 @@ export function updateClient(dt) {
     me.lastHurt += dt;
     me.attackCd = Math.max(0, me.attackCd - dt);
     me.angle = Math.atan2(me.intent.aimY - me.y, me.intent.aimX - me.x);
+    predictSwing(me, dt);
     movePlayer(me, dt, false);
     if (C.auth) {
       const dx = C.auth.x - me.x, dy = C.auth.y - me.y;

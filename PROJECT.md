@@ -75,7 +75,7 @@ farms, a forest, a river and a city — and nobody has played the new ground yet
 | Source | 42 modules, ~15,400 lines. Browser bundle depends on Vite only; the broker on `ws`. |
 | Assets | Zero. Every sprite is drawn in code at boot; every sound is WebAudio. |
 | Tests | 90 Node assertions; browser suite 384 (`npm test`, `npm run smoke`) |
-| Save format | **v9** payload (the 320-tile world; v8 was players by identity), in **slots** (index v1) |
+| Save format | **v10** payload (the litter pass moved the generator's rng stream), in **slots** (index v1) |
 | Performance | ~60fps with 90 active enemies; ~66 KB/s per guest on the wire |
 
 ### Multiplayer — where it stands
@@ -171,8 +171,14 @@ Walkers and runners threaten *you*; brutes are what breach a wall.
 stone — both with bare hands, because the tools are made of them. Those three
 materials make four tools, none of which needs a workbench:
 
-Every material has a small source you can work with bare hands and a big
-source that needs the right tool — that pairing is the shape of the whole
+The bottom rung is **ground litter**: loose sticks, stones and dry grass lying
+everywhere you can walk, taken with the **interact key**, not a weapon swing.
+About 15,000 pieces across the map, thickest on grass and dirt and still
+present on tarmac. Bushes and rocks answer the interact key too. That is the
+whole first minute: walk, press E, have enough for a Hatchet.
+
+Above that, every material has a small source you can work with bare hands and
+a big source that needs the right tool — that pairing is the shape of the
 tier:
 
 | Material | By hand | With the tool | The tool |
@@ -433,6 +439,7 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | A guest joins through `applySaveData()` | The welcome carries exactly what `serialiseGame()` produces, and the guest rebuilds through the same function a slot load uses. Join and load cannot drift, and a v8 save was the join format for free. |
 | Structures, stash and inventories travel as events; positions as snapshots | Walls change rarely and must never be missed; positions change every step and a dropped one does not matter. Reliable channel for the first, unordered best-effort for the second. Inventories and the stash are diffed twice a second and sent only when they changed. |
 | Bullets are events, not entities | A guest draws the tracer from `bulletFired` and its damage is zero there; the host decides every hit. Nothing to reconcile, and a magazine of SMG fire is a few hundred bytes. |
+| The guest predicts its own *picture*, which includes its swing | Melee had no prediction and no replication for the swinging player: the snapshot's swing flag is applied in the `else` of `p === G.player`, so a guest saw everyone's swing but its own. Sending it would not fix the feel either — a 0.26s animation arriving on a 20Hz snapshot is late and stuttery. The guest now starts its own swing arc from its own input, exactly as it predicts its own movement and draws its own tracers, and the host still decides every hit. |
 | The guest predicts only its own movement | The same `movePlayer()` as the host, then a lerp toward the host's answer (snap over 48px). Everything else eases toward its last reported place. No prediction of anyone else's actions — that is where desync-shaped bugs live. |
 | The host's identity keys its own record; guests are keyed by theirs | `deadline.identity` in each browser. A returning guest with the same browser gets the same character; a stranger gets a fresh one beside the host. |
 | Kill XP for a remote player's own kill goes to them | The player object is the bullet's owner on the host, as in solo. Automated kills still pay everyone present. |
@@ -447,6 +454,10 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | Every hand tool is bench-0, and a poor weapon | The tools are made of gathered material and unlock more gathering, so gating any of them behind the workbench (which costs wood, which needs the hatchet) would deadlock the opening. They are weak on purpose: a tool tier that also won fights would make the machete and the pipe pointless. A Node test asserts both — bench 0, cost only from `sticks`/`stone`/`fiber`, damage under a machete's. |
 | Small scenery is never gated; big scenery always is | If a pickaxe were needed for *all* stone, the pickaxe could not be made. So each material has a hand source (rock, bush) and a gated source worth three times as much (boulder, thicket). `needs` is the gate, `boost` is the bonus, and `HARVEST` is keyed by rule rather than by resource precisely so a boulder and a rock can both give stone on different terms. |
 | The Stone Hammer is a bench for simple work only | "Craft anywhere" would make the workbench pointless and put a pistol in the first two minutes. The hammer lifts exactly the recipes marked `hammer` (a pipe, lockpicks, ration packs) to bench 1, never to II, and a test asserts it can never produce a gun. |
+| A generator change bumps the save version, and a test enforces it | A save replays `chopped` keys and restores structures against a world rebuilt from its seed, so any change to the shared rng stream silently corrupts it — felled props return, others vanish, and a tree can regrow inside a wall. Measured on this change: containers and vehicles were untouched (they are generated before the woodland pass) but 308 props left their tile and 141 changed kind. A Node test now fingerprints the generated world and fails unless the fingerprint and `G.version` are updated together, so this cannot happen quietly again. |
+| A save that will not load says why | Refusing a stale save silently was worse than the corruption it prevents: CONTINUE started a brand-new world (reading as "it lost my game") and LOAD did nothing at all. Both now name the version and the reason. |
+| Raw material is picked up with the interact key, not swung at | The first playtest of the tool tier could not start the game: the player ran around, found no sticks, stone or fiber, and had no reason to guess that a bush is *hit* rather than *taken*. Anything you could pick up with your hands now answers `E` with a named prompt, and the ground is littered with material that needs no tool at all. Swinging still works and a matching tool still yields more, so the tier above is untouched. |
+| The town centre is the thinnest ground, and the player starts in it | Woodland density was a function of distance from the town's *edge*, so the middle of town — where the spawn is — had a floor of 0.05, and there were literally zero bushes or rocks within ten tiles of the starting crossroads. The floor is 0.18 now, and litter is scattered independently of it. Measured, not guessed: a Node test fails if there is not enough within fifteen tiles of the camp to build the first tool. |
 | Trees need an axe, and the axe needs no bench | Wood is gated behind a tool, the tool behind gathering — a real first ten minutes (break bushes and rocks, craft the hatchet, fell a tree, build the bench) instead of hitting a tree with a pipe. The hatchet is bench-0 and costs only hand-gathered things, because the workbench itself costs wood. Asked for by the owner. |
 | Fences are terrain, not structures | A paddock rail is scenery you cannot walk through, like a tree. Making it a destructible structure would put it in the raid target list and the salvage economy for no gain. |
 | Repair is offered on `E`, not only as a build-mode tool | Repair existed since the MVP and nobody found it: it was the fifteenth card on a bar that, at 1400px wide, drew fourteen. The owner never found crafting on `C` either. A damaged wall now asks for `E` with the bill on the prompt, the raid summary counts the damage, and the tutorial says so once something is hit. The build bar shrinks its cards to fit the screen and wraps onto more rows below 60px a card for the same reason — a 900px window had still been cutting three cards off (Codex review of PR #12). |
@@ -786,6 +797,29 @@ input (`key`, `tap`, `mouseDown`, `aimAt`) and the whole `api` surface.
 
 Newest first. One line per meaningful change.
 
+- **2026-09-07** — Save → v10, from the Codex review of the gathering PR.
+  Raising the town's woodland floor and adding the litter pass moved the
+  generator's rng stream, so a v9 save rebuilt from its seed would replay its
+  `chopped` keys against different props and could regrow a tree inside a
+  built wall. Containers and vehicles were unaffected. The version bump makes
+  it honest; a world fingerprint test makes the next one impossible to miss;
+  and a refused save now says which build it came from rather than failing
+  silently.
+- **2026-09-07** — A guest can see its own weapon swing. Reported from real
+  co-op play: the remote player's attack animation showed on the host's screen
+  but not their own. The snapshot carries a swing flag and applies it only to
+  *other* players, and the guest's local prediction covered movement but not
+  its own attack — so `G.player.swing` on a guest was never set by anything.
+  The guest now predicts the swing locally (picture only; the host still owns
+  every hit), and the smoke suite grew a section that makes the page a guest
+  and checks its own arc animates at the weapon's cadence.
+- **2026-09-07** — Gathering you can actually find. The owner played the tool
+  tier and could not locate sticks, stone or fiber at all. Two causes, both
+  mine: raw material had to be *swung* at rather than picked up, and the town
+  centre — where the player spawns — was the thinnest ground on the map, with
+  zero bushes or rocks within ten tiles. Now: ~15,000 pieces of ground litter
+  taken with `E`, bushes and rocks answer `E` too, and the town's density floor
+  went 0.05 → 0.18. Six presses at the spawn point yield enough for a Hatchet.
 - **2026-09-06** — Boulders and thickets, and the Scythe. Each gathered
   material now has a hand source and a tool-gated source worth about three
   times as much: rock/boulder for stone (Stone Pickaxe), bush/thicket for

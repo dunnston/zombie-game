@@ -12,8 +12,16 @@ import { Input } from '../core/input.js';
 
 export const G = {
   // Save payload version. 6 was the single-player record; 8 keeps every
-  // player by identity so a hosted world remembers its guests.
-  version: 9,
+  // player by identity so a hosted world remembers its guests; 9 was the
+  // 320-tile world.
+  //
+  // 10, because the generator's RNG stream moved: the town's woodland floor
+  // rose and a litter pass was added, so the same seed lays out different
+  // props. Containers and vehicles are generated earlier and are unchanged,
+  // but a v9 save replayed against this generator would fell the wrong props
+  // and could regrow a tree inside a wall the player had built. See invariant
+  // 7 — content changes invalidate saves, and the version is how we say so.
+  version: 10,
   world: null,
   // Every survivor in the world who is a person at a keyboard. In solo this
   // holds exactly one. `G.player` below is an alias for the *local* one, so the

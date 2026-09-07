@@ -393,6 +393,29 @@ export function createWorld(seed = 20240917) {
     return tree;
   }
 
+  /**
+   * Ground litter: a few fallen sticks, a loose stone, a clump of dry grass.
+   * Non-blocking, everywhere, and picked up with the interact key rather than
+   * swung at — this is the bottom of the gathering ladder and the first thing
+   * a new player should trip over. The first playtest of the tool tier could
+   * not find *any* raw material near the camp, because bushes and rocks were
+   * both sparse in the middle of town and needed a weapon swing nobody guessed.
+   */
+  function plantLitter(x, y, res) {
+    if (!inBounds(x, y) || world.blocked[idx(x, y)] || world.propGrid.has(`${x},${y}`)) return null;
+    const t = world.tiles[idx(x, y)];
+    if (t === T.WATER || t === T.WALL) return null;
+    const prop = {
+      kind: 'litter', res, si: rng.int(0, 2), rot: rng.range(0, 6.28), tx: x, ty: y,
+      x: (x + 0.5) * TILE, y: (y + 0.5) * TILE,
+      harvest: `litter_${res}`, hand: true, solid: false, flash: 0,
+      hp: 1, maxHp: 1,
+    };
+    world.props.push(prop);
+    world.propGrid.set(`${x},${y}`, prop);
+    return prop;
+  }
+
   /** Solid scenery that is not harvestable: hay bales (1 tile), silos (2×2). */
   function addScenery(kind, tx, ty, w = 1, h = 1) {
     for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
@@ -789,8 +812,11 @@ export function createWorld(seed = 20240917) {
     if (x >= 240 && y < 272) return 0.03;                     // the city: a street tree
     if (x < 56 && y < 260) return 0.05;                       // farmland
     if (inTown(x, y)) {
+      // Wooded at the edges, thinner in the middle — but never bare. The floor
+      // used to be 0.05, which put *zero* bushes or rocks within ten tiles of
+      // the starting crossroads: the player could not begin the game.
       const edge = Math.min(x - TOWN_X, y - TOWN_Y, TOWN_X + TOWN_W - 1 - x, TOWN_Y + TOWN_W - 1 - y);
-      return clamp(0.62 - edge / 90, 0.05, 0.62);
+      return clamp(0.62 - edge / 130, 0.18, 0.62);
     }
     const border = Math.min(x, y, W - 1 - x, W - 1 - y);
     return border < 12 ? 0.7 : 0.4;                           // the outskirts
@@ -805,7 +831,8 @@ export function createWorld(seed = 20240917) {
     const prop = {
       kind: bush ? 'bush' : 'rock', si: rng.int(0, 2), rot: rng.range(0, 6.28), tx: x, ty: y,
       x: (x + 0.5) * TILE, y: (y + 0.5) * TILE,
-      hp: bush ? 24 : 45, maxHp: bush ? 24 : 45, harvest: bush ? 'fiber' : 'stone', flash: 0,
+      hp: bush ? 24 : 45, maxHp: bush ? 24 : 45, harvest: bush ? 'fiber' : 'stone',
+      hand: true, solid: false, flash: 0,
     };
     world.props.push(prop);
     world.propGrid.set(`${x},${y}`, prop);
@@ -872,6 +899,23 @@ export function createWorld(seed = 20240917) {
     const p = damp ? 0.26 : wild ? 0.09 : 0.015;
     if (rng.chance(p)) plantBig(x, y, 'thicket');
   }
+  // Litter, everywhere you can walk. Weighted to sticks and fiber because they
+  // are what the first tools cost most of; a little denser on soft ground than
+  // on tarmac, but present on both, because "search the roadside" has to work.
+  for (let i = 0; i < 90000; i++) {
+    const x = rng.int(1, W - 2), y = rng.int(1, W - 2);
+    if (world.blocked[idx(x, y)] || world.propGrid.has(`${x},${y}`)) continue;
+    const t = world.tiles[idx(x, y)];
+    let p;
+    if (t === T.GRASS || t === T.DIRT) p = 0.30;
+    else if (t === T.GRAVEL || t === T.SAND || t === T.FIELD) p = 0.22;
+    else if (t === T.ROAD || t === T.SIDEWALK || t === T.LOT || t === T.RUBBLE) p = 0.10;
+    else continue;                                   // not indoors
+    if (!rng.chance(p)) continue;
+    const r = rng();
+    plantLitter(x, y, r < 0.42 ? 'sticks' : r < 0.78 ? 'fiber' : 'stone');
+  }
+
   // Reeds along every shore: scenery, not an obstacle.
   for (let y = 1; y < W - 1; y++) for (let x = 1; x < W - 1; x++) {
     if (world.tiles[idx(x, y)] !== T.SAND || world.blocked[idx(x, y)]) continue;
