@@ -649,9 +649,18 @@
       }
       const raidsBefore = G.raidsDone;
       const xpBefore = G.player.level * 1000 + G.player.xp;
+      // A wall that took a hit during the raid: the summary has to say so.
+      const hurtWall = G.structures.find((s) => !s.destroyed && s.def.wall);
+      const hurtWallHp = hurtWall ? hurtWall.hp : 0;
+      if (hurtWall) hurtWall.hp = hurtWall.maxHp * 0.5;
+      const notesBefore = G.notifications.length;
       api.forceEndRaid();
       await frames(4);
       ok('raid can be completed', G.raidsDone === raidsBefore + 1 && !G.raid, `raids ${G.raidsDone}`);
+      ok('the raid summary counts the damage left behind',
+        !!hurtWall && G.notifications.slice(Math.max(0, notesBefore - 7)).some((n) => /structure.* damaged/.test(n.text)),
+        hurtWall ? G.notifications.map((n) => n.text).join(' | ') : 'no wall to damage');
+      if (hurtWall) hurtWall.hp = hurtWallHp;
       ok('raid awards XP', G.player.level * 1000 + G.player.xp > xpBefore);
       ok('raid awards materials to the stash', (G.stash.parts || 0) > 0, `parts ${G.stash.parts}`);
       ok('threat resets after a raid', G.threat < 60, `${G.threat.toFixed(1)}`);
@@ -843,6 +852,122 @@
           G.structures.length === before, `${before} -> ${G.structures.length}`);
       }
       G.ui.buildMode = false;
+      await frames(2);
+    }
+
+    // ------------------------------------------------------- 7b. repair --
+    // Repairing what a raid chewed on: E beside the piece, the repair tool in
+    // build mode (click, or hold to sweep), and REPAIR ALL from the bar.
+    {
+      d.giveAll();
+      d.god(true);
+      G.enemies.length = 0;
+      G.ui.panel = null;
+      G.ui.buildMode = false;
+      p = G.player;
+      // Out of REPAIR ALL's reach of anything earlier sections built, so the
+      // sweep below counts only what this section damages.
+      const spotR = clearOfStructures(G, p.x, p.y, api.REPAIR_ALL_RANGE + 100);
+      d.teleport(spotR.x, spotR.y);
+      await frames(2);
+      const wallR = placeNear('woodWall');
+      ok('a wall to repair', !!wallR);
+      // Stand beside it on open ground, with the camera settled on us.
+      const standBeside = async (s) => {
+        for (const [dx, dy] of [[0, 48], [48, 0], [-48, 0], [0, -48]]) {
+          if (api.solidPx(s.x + dx, s.y + dy)) continue;
+          d.teleport(s.x + dx, s.y + dy);
+          await frames(30);
+          return true;
+        }
+        return false;
+      };
+      // The camera leads toward the cursor, so a single aimAt() computed from
+      // where the camera is now drifts off a 32px tile by the time it settles.
+      // Re-aim every frame until it converges.
+      const aimSettled = async (s, n = 12) => {
+        for (let i = 0; i < n; i++) { d.aimAt(s.x, s.y); await frames(1); }
+      };
+      if (wallR) {
+        // 1. The prompt: a damaged wall offers a repair, with the bill on it.
+        wallR.hp = wallR.maxHp * 0.4;
+        ok('standing beside the wall', await standBeside(wallR));
+        const hover = api.findInteractable(p);
+        ok('a damaged wall offers a repair on E', !!hover && hover.kind === 'repair' && hover.ref === wallR,
+          hover ? `${hover.kind}: ${hover.label}` : 'nothing');
+        const billE = api.repairCost(wallR, p);
+        ok('...and the prompt quotes the bill', !!hover && /Repair Wood Wall/.test(hover.label) && hover.label.includes(`WOOD ${billE.wood}`),
+          hover ? hover.label : 'nothing');
+
+        // 2. Pressing E through the real loop repairs it and spends the wood.
+        const woodBefore = api.countRes(G.stash, 'wood') + api.countRes(p.bag, 'wood');
+        const repairedBefore = G.stats.repaired || 0;
+        d.tap('KeyE');
+        await frames(4);
+        const woodAfter = api.countRes(G.stash, 'wood') + api.countRes(p.bag, 'wood');
+        ok('E repairs the wall to full', wallR.hp === wallR.maxHp, `${Math.round(wallR.hp)}/${wallR.maxHp}`);
+        ok('...spending exactly the quoted bill', woodBefore - woodAfter === billE.wood, `spent ${woodBefore - woodAfter}, quoted ${billE.wood}`);
+        ok('...and the repair is counted', (G.stats.repaired || 0) === repairedBefore + 1, `${G.stats.repaired}`);
+        const after = api.findInteractable(p);
+        ok('an intact wall no longer asks for E', !after || after.kind !== 'repair', after ? after.kind : 'nothing');
+
+        // 3. The repair tool in build mode: the ghost carries the bill, and a
+        // held button sweeps — no click edge, just the mouse down over a piece.
+        wallR.hp = wallR.maxHp * 0.3;
+        const menuR = api.buildMenu();
+        G.ui.buildMode = true;
+        G.ui.buildIndex = menuR.indexOf('repair');
+        await aimSettled(wallR);
+        const ghost = G.ui.ghost;
+        ok('the repair tool reads the piece under the cursor', !!ghost && ghost.sel === 'repair' && ghost.target === wallR && ghost.valid,
+          ghost ? `sel ${ghost.sel}, target ${ghost.target && ghost.target.type}, valid ${ghost.valid}, reason ${ghost.reason}` : 'no ghost');
+        ok('...with the bill on the ghost', !!ghost && !!ghost.cost && ghost.cost.wood === api.repairCost(wallR, p).wood,
+          ghost && ghost.cost ? JSON.stringify(ghost.cost) : 'no cost');
+        ok('...and a plan for the sweep', !!ghost && !!ghost.plan && ghost.plan.pieces.length === 1 && ghost.plan.repairable === 1,
+          ghost && ghost.plan ? `${ghost.plan.pieces.length} pieces, ${ghost.plan.repairable} repairable` : 'no plan');
+        d.mouseDown();
+        await aimSettled(wallR, 6);
+        d.mouseUp();
+        await frames(2);
+        ok('holding the button over a damaged wall repairs it', wallR.hp === wallR.maxHp, `${Math.round(wallR.hp)}/${wallR.maxHp}`);
+        await aimSettled(wallR, 3);
+        ok('an intact piece under the repair tool says so', G.ui.ghost && G.ui.ghost.reason === 'Intact' && !G.ui.ghost.valid,
+          G.ui.ghost ? `reason "${G.ui.ghost.reason}", valid ${G.ui.ghost.valid}` : 'no ghost');
+        G.ui.buildMode = false;
+        await frames(2);
+
+        // 4. REPAIR ALL: three damaged walls, wood for the two worst. The plan
+        // says two, the sweep does two, the mildest is left for later.
+        const w2 = placeNear('woodWall'), w3 = placeNear('woodWall');
+        ok('two more walls for the sweep', !!w2 && !!w3);
+        if (w2 && w3) {
+          wallR.hp = wallR.maxHp * 0.3;
+          w2.hp = w2.maxHp * 0.6;
+          w3.hp = w3.maxHp * 0.9;
+          const bagWood = api.countRes(p.bag, 'wood');
+          if (bagWood > 0) api.slotsTake(p.bag, 'wood', bagWood);
+          const need = api.repairCost(wallR, p).wood + api.repairCost(w2, p).wood;
+          G.stash.wood = need;
+          const plan = api.planRepairAll(p);
+          ok('the plan takes the worst first and stops at the budget',
+            plan.pieces.length === 3 && plan.repairable === 2 && plan.skipped === 1 && plan.pieces[0].s === wallR && plan.pieces[2].ok === false,
+            `${plan.pieces.map((x) => `${Math.round((x.s.hp / x.s.maxHp) * 100)}%:${x.ok}`).join(' ')}`);
+          const fixed = api.repairAll(p);
+          await frames(2);
+          ok('REPAIR ALL fixes what it said it would', fixed === 2 && wallR.hp === wallR.maxHp && w2.hp === w2.maxHp,
+            `fixed ${fixed}: ${Math.round(wallR.hp)} ${Math.round(w2.hp)} ${Math.round(w3.hp)}`);
+          ok('...leaves the one it could not pay for', w3.hp < w3.maxHp, `${Math.round(w3.hp)}/${w3.maxHp}`);
+          ok('...and spends the stash down to nothing', (G.stash.wood || 0) === 0, `wood ${G.stash.wood}`);
+          ok('with nothing left, REPAIR ALL repairs nothing and says so', api.repairAll(p) === 0 &&
+            G.notifications.some((n) => /Not enough materials/.test(n.text)), G.notifications.map((n) => n.text).slice(-3).join(' | '));
+          G.stash.wood = 999;
+          if (bagWood > 0) api.addRes(p.bag, 'wood', bagWood);
+          api.demolishStructure(w2);
+          api.demolishStructure(w3);
+        }
+        api.demolishStructure(wallR);
+      }
+      d.god(false);
       await frames(2);
     }
 
@@ -2420,6 +2545,25 @@
       await frames(3);
       ok('a command the rules refuse is refused for a guest too', G.structures.length === far0);
 
+      // Repairs are commands too: the host fixes the piece as the guest, pays
+      // from the guest's pack and the shared stash, and echoes the new health.
+      const guestWall = G.structures.find((s) => s.tx === wtx && s.ty === wty && !s.destroyed);
+      if (guestWall) {
+        guestWall.hp = guestWall.maxHp * 0.4;
+        const evR0 = reliable.length;
+        b.send('reliable', d.net.msg.cmd('repair', { tx: wtx, ty: wty }));
+        await frames(4);
+        ok('a repair command from a guest fixes the wall', guestWall.hp === guestWall.maxHp, `${Math.round(guestWall.hp)}/${guestWall.maxHp}`);
+        ok('...and the guest hears the new health as a struct event',
+          reliable.slice(evR0).some((m) => m.t === 'ev' && m.k === 'struct' && m.s.tx === wtx && m.s.ty === wty && m.s.hp === guestWall.maxHp));
+        guestWall.hp = guestWall.maxHp * 0.5;
+        b.send('reliable', d.net.msg.cmd('repairAll', {}));
+        await frames(4);
+        ok('a REPAIR ALL command from a guest sweeps the base', guestWall.hp === guestWall.maxHp, `${Math.round(guestWall.hp)}/${guestWall.maxHp}`);
+      } else {
+        ok('the guest\'s wall is there to repair', false, 'not found');
+      }
+
       // A guest that goes quiet — paused, tab hidden, line dying — stops. Its
       // last packet said "walk right"; silence after it must not mean "keep
       // walking". Before the host expired stale intents, it walked 185px.
@@ -2656,10 +2800,10 @@
   }
 
   /** Open ground well away from any player-built structure. */
-  function clearOfStructures(G, x, y) {
+  function clearOfStructures(G, x, y, margin = 260) {
     const api = window.DEADLINE.api;
     const far = (px, py) => G.structures.every((s) =>
-      s.destroyed || Math.hypot(s.x - px, s.y - py) > 260);
+      s.destroyed || Math.hypot(s.x - px, s.y - py) > margin);
     for (let r = 300; r < 1400; r += 40) {
       for (let a = 0; a < 20; a++) {
         const ang = (a / 20) * Math.PI * 2;

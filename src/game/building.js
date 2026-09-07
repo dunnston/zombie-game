@@ -2,9 +2,9 @@
 // The player can build literally anywhere in the world — "base" is just
 // wherever their structures happen to be.
 
-import { STRUCTURES, BUILD_ORDER, TILE, THREAT, BENCH_UPGRADE_COST } from './config.js';
+import { STRUCTURES, BUILD_ORDER, TILE, THREAT, BENCH_UPGRADE_COST, RES } from './config.js';
 import {
-  G, structAt, addStructure, removeStructure, canAfford, spend, scaledCost,
+  G, structAt, addStructure, removeStructure, canAfford, spend, scaledCost, totalRes,
   notify, addRes, addResCapped, takeRes, countRes, baseOwner, presentPlayers, structChanged,
 } from './state.js';
 import { isBlockedTile } from './world.js';
@@ -16,10 +16,27 @@ import { addXp } from './progression.js';
 import { dist2 } from '../core/util.js';
 
 export const BUILD_RANGE = 190;
+/** How far REPAIR ALL reaches — about a compound, so post-raid recovery is one decision. */
+export const REPAIR_ALL_RANGE = 520;
+/** Repairing costs this share of the build price, scaled by how much is missing. */
+export const REPAIR_COST_SHARE = 0.45;
 
 /** Menu entries: every structure, plus the two tools. */
 export function buildMenu() {
   return [...BUILD_ORDER, 'repair', 'demolish'];
+}
+
+/**
+ * How the build bar lays `n` cards out in a `W`px-wide window. Cards shrink
+ * from `max` to `min`, and once they hit the floor the menu wraps onto more
+ * rows — it never drops a card. Pure, so the rule can be tested under Node:
+ * the two cards that used to fall off the end were REPAIR and DEMOLISH.
+ */
+export function buildBarLayout(W, n, { max = 92, min = 60, gap = 5 } = {}) {
+  const cols = Math.max(1, Math.min(n, Math.floor((W - 20 + gap) / (min + gap))));
+  const rows = Math.ceil(n / cols);
+  const cw = Math.max(min, Math.min(max, Math.floor((W - 20 - (cols - 1) * gap) / cols)));
+  return { cols, rows, cw, gap };
 }
 
 export function isUnlocked(type) {
@@ -144,26 +161,113 @@ export function placeStructure(type, tx, ty, p = G.player) {
 
 // ------------------------------------------------------------------- repair --
 
+/** A standing piece that has lost enough health to be worth a repair. */
+export const isDamaged = (s) => !!s && !s.destroyed && s.hp / s.maxHp < 0.999;
+
+/** "WOOD 4 · SCRP 2" — one way to print a bill, used by every prompt. */
+export function costLabel(cost) {
+  if (!cost) return '';
+  return Object.entries(cost).map(([id, n]) => `${(RES[id] || { short: id.toUpperCase() }).short} ${n}`).join(' · ');
+}
+
+/**
+ * What `p` pays to bring `s` back to full: REPAIR_COST_SHARE of the build price,
+ * scaled by the fraction missing and by their building perks. A material the
+ * damage would not plausibly have consumed is left off the bill — a scratch on
+ * a steel wall does not cost a weapon part — but the piece's main material is
+ * always at least one, so no repair is ever free.
+ */
 export function repairCost(s, p = G.player) {
+  if (!isDamaged(s)) return null;
   const frac = 1 - s.hp / s.maxHp;
-  if (frac <= 0.001) return null;
   const out = {};
-  for (const id in s.def.cost) out[id] = Math.max(1, Math.ceil(s.def.cost[id] * frac * 0.45 * p.buildCostMul));
+  let mainId = null, mainN = -1;
+  for (const id in s.def.cost) {
+    if (s.def.cost[id] > mainN) { mainN = s.def.cost[id]; mainId = id; }
+    const n = Math.round(s.def.cost[id] * frac * REPAIR_COST_SHARE * p.buildCostMul);
+    if (n > 0) out[id] = n;
+  }
+  if (mainId && !out[mainId]) out[mainId] = 1;
   return out;
+}
+
+/** The part every repair shares: the bill is already paid. */
+function restoreStructure(s, p) {
+  s.hp = s.maxHp;
+  structChanged(s);
+  FX.ring(s.x, s.y, 4, 26, 0.35, '#7ce08a', 2);
+  FX.text(s.x, s.y - 16, 'REPAIRED', '#7ce08a', 11, -32, 0.7);
+  G.stats.repaired = (G.stats.repaired || 0) + 1;
+  addXp(p, 3);
 }
 
 export function repairStructure(s, p = G.player) {
   const cost = repairCost(s, p);
   if (!cost) { notify('Already intact', '#8a8f84'); return false; }
-  if (!canAfford(cost, 1, p)) { sfx('deny'); notify('Not enough materials to repair', '#c96a5a'); return false; }
+  if (!canAfford(cost, 1, p)) { sfx('deny'); notify(`Not enough materials to repair — needs ${costLabel(cost)}`, '#c96a5a'); return false; }
   spend(cost, 1, p);
-  s.hp = s.maxHp;
-  structChanged(s);
+  restoreStructure(s, p);
   sfx('build');
-  FX.ring(s.x, s.y, 4, 26, 0.35, '#7ce08a', 2);
-  FX.text(s.x, s.y - 16, 'REPAIRED', '#7ce08a', 11, -32, 0.7);
-  addXp(p, 3);
+  notify(`Repaired ${s.def.name} — ${costLabel(cost)}`, '#7ce08a');
   return true;
+}
+
+/** Every damaged, standing piece within `range` of a point, most damaged first. */
+export function damagedStructures(x, y, range = REPAIR_ALL_RANGE) {
+  const out = [];
+  for (const s of G.structures) {
+    if (!isDamaged(s)) continue;
+    if (dist2(x, y, s.x, s.y) > range * range) continue;
+    out.push(s);
+  }
+  out.sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp);
+  return out;
+}
+
+/**
+ * The bill for a REPAIR ALL from where `p` stands: which pieces it would fix,
+ * in the order it would fix them, and what that comes to. Pieces the player
+ * cannot pay for are skipped rather than stopping the sweep, so one steel wall
+ * you cannot afford never blocks the wood walls behind it. `repairAll()` runs
+ * exactly this plan, so what the button says is what the button does.
+ */
+export function planRepairAll(p = G.player, range = REPAIR_ALL_RANGE) {
+  const ledger = {};
+  const plan = { pieces: [], cost: {}, repairable: 0, skipped: 0 };
+  for (const s of damagedStructures(p.x, p.y, range)) {
+    const cost = repairCost(s, p);
+    let ok = true;
+    for (const id in cost) {
+      if (ledger[id] === undefined) ledger[id] = totalRes(id, p);
+      if (ledger[id] < cost[id]) ok = false;
+    }
+    if (ok) {
+      for (const id in cost) { ledger[id] -= cost[id]; plan.cost[id] = (plan.cost[id] || 0) + cost[id]; }
+      plan.repairable++;
+    } else {
+      plan.skipped++;
+    }
+    plan.pieces.push({ s, cost, ok });
+  }
+  return plan;
+}
+
+/** Repairs everything in range that `p` can pay for. Returns how many pieces it fixed. */
+export function repairAll(p = G.player, range = REPAIR_ALL_RANGE) {
+  const plan = planRepairAll(p, range);
+  if (plan.pieces.length === 0) { sfx('ui'); notify('Nothing in range needs repair', '#8a8f84'); return 0; }
+  if (plan.repairable === 0) { sfx('deny'); notify('Not enough materials to repair anything here', '#c96a5a'); return 0; }
+  let n = 0;
+  for (const { s, cost, ok } of plan.pieces) {
+    if (!ok || s.destroyed) continue;
+    spend(cost, 1, p);
+    restoreStructure(s, p);
+    n++;
+  }
+  sfx('build');
+  const tail = plan.skipped ? `  ·  ${plan.skipped} more need materials` : '';
+  notify(`Repaired ${n} piece${n === 1 ? '' : 's'} — ${costLabel(plan.cost)}${tail}`, '#7ce08a', true);
+  return n;
 }
 
 export function demolishStructure(s, p = G.player) {

@@ -34,6 +34,7 @@ import {
   upgradeBench, nearestStructure, nearWorkbench,
   stashDepositAll, stashWithdrawAmmo, structureCost, isUnlocked, BUILD_RANGE,
   baseCenter, refreshBedrolls,
+  repairCost, repairAll, planRepairAll, damagedStructures, isDamaged, costLabel, REPAIR_ALL_RANGE,
 } from './building.js';
 import { updateThreat, addThreat, raidReady } from './threat.js';
 import {
@@ -86,6 +87,13 @@ export const TUTORIAL = [
   { id: 'build', text: () => `Press ${k('build')} to build  ·  place a BEDROLL to set your respawn` },
   { id: 'bench', text: () => `Build a WORKBENCH, then press ${k('craft')} beside it to craft` },
   { id: 'threat', text: () => 'Watch the THREAT bar — activity draws a horde to your base' },
+  // Only speaks up once something has actually been hit; until then it is silent.
+  {
+    id: 'repair',
+    text: () => (G.structures.some(isDamaged)
+      ? `A structure is damaged — stand beside it and press ${k('interact')} to repair  ·  or ${k('build')} → REPAIR`
+      : null),
+  },
 ];
 
 export function newGame(seed = 20240917) {
@@ -117,7 +125,7 @@ export function newGame(seed = 20240917) {
   G.raid = null;
   G.raidsDone = 0;
   G.time = 0;
-  G.stats = { kills: 0, looted: 0, built: 0, crafted: 0, deaths: 0, damageDealt: 0 };
+  G.stats = { kills: 0, looted: 0, built: 0, crafted: 0, deaths: 0, damageDealt: 0, repaired: 0 };
   G.tutorial = { step: 0, done: {}, hint: null };
   G.ui = {
     panel: null, buildIndex: 0, buildMode: false, hover: null, mapOpen: false,
@@ -341,9 +349,22 @@ export function findInteractable(p = G.player) {
     } else if (s.type === 'bedroll') {
       bestD = d;
       best = { kind: 'bedroll', ref: s, label: p.spawnStructure === s ? 'Respawn point (active)' : 'Set as respawn point' };
+    } else if (isDamaged(s)) {
+      // A wall, trap, turret or tower has nothing else to say to E, so a
+      // damaged one offers the repair — with the bill, so nobody is surprised.
+      bestD = d;
+      best = { kind: 'repair', ref: s, label: repairLabel(s, p) };
+    }
+    // A piece that already answers E for something else still says it is hurt.
+    if (best && best.ref === s && best.kind !== 'repair' && isDamaged(s)) {
+      best.label += `  ·  ${Math.round((s.hp / s.maxHp) * 100)}% — ${k('build')} to repair`;
     }
   }
   return best;
+}
+
+function repairLabel(s, p) {
+  return `Repair ${s.def.name}  (${Math.round((s.hp / s.maxHp) * 100)}%)  ·  ${costLabel(repairCost(s, p))}`;
 }
 
 /** `p` presses E on `target`. */
@@ -395,6 +416,9 @@ export function beginInteract(p, target) {
       break;
     case 'generator':
       useGenerator(target.ref, p);
+      break;
+    case 'repair':
+      repairStructure(target.ref, p);
       break;
     case 'bedroll': {
       const s = target.ref;
@@ -476,14 +500,32 @@ function updateBuildMode(p) {
 
   if (sel === 'repair' || sel === 'demolish') {
     const s = structAtPx(Input.mouse.wx, Input.mouse.wy);
+    const inReach = !!s && dist2(s.x, s.y, p.x, p.y) < BUILD_RANGE * BUILD_RANGE;
     G.ui.ghost.target = s;
-    G.ui.ghost.valid = !!s && dist2(s.x, s.y, p.x, p.y) < BUILD_RANGE * BUILD_RANGE;
-    if (Input.mousePressed && !overBar && G.ui.ghost.valid) {
-      if (sel === 'repair') act.repair(s);
-      else act.demolish(s);
-    } else if (Input.mousePressed && !overBar) {
-      sfx('deny');
+    G.ui.ghost.valid = inReach;
+    if (sel === 'repair') {
+      // The tool shows the bill for whatever is under the cursor, and the
+      // sweep it could do from here, so the bar can print both.
+      G.ui.ghost.cost = s ? repairCost(s, p) : null;
+      G.ui.ghost.reason = !s ? '' : !inReach ? 'Too far' : !G.ui.ghost.cost ? 'Intact' : '';
+      G.ui.ghost.valid = inReach && !!G.ui.ghost.cost;
+      G.ui.ghost.plan = planRepairAll(p);
+      // Click repairs a piece; holding the button sweeps along a wall, the way
+      // holding it lays one. A held button over an intact piece stays silent.
+      const held = Input.mouseDown && !Input.mousePressed;
+      if (Input.mousePressed && !overBar && G.ui.ghost.valid) {
+        if (act.repair(s) || G.net.role === 'client') completeTutorial('repair');
+        G.ui.placeCd = 0.12;
+      } else if (held && !overBar && G.ui.ghost.valid && (G.ui.placeCd || 0) <= 0) {
+        act.repair(s);
+        G.ui.placeCd = 0.12;
+      } else if (Input.mousePressed && !overBar) {
+        sfx('deny');
+      }
+      return;
     }
+    if (Input.mousePressed && !overBar && inReach) act.demolish(s);
+    else if (Input.mousePressed && !overBar) sfx('deny');
     return;
   }
 
@@ -529,6 +571,8 @@ function updateTutorial(dt) {
     if (G.tutorial.moved > 260) completeTutorial('move');
   }
   if (step.id === 'threat' && G.threat > 25) completeTutorial('threat');
+  // Any repair counts — by hand, by sweep, or by REPAIR ALL from the bar.
+  if (step.id === 'repair' && (G.stats.repaired || 0) > 0) completeTutorial('repair');
 }
 
 // -------------------------------------------------------------- discovery --
@@ -792,6 +836,7 @@ export const api = {
   visibleRecipes, craft, craftStatus, nearWorkbench, upgradeBench, baseCenter,
   spawnEntryPickup, RECIPES,
   grantLoot, rollContainer, spawnPickup, repairStructure, demolishStructure,
+  repairCost, repairAll, planRepairAll, damagedStructures, isDamaged, costLabel, REPAIR_ALL_RANGE,
   killPlayer: (p = G.player, force = false) => killPlayer(p, force),
   killEnemy,
   // Players beyond the first — a second survivor for the test to drive by intent.
