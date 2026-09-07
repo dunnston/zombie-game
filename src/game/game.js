@@ -67,6 +67,7 @@ import { hostAfterUpdate } from '../net/host.js';
 import { updateClient, sendIdleIntent } from '../net/client.js';
 import { emit } from '../net/events.js';
 import { structChanged, netHooks, equippedLight } from './state.js';
+import { makeNoise, NOISE } from './noise.js';
 import { updateFX, clearFX } from '../core/particles.js';
 import * as FX from '../core/particles.js';
 // Only UI keys are read here — panels, build mode, pause. Everything the
@@ -936,7 +937,7 @@ export const api = {
   startRaid, addXp, addRes, countRes, dangerAtPx, solidPx, shake,
   findInteractable, placeStructure, canPlace, spawnEnemy, forceEndRaid,
   visibleRecipes, craft, craftStatus, nearWorkbench, upgradeBench, baseCenter,
-  spawnEntryPickup, RECIPES,
+  spawnEntryPickup, RECIPES, makeNoise, NOISE,
   stashDepositAll, stashWithdrawAmmo, depositAll, withdrawSupplies, openStructure,
   grantLoot, rollContainer, spawnPickup, repairStructure, demolishStructure,
   repairCost, repairAll, planRepairAll, damagedStructures, isDamaged, costLabel, REPAIR_ALL_RANGE,

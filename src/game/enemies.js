@@ -241,7 +241,8 @@ export function updateEnemies(dt) {
     const survivorInReach = victim &&
       victimD < (e.def.atkRange + SURVIVOR_R) * (e.def.atkRange + SURVIVOR_R);
 
-    if (p && (e.aggro || dPlayer2 < senseR * senseR)) {
+    const senses = p && dPlayer2 < senseR * senseR;
+    if (p && (e.aggro || senses)) {
       // Sight check stops enemies tracking you through solid buildings.
       if (e.aggro || dPlayer2 < 120 * 120 || hasLineOfSight(e.x, e.y, p.x, p.y)) {
         e.aggro = true;
@@ -249,6 +250,13 @@ export function updateEnemies(dt) {
       }
     }
     if (!p) e.aggro = false;
+    // Aggro expires. It never did: it was set once and cleared only when every
+    // player was dead, so anything that had ever noticed anybody walked at the
+    // nearest player for the rest of its life — and the `e.noiseX` branch
+    // below, which is the entire "sound attracts zombies" mechanic, could not
+    // be reached while a single player was alive. Losing you does not make
+    // them peaceful; it makes them investigate, which is what a noise is for.
+    else if (e.aggro && !senses && e.alertT <= 0 && !e.raid) e.aggro = false;
 
     if (e.raid && G.raid) {
       // Raiders push for the base, but will happily eat the player en route.
@@ -258,8 +266,13 @@ export function updateEnemies(dt) {
       else { tx = G.raid.cx; ty = G.raid.cy; }
     } else if (e.aggro && p) {
       tx = p.x; ty = p.y; targetIsPlayer = true;
-    } else if (e.alertT > 0 && e.noiseX) {
+    } else if (e.alertT > 0 && e.noiseX !== undefined && e.noiseX !== null) {
+      // Something made a sound over there. `!== undefined` rather than a
+      // truthiness test, or a noise at exactly x=0 would be ignored.
       tx = e.noiseX; ty = e.noiseY;
+      // Arriving is the end of it: standing on the spot forever is how a
+      // horde ends up milling around a wall (invariant 8, give-up logic).
+      if (dist2(e.x, e.y, tx, ty) < 48 * 48) { e.alertT = 0; e.noiseX = null; }
     } else {
       // Idle shamble.
       e.wanderT -= dt;

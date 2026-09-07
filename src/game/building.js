@@ -10,6 +10,7 @@ import {
 import { isBlockedTile } from './world.js';
 import { ITEMS, slotsEntries, packAllowance, makeSlots, firstEmpty, slotsWeight } from './items.js';
 import { stashOrDrop } from './loot.js';
+import { makeNoise, NOISE } from './noise.js';
 import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
 import { addThreat } from './threat.js';
@@ -163,6 +164,9 @@ export function placeStructure(type, tx, ty, p = G.player) {
   FX.debris(s.x, s.y, 8, '#9a8256');
   FX.ring(s.x, s.y, 4, 26, 0.3, '#b7e08a', 2);
   addThreat(THREAT.perBuild * def.threat, '', p);
+  // Hammering carries. Threat already said "building draws a horde eventually";
+  // this is the local, immediate half of the same idea.
+  makeNoise(s.x, s.y, NOISE.build, p);
   addXp(p, Math.max(2, Math.round(def.threat * 4 + 3)));
   return s;
 }
@@ -330,6 +334,11 @@ export function updateGenerators(dt) {
     s.running = true;
     s.fuel = Math.max(0, s.fuel - s.def.fuelBurn * dt);
     addThreat(THREAT.generatorPerSec * dt);
+    // A running generator is the loudest thing in a base and was silent to the
+    // AI. Pulsed rather than continuous: a sweep every other second is the
+    // same behaviour at a fraction of the cost.
+    s.noiseT = (s.noiseT || 0) - dt;
+    if (s.noiseT <= 0) { s.noiseT = 2; makeNoise(s.x, s.y, NOISE.generator, baseOwner()); }
     if (s.fuel <= 0) notify('Generator out of fuel', '#d98a4a');
     if (Math.random() < dt * 6) FX.smoke(s.x + 6, s.y - 12, 1, '#5a564e');
   }

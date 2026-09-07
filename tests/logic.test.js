@@ -40,6 +40,7 @@ import {
   migrateLegacy, saveGame, playtimeLabel, INDEX_KEY,
 } from '../src/game/saves.js';
 import { LEGACY_KEY, restoreSlots } from '../src/game/save.js';
+import { makeNoise, NOISE } from '../src/game/noise.js';
 
 /** A localStorage stand-in for the Node tests: the same four calls, in memory. */
 function fakeStorage() {
@@ -1338,6 +1339,63 @@ test('stamina is a stat you can raise, in ceiling and in recovery', () => {
   // has to survive a rebuild rather than being mutated on purchase.
   const again = chopStamCost(recomputeStats(woody));
   assert.equal(again, chopStamCost(woody), 'recomputing is idempotent for the chop cost');
+});
+
+// ------------------------------------------------------------------ noise ---
+
+/** Plants some enemies in G and returns them. */
+function fakeHorde(spots) {
+  G.enemies.length = 0;
+  for (const [x, y] of spots) G.enemies.push({ x, y, dead: false, aggro: false, alertT: 0 });
+  return G.enemies;
+}
+
+test('a sound is heard inside its radius and nowhere else', () => {
+  const horde = fakeHorde([[0, 0], [100, 0], [400, 0], [900, 0]]);
+  const heard = makeNoise(0, 0, 500);
+  assert.equal(heard, 3, 'three inside 500px, one outside');
+  assert.deepEqual(horde.map((e) => e.aggro), [true, true, true, false]);
+  // The destination is the point of the whole thing.
+  assert.equal(horde[0].noiseX, 0);
+  assert.equal(horde[3].noiseX, undefined, 'the one that heard nothing has nowhere to go');
+  G.enemies.length = 0;
+});
+
+test('a noise at the origin is still a noise', () => {
+  // The branch in enemies.js tested `e.noiseX` for truthiness, so a sound at
+  // exactly x = 0 was silently ignored. The map is 10,240px square and the
+  // origin is a real corner of it.
+  fakeHorde([[10, 10]]);
+  makeNoise(0, 200, 500);
+  assert.equal(G.enemies[0].noiseX, 0);
+  assert.notEqual(G.enemies[0].noiseX, undefined);
+  G.enemies.length = 0;
+});
+
+test('being quiet actually makes you quieter, whatever the source', () => {
+  // `noiseMul` is what the Low Profile and Ghost perks buy. It only ever
+  // applied to the player's own gunshot: the copy of this function in
+  // vehicles.js ignored it, so a stealth build's car was exactly as loud.
+  fakeHorde([[300, 0]]);
+  assert.equal(makeNoise(0, 0, 400, { noiseMul: 1 }), 1);
+  fakeHorde([[300, 0]]);
+  assert.equal(makeNoise(0, 0, 400, { noiseMul: 0.5 }), 0, 'half as loud does not reach as far');
+  G.enemies.length = 0;
+});
+
+test('the noise table ranks the way the trade-off needs it to', () => {
+  // Quiet work, louder building, and the base's automated defences loudest of
+  // all — that is the choice an arrow tower exists to offer.
+  assert.ok(NOISE.chop < NOISE.build, 'an axe is quieter than a hammer');
+  assert.ok(NOISE.build < NOISE.generator, 'a running generator carries further');
+  assert.ok(NOISE.generator < NOISE.turret, 'a turret is the loudest thing you own');
+  // And a gun is loud on the same scale, so the numbers are comparable.
+  assert.ok(WEAPONS.pistol.noise > NOISE.build);
+  assert.ok(WEAPONS.rifle.noise > WEAPONS.smg.noise, 'a rifle is louder than an SMG');
+  for (const w of Object.values(WEAPONS)) {
+    if (w.kind !== 'gun') continue;
+    assert.ok(w.noise > 0, `${w.id} is a firearm and must make a sound`);
+  }
 });
 
 // ---------------------------------------------------------------- storage ---

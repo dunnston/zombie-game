@@ -20,6 +20,7 @@ import { propAtTile, removeProp } from './world.js';
 import { spawnPickup } from './loot.js';
 import { addXp } from './progression.js';
 import { emit } from '../net/events.js';
+import { makeNoise, alertEnemies, NOISE } from './noise.js';
 
 const scratch = [];
 
@@ -318,6 +319,9 @@ function chopProp(p, w, dmg) {
   prop.hitAt = G.time;          // renderer reads this; avoids a per-frame prop loop
   FX.debris(prop.x, prop.y, 5, rule.debris);
   sfx('meleeHit');
+  // Work is audible. Felling a tree in the open is a decision now that it
+  // costs stamina; this is the other half of the cost.
+  makeNoise(prop.x, prop.y, NOISE.chop, p);
   if (isLocal(p)) shake(1.2);
 
   if (prop.hp <= 0) {
@@ -383,7 +387,7 @@ export function fireGun(p, w) {
 
   sfx(w.id === 'smg' ? 'smg' : w.id === 'shotgun' ? 'shotgun' : w.id === 'rifle' ? 'rifle' : 'pistol');
   addThreat(THREAT.perGunshot * w.threat, '', p);
-  alertEnemies(p.x, p.y, w.noise * p.noiseMul);
+  makeNoise(p.x, p.y, w.noise, p);
   return true;
 }
 
@@ -431,19 +435,6 @@ export function updateReload(p, dt) {
   if (!w || !held || held.id !== w.id) { p.reloading = null; return; }
   p.reloading.t += dt;
   if (p.reloading.t >= p.reloading.dur) finishReloadStep(p, w);
-}
-
-/** Gunfire pulls nearby wandering enemies toward the sound. */
-export function alertEnemies(x, y, radius) {
-  const r2 = radius * radius;
-  for (const e of G.enemies) {
-    if (e.dead) continue;
-    if (dist2(e.x, e.y, x, y) < r2) {
-      e.aggro = true;
-      e.alertT = 8;
-      e.noiseX = x; e.noiseY = y;
-    }
-  }
 }
 
 // ------------------------------------------------------------------ turrets --
@@ -515,6 +506,9 @@ export function updateTurrets(dt) {
       FX.muzzle(s.x + Math.cos(a) * 20, s.y + Math.sin(a) * 20, a, 0.7);
       sfx('turret');
       addThreat(THREAT.turretPerShot);
+      // A machine gun on a post. It pulls the horde onto itself, which is the
+      // whole trade an arrow tower exists to offer an alternative to.
+      makeNoise(s.x, s.y, NOISE.turret, owner);
     }
   }
 }

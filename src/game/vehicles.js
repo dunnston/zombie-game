@@ -13,6 +13,7 @@ import {
 } from './state.js';
 import { damageEnemy } from './damage.js';
 import { spawnPickup, stashOrDrop } from './loot.js';
+import { makeNoise, NOISE } from './noise.js';
 import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
 import { addXp } from './progression.js';
@@ -154,7 +155,7 @@ export function tryUnlock(p, v) {
     sfx('dryfire');
     FX.text(v.x, v.y - 26, 'PICK SNAPPED', '#c96a5a', 12, -32, 1.0);
     notify('The pick snaps. Something heard that.', '#c96a5a');
-    makeNoise(v.x, v.y, 260);
+    makeNoise(v.x, v.y, NOISE.pickSnap, p);
     addThreat(0.6, '', p);
     return false;
   }
@@ -177,7 +178,7 @@ export function finishHotwire(p, v) {
   sfx('levelUp');
   FX.ring(v.x, v.y, 8, 70, 0.5, '#d0c46a', 3);
   notify('Engine catches. Loud, but it runs.', '#b7e08a', true);
-  makeNoise(v.x, v.y, 420);
+  makeNoise(v.x, v.y, NOISE.engine, p);
   addThreat(2, '', p);
   addXp(p, 45);
 }
@@ -305,7 +306,7 @@ function driveCar(v, dt, input, p) {
       if (local) shake(clamp(impact * 0.02, 2, 8));
       sfx('structureHit');
       FX.debris(v.x + Math.cos(v.angle) * 20, v.y + Math.sin(v.angle) * 20, 8, '#9aa2ab');
-      makeNoise(v.x, v.y, 380);
+      makeNoise(v.x, v.y, NOISE.crash, p);
     }
     v.speed *= -0.15;
   }
@@ -342,23 +343,10 @@ function driveCar(v, dt, input, p) {
     v.noiseT = (v.noiseT || 0) - dt;
     if (v.noiseT <= 0) {
       v.noiseT = 0.5;
-      makeNoise(v.x, v.y, CAR.noiseRadius * (Math.abs(v.speed) / CAR.maxSpeed));
+      makeNoise(v.x, v.y, CAR.noiseRadius * (Math.abs(v.speed) / CAR.maxSpeed), p);
     }
     if (Math.random() < dt * 12) {
       FX.smoke(v.x - Math.cos(v.angle) * 22, v.y - Math.sin(v.angle) * 22, 1, '#6a6a62');
-    }
-  }
-}
-
-/** Gunfire-style alert, reused for engines, crashes and snapped picks. */
-function makeNoise(x, y, radius) {
-  const r2 = radius * radius;
-  for (const e of G.enemies) {
-    if (e.dead) continue;
-    if (dist2(e.x, e.y, x, y) < r2) {
-      e.aggro = true;
-      e.alertT = 8;
-      e.noiseX = x; e.noiseY = y;
     }
   }
 }
