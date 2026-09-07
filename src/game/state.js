@@ -21,7 +21,11 @@ export const G = {
   // but a v9 save replayed against this generator would fell the wrong props
   // and could regrow a tree inside a wall the player had built. See invariant
   // 7 — content changes invalidate saves, and the version is how we say so.
-  version: 10,
+  //
+  // 11, for the same reason again: the litter pass got a quarter of its old
+  // odds, so every rng draw after it lands differently and the props a v10
+  // save's `chopped` keys refer to are not the props this generator makes.
+  version: 11,
   world: null,
   // Every survivor in the world who is a person at a keyboard. In solo this
   // holds exactly one. `G.player` below is an alias for the *local* one, so the

@@ -171,6 +171,21 @@ const NEEDS_HINT = {
   scythe: 'That thicket needs a SCYTHE — small bushes you can pull by hand',
 };
 
+/**
+ * How much harder than a punch this weapon hits scenery. Heavy blunt weapons
+ * are better at breaking things, a tool is built for it, and the tool made for
+ * *this* material is better again.
+ *
+ * Exported because the shape of the whole gathering tier is "how many swings
+ * is a tree", and a test that re-derived this formula would keep passing while
+ * the formula moved underneath it.
+ */
+export function chopMultiplier(w, p, rule) {
+  const boosted = !!(rule && rule.boost && w[rule.boost]);
+  const base = w.chopMul || (w.id === 'sledge' ? 1.6 : w.id === 'machete' ? 1.3 : 1);
+  return base * (boosted ? 1.6 : 1) * p.chopMul;
+}
+
 /** Drops `n` of a resource at a spot in a few piles, so it is readable on the ground. */
 function dropRes(x, y, id, n) {
   const piles = Math.min(4, Math.ceil(n / 3));
@@ -206,12 +221,8 @@ function chopProp(p, w, dmg) {
     notify('Keep swinging — scenery breaks into materials. A hatchet is craftable by hand', '#a3763f', true);
   }
 
-  // Heavy blunt weapons are better at breaking things; a tool is built for it,
-  // and the tool made for *this* material is better again.
   const boosted = !!(rule.boost && w[rule.boost]);
-  const chopMul = (w.chopMul || (w.id === 'sledge' ? 1.6 : w.id === 'machete' ? 1.3 : 1))
-    * (boosted ? 1.6 : 1) * p.chopMul;
-  prop.hp -= dmg * chopMul;
+  prop.hp -= dmg * chopMultiplier(w, p, rule);
   prop.hitAt = G.time;          // renderer reads this; avoids a per-frame prop loop
   FX.debris(prop.x, prop.y, 5, rule.debris);
   sfx('meleeHit');

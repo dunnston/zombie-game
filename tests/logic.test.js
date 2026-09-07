@@ -10,7 +10,7 @@ import {
   bagWeight, xpForLevel, raidSpec, GEAR, GEAR_SLOTS, MAX_GEAR_DR,
 } from '../src/game/config.js';
 import { createWorld, isBlockedTile, dangerAtPx, locationAtPx, propAtTile, removeProp } from '../src/game/world.js';
-import { HARVEST } from '../src/game/combat.js';
+import { HARVEST, chopMultiplier } from '../src/game/combat.js';
 import {
   ATTRS, ATTR_IDS, ATTR_MAX, ATTR_START, PERKS, perksFor, perkStatus,
   canRaiseAttr, recomputeStats, startingAttrs,
@@ -976,9 +976,62 @@ test('the small scenery is never gated, and the big scenery always is', () => {
   const byId = Object.fromEntries(RECIPES.map((r) => [r.id, r]));
   for (const rule of Object.values(HARVEST)) {
     if (!rule.needs) continue;
-    const tool = Object.values(WEAPONS).find((wp) => wp[rule.needs]);
-    assert.ok(tool, `nothing has the '${rule.needs}' flag`);
-    assert.equal(byId[tool.id].bench, 0, `${tool.id} must be craftable by hand`);
+    const tools = Object.values(WEAPONS).filter((wp) => wp[rule.needs]);
+    assert.ok(tools.length, `nothing has the '${rule.needs}' flag`);
+    // At least one, not the first one found: the metal tier carries the same
+    // flags, and a gate is only open from the start if a *bench-0* tool has it.
+    assert.ok(tools.some((wp) => byId[wp.id] && byId[wp.id].bench === 0),
+      `every '${rule.needs}' tool needs a workbench, and the workbench needs wood`);
+  }
+});
+
+test('a tree and a boulder are a job, and the metal tier halves it', () => {
+  // The owner's note: "it is way too easy to mine trees and boulders". It was
+  // literally one swing for a tree (70hp against 72 a swing), which made the
+  // whole wood tier free and left the pickaxe with nothing to prove.
+  const w = createWorld(20240917);
+  const p = recomputeStats(fakePlayer());
+  const swings = (prop, weapon) => {
+    const rule = HARVEST[prop.harvest];
+    return Math.ceil(prop.hp / (weapon.dmg * p.meleeMul * chopMultiplier(weapon, p, rule)));
+  };
+  const find = (kind) => [...w.propGrid.values()].find((q) => q.kind === kind);
+  const tree = find('tree'), boulder = find('boulder'), thicket = find('thicket');
+
+  const treeStone = swings(tree, WEAPONS.axe);
+  const boulderStone = swings(boulder, WEAPONS.pick);
+  assert.ok(treeStone >= 5 && treeStone <= 9, `${treeStone} Hatchet swings to fell a tree — should be 5–9`);
+  assert.ok(boulderStone >= 5 && boulderStone <= 9, `${boulderStone} Stone Pickaxe swings for a boulder — should be 5–9`);
+
+  // The metal tier is the reason to keep scavenging scrap: same yield, about
+  // half the time. Compare seconds, not swings — the metal tools swing faster.
+  const secs = (prop, weapon) => swings(prop, weapon) * weapon.cd;
+  const treeGain = secs(tree, WEAPONS.axe) / secs(tree, WEAPONS.fireaxe);
+  const rockGain = secs(boulder, WEAPONS.pick) / secs(boulder, WEAPONS.steelpick);
+  assert.ok(treeGain >= 1.7, `the Fire Axe is only ${treeGain.toFixed(2)}x the Hatchet on a tree`);
+  assert.ok(rockGain >= 1.7, `the Steel Pickaxe is only ${rockGain.toFixed(2)}x the Stone one on a boulder`);
+
+  // Thickets are deliberately left where they were — see tasks/todo.md. Fiber
+  // is what the litter cut took most of, and there is no metal scythe yet.
+  assert.ok(swings(thicket, WEAPONS.scythe) <= 3, 'a thicket should still be quick');
+});
+
+test('the metal tools upgrade the stone ones without replacing the opening', () => {
+  const byId = Object.fromEntries(RECIPES.map((r) => [r.id, r]));
+  for (const [metal, stone, flag] of [['fireaxe', 'axe', 'axe'], ['steelpick', 'pick', 'pick']]) {
+    const m = WEAPONS[metal], s = WEAPONS[stone], r = byId[metal];
+    assert.ok(m && r, `${metal} needs a weapon and a recipe`);
+    assert.ok(m[flag] && m.tool, `${metal} must carry the '${flag}' gate and read as a tool`);
+    assert.equal(r.bench, 1, `${metal} belongs at the workbench, not on the second bench or in your hands`);
+    assert.ok(m.chopMul > s.chopMul, `${metal} should out-chop the ${stone}`);
+    assert.ok(m.dmg < WEAPONS.machete.dmg, `${metal} is a tool, not the best weapon in the game`);
+    // Same yield: the upgrade buys back time, it does not inflate the economy.
+    assert.equal(m.toolMul || 1, s.toolMul || 1, `${metal} must not out-yield the ${stone}`);
+    // Made of things a workbench-owner has, never of the raw stuff that would
+    // let it skip the stone tier entirely.
+    for (const c of Object.keys(r.cost)) {
+      assert.ok(!['sticks', 'fiber'].includes(c), `${metal} costs ${c}, which would make the stone tier skippable`);
+    }
   }
 });
 
@@ -1018,10 +1071,9 @@ test('there is something to pick up where the player wakes up', () => {
     }
     return n;
   };
-  assert.ok(within(6) >= 5, `only ${within(6)} things to gather within six tiles of the camp`);
-  assert.ok(within(15) >= 40, `only ${within(15)} within fifteen tiles`);
-
-  // Enough of each kind to actually make the first tool (3 sticks, 3 stone, 4 fiber).
+  // Enough of each kind to actually make the first tool (3 sticks, 3 stone, 4
+  // fiber) — the real gate, and the one that must hold with room to spare.
+  // Counting `min` yields only, so this is the worst roll of every pickup.
   const got = { sticks: 0, stone: 0, fiber: 0 };
   for (let y = Math.floor(cy - 15); y <= cy + 15; y++) {
     for (let x = Math.floor(cx - 15); x <= cx + 15; x++) {
@@ -1033,15 +1085,28 @@ test('there is something to pick up where the player wakes up', () => {
   }
   const axe = RECIPES.find((r) => r.id === 'axe');
   for (const [id, need] of Object.entries(axe.cost)) {
-    assert.ok(got[id] >= need,
-      `only ${got[id]} ${id} within fifteen tiles of the camp, and a Hatchet needs ${need}`);
+    assert.ok(got[id] >= need * 2,
+      `only ${got[id]} ${id} within fifteen tiles of the camp, and a Hatchet needs ${need} — the opening should not be a search`);
   }
+
+  // Coarse proxies for "you trip over something". These were 5 and 40 when the
+  // map carried ~14,800 pieces of litter; that was the version the owner called
+  // a carpet of sticks, so the thresholds came down with the density. The
+  // material check above is what actually protects the first ten minutes.
+  assert.ok(within(6) >= 2, `only ${within(6)} things to gather within six tiles of the camp`);
+  assert.ok(within(15) >= 25, `only ${within(15)} within fifteen tiles`);
 });
 
 test('hand-gathered litter never blocks the ground it lies on', () => {
   const w = createWorld(20240917);
   const litter = [...w.propGrid.values()].filter((p) => p.kind === 'litter');
-  assert.ok(litter.length > 2000, `only ${litter.length} pieces of litter on a 320-tile map`);
+  // A budget with a ceiling, not just a floor. The first version of the litter
+  // pass shipped ~14,800 pieces and the owner's note was "WAY too many sticks,
+  // stones and fiber on the map" — the ground read as a carpet. Too little and
+  // the opening stalls; too much and gathering is not a decision. Both ends
+  // are the assertion.
+  assert.ok(litter.length > 2500 && litter.length < 6000,
+    `${litter.length} pieces of litter on a 320-tile map — the budget is 2,500–6,000`);
   assert.ok(litter.every((p) => !p.solid), 'litter must not be solid');
   assert.ok(litter.every((p) => !isBlockedTile(w, p.tx, p.ty)), 'litter must not block its tile');
 });
@@ -1157,8 +1222,8 @@ test('the world layout is pinned to the save version', () => {
   }
   mix(w.vehicleSpawns.length);
 
-  const FINGERPRINT = 'df706f76';
-  const SAVE_VERSION = 10;
+  const FINGERPRINT = 'a62c50c2';
+  const SAVE_VERSION = 11;
   assert.equal((h >>> 0).toString(16), FINGERPRINT,
     `world generation changed. If that was deliberate, bump G.version (now ${G.version}) and this fingerprint together`);
   assert.equal(G.version, SAVE_VERSION,

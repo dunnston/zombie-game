@@ -785,9 +785,17 @@ function drawWeapon(ctx, w, p) {
     // The tools read by their heads: an axe's is off to one side, a pickaxe's
     // lies across the haft, a hammer's is a block, a knife has no haft at all.
     else if (w.id === 'axe') { ctx.fillStyle = '#6b4e2e'; ctx.fillRect(5, -1.4, 16, 2.8); ctx.fillStyle = '#b9b3a6'; ctx.fillRect(17, -5, 6, 9); }
-    else if (w.id === 'pick') {
+    // The metal pair read as their stone version with a longer haft and a
+    // bigger head — the fire axe by its red handle, the steel pick by its size.
+    else if (w.id === 'fireaxe') {
+      ctx.fillStyle = w.color; ctx.fillRect(5, -1.5, 19, 3);
+      ctx.fillStyle = '#cfd6dd'; ctx.fillRect(20, -6.5, 7, 11); ctx.fillRect(19, -3, 2, 6);
+    } else if (w.id === 'pick') {
       ctx.fillStyle = '#6b4e2e'; ctx.fillRect(5, -1.4, 14, 2.8);
       ctx.fillStyle = w.color; ctx.fillRect(16, -7, 3, 14); ctx.fillRect(19, -1.3, 4, 2.6);
+    } else if (w.id === 'steelpick') {
+      ctx.fillStyle = '#4a3a2a'; ctx.fillRect(5, -1.6, 17, 3.2);
+      ctx.fillStyle = w.color; ctx.fillRect(19, -9, 3.4, 18); ctx.fillRect(22, -1.5, 5, 3);
     } else if (w.id === 'hammer') {
       ctx.fillStyle = '#6b4e2e'; ctx.fillRect(5, -1.4, 12, 2.8);
       ctx.fillStyle = w.color; ctx.fillRect(15, -5, 7, 10);

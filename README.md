@@ -149,18 +149,19 @@ none of which needs a workbench (press the craft key anywhere):
 
 **Sticks, stone and fiber are lying on the ground.** Walk up to them and press
 `E` — no tool, no swinging. Bushes and rocks work the same way. Six or seven
-pickups is enough for your first Hatchet, and there is litter within a few
-paces of where you wake up.
+pickups is enough for your first Hatchet, and there is litter within a short
+walk of where you wake up. It is scattered, not carpeted: enough to start on,
+not enough to stop looking.
 
 Everything you can gather comes in two sizes. The small version you can work
-with your hands; the big one needs the right tool and is worth about three
-times as much:
+with your hands; the big one needs the right tool, is worth about three times
+as much, and takes real time to break:
 
-| Material | Bare hands | With the tool | Tool |
-| --- | --- | --- | --- |
-| **Wood** | — | **Tree** — 6–11 wood and sticks | **Hatchet** |
-| **Stone** | Rock — 2–4 | **Boulder** — 9–16 | **Stone Pickaxe** |
-| **Fiber** | Bush — 2–4 and sticks | **Thicket** — 9–15 and sticks | **Scythe** |
+| Material | Bare hands | With the tool | Tool | Swings |
+| --- | --- | --- | --- | --- |
+| **Wood** | — | **Tree** — 6–11 wood and sticks | **Hatchet** | 6 |
+| **Stone** | Rock — 2–4 | **Boulder** — 9–16 | **Stone Pickaxe** | 6 |
+| **Fiber** | Bush — 2–4 and sticks | **Thicket** — 9–15 and sticks | **Scythe** | 2 |
 
 Two more tools don't harvest anything:
 
@@ -176,6 +177,12 @@ stopping for. Stone alone will raise a **Stone Wall**, so a perimeter can go up
 before you own anything metal. Boulders block your line of fire; thickets don't,
 so you can fight from inside one. Hatchets also turn up in toolboxes and on
 tool racks if you would rather loot one.
+
+**The metal tier.** Once you have a workbench, scrap and weapon parts buy the
+**Fire Axe** and the **Steel Pickaxe**. They yield exactly what the stone
+versions do — what you are buying is time. A tree drops in three swings instead
+of six, a boulder in three instead of six, and the Strength perk **Demolisher**
+halves it again on top. A fire axe occasionally turns up on a tool rack.
 
 The river is solid to feet and transparent to bullets: you can shoot across it,
 and so can your turrets, but the only ways over are the two bridges. Farm
@@ -293,7 +300,8 @@ districts.
 ### Crafting
 
 Instant. The resource cost is the whole cost. Bandages are hand-craftable;
-Workbench I unlocks the machete, pistol, ammo, medkits and a padded vest;
+Workbench I unlocks the machete, pistol, ammo, medkits, a padded vest and the
+metal tool tier (Fire Axe, Steel Pickaxe);
 Workbench II unlocks the sledgehammer, SMG, shotgun, rifle, riot armour and the
 military carbine.
 

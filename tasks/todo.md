@@ -1,6 +1,58 @@
 # tasks/todo.md
 
-## Current round — the map expansion
+## Current round — mining balance and the metal tool tier
+
+Owner, 2026-09-07: "There are WAY too many sticks, stones and fiber on the map
+right now. Also it is way too easy to mine trees and boulders. We need to make
+this take a little longer with the basic axe and pickaxe. This will give a
+reason to upgrade later."
+
+Measured before touching anything: **14,847 pieces of ground litter** (~41,000
+units of free material), a tree fell in **one** hatchet swing (70hp vs 72 per
+swing) and a boulder in **three**. So the complaint is exactly right, and the
+tree number is a bug-shaped balance figure rather than a soft one.
+
+Owner chose, when asked: add the metal tier in this round (there is nothing to
+upgrade to otherwise), and cut litter to about a quarter.
+
+- [x] Litter down to ~a quarter: grass/dirt 0.30 → 0.08, gravel/sand/field
+      0.22 → 0.055, tarmac 0.10 → 0.02. **14,847 → 4,246 pieces**, ~41,000 →
+      ~11,800 units of free material
+- [x] Tree 70hp → 470: **six** hatchet swings (3.12s) instead of one
+- [x] Boulder 150hp → 380: **six** stone-pickaxe swings (3.72s) instead of three
+- [x] Thickets and the Scythe left alone — see the note below
+- [x] **Fire Axe** and **Steel Pickaxe**, bench 1, from wood/scrap/parts: three
+      swings each (1.38s, 1.68s), identical yields — the upgrade buys back time
+- [x] Renderer branches for both; Fire Axe on the tool rack at w:3
+- [x] Save → v11, fingerprint `df706f76` → `a62c50c2`, moved together
+- [x] `chopMultiplier()` exported so the swing-count test calls the real formula
+- [x] Node tests: swing counts, the metal tier's shape, a litter budget with a
+      **ceiling** as well as a floor
+- [x] README and PROJECT.md (§3, §4, §6, §7, §9, §11), `tasks/lessons.md`
+
+### Review notes
+
+`npm test` 96/96. The browser suite and the raid harness were **not** run: no
+UI, render-loop or shared-helper code changed except two `drawWeapon()` branches
+for the new tools, and nothing in combat, raids, structures or enemies moved.
+
+**Not verified by running the game.** The two new tool sprites have never been
+drawn on screen, and the two new recipes have never been seen in the craft
+panel. That is the one gap in this round, and §8's first lesson is about
+exactly this class of miss.
+
+**The camp proxies moved.** `within(6) >= 5` and `within(15) >= 40` now measure
+3 and 34, so they came down to 2 and 25. The assertion that actually protects
+the opening was tightened instead: **twice** a Hatchet's cost must be reachable
+within fifteen tiles on worst-case rolls. It measures 26 sticks / 11 stone / 20
+fiber against a cost of 3 / 3 / 4.
+
+**Why thickets are untouched.** Slowing every gated source would need a third
+metal tool nobody asked for. Fiber is the material the litter cut hits hardest
+and thickets are the rarest big source (194 on the map), so leaving them at two
+scythe swings is the pressure valve. A metal scythe is the obvious follow-up.
+
+## Previous round — the map expansion
 
 Owner, 2026-09-06: "I want to make the current map a lot bigger. I want to add
 a more rural area, a city area, a forest area, maybe a river and a pond."
