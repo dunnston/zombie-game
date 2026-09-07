@@ -19,6 +19,17 @@ for %%B in (
 if not defined BASH (
   for /f "delims=" %%B in ('where bash.exe 2^>nul') do if not defined BASH set "BASH=%%B"
 )
+rem Git installed to a non-default location (e.g. a custom drive) puts git.exe
+rem on PATH without bash.exe alongside it. Derive the install root from git.exe
+rem instead: it's normally <root>\cmd\git.exe, with bash.exe at <root>\bin.
+if not defined BASH (
+  for /f "delims=" %%G in ('where git.exe 2^>nul') do if not defined BASH (
+    set "GITROOT=%%~dpG"
+    set "GITROOT=!GITROOT:~0,-1!"
+    for %%R in ("!GITROOT!") do set "GITROOT=%%~dpR"
+    if exist "!GITROOT!bin\bash.exe" set "BASH=!GITROOT!bin\bash.exe"
+  )
+)
 if not defined BASH (
   echo.
   echo   Git Bash was not found.
