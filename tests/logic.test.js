@@ -10,7 +10,7 @@ import {
   bagWeight, xpForLevel, raidSpec, GEAR, GEAR_SLOTS, MAX_GEAR_DR,
 } from '../src/game/config.js';
 import { createWorld, isBlockedTile, dangerAtPx, locationAtPx, propAtTile, removeProp } from '../src/game/world.js';
-import { HARVEST, chopMultiplier } from '../src/game/combat.js';
+import { HARVEST, chopMultiplier, chopStamCost, canChop } from '../src/game/combat.js';
 import {
   ATTRS, ATTR_IDS, ATTR_MAX, ATTR_START, PERKS, perksFor, perkStatus,
   canRaiseAttr, recomputeStats, startingAttrs,
@@ -1105,8 +1105,13 @@ test('hand-gathered litter never blocks the ground it lies on', () => {
   // stones and fiber on the map" — the ground read as a carpet. Too little and
   // the opening stalls; too much and gathering is not a decision. Both ends
   // are the assertion.
-  assert.ok(litter.length > 2500 && litter.length < 6000,
-    `${litter.length} pieces of litter on a 320-tile map — the budget is 2,500–6,000`);
+  //
+  // Cut a second time on 2026-09-07 (~4,250 -> ~2,370) after the owner said
+  // there was still too much. The floor could come down this far only because
+  // the opening is now protected directly by the starter cache in world.js
+  // rather than by hoping the map-wide odds land near the camp.
+  assert.ok(litter.length > 1800 && litter.length < 3200,
+    `${litter.length} pieces of litter on a 320-tile map — the budget is 1,800–3,200`);
   assert.ok(litter.every((p) => !p.solid), 'litter must not be solid');
   assert.ok(litter.every((p) => !isBlockedTile(w, p.tx, p.ty)), 'litter must not block its tile');
 });
@@ -1222,8 +1227,11 @@ test('the world layout is pinned to the save version', () => {
   }
   mix(w.vehicleSpawns.length);
 
-  const FINGERPRINT = 'a62c50c2';
-  const SAVE_VERSION = 11;
+  // Measured on the 2026-09-07 litter cut: containers, vehicles, tiles and
+  // every non-litter prop came out byte-identical, so only the litter (and the
+  // purely cosmetic reeds, which hold no tile) actually moved.
+  const FINGERPRINT = 'cd427428';
+  const SAVE_VERSION = 12;
   assert.equal((h >>> 0).toString(16), FINGERPRINT,
     `world generation changed. If that was deliberate, bump G.version (now ${G.version}) and this fingerprint together`);
   assert.equal(G.version, SAVE_VERSION,
@@ -1246,6 +1254,78 @@ test('player tuning keeps the fantasy intact', () => {
   assert.ok(ENEMIES.runner.speed > PLAYER.speed * 0.6, 'runners still need to be scary');
   assert.ok(PLAYER.respawnTime <= 5, 'death should not mean waiting around');
   assert.ok(PLAYER.searchTime < 2, 'looting must stay snappy');
+});
+
+// ---------------------------------------------------------------- stamina ---
+
+/** A fresh character with real derived stats, as recomputeStats builds them. */
+function freshStats() {
+  return recomputeStats({ attrs: startingAttrs(), perks: {}, hp: 100, stam: 0, equip: null });
+}
+
+test('a full bar is about three trees, and then a breather', () => {
+  // The owner, after playing the tool tier: "Chopping should use significantly
+  // more stamina. After chopping should have to wait a bit before the next
+  // trees. Can maybe chop like 3 before having to wait for stamina to refill."
+  //
+  // Before this round a swing cost a flat 4, never set `stamLock`, and was
+  // repaid in 0.2s at 20/s regen — so felling a 470hp tree was free.
+  const p = freshStats();
+  p.stam = p.maxStam;
+  const axe = WEAPONS.axe;
+  const perSwing = axe.dmg * p.meleeMul * chopMultiplier(axe, p, HARVEST.wood);
+  const swingsPerTree = Math.ceil(470 / perSwing);
+  const trees = p.maxStam / (swingsPerTree * chopStamCost(p));
+
+  assert.equal(swingsPerTree, 6, `a tree is ${swingsPerTree} hatchet swings at starting stats`);
+  assert.ok(trees >= 2.5 && trees < 4,
+    `a full bar is ${trees.toFixed(2)} trees — the ask was about three`);
+
+  // And the breather is a real pause, not a blink.
+  const refill = PLAYER.stamChopDelay + p.maxStam / p.stamRegen;
+  assert.ok(refill > 4 && refill < 12, `${refill.toFixed(1)}s to get back to full`);
+});
+
+test('work is gated by stamina and fighting never is', () => {
+  const p = freshStats();
+  p.stam = 0;
+  assert.equal(canChop(p), false, 'an empty bar cannot harvest');
+  p.stam = chopStamCost(p);
+  assert.equal(canChop(p), true, 'exactly one swing left is still a swing');
+
+  // Fighting must never be refused: being winded may stop you working, but it
+  // must not leave you unable to defend yourself.
+  assert.ok(PLAYER.stamSwing < PLAYER.stamChop,
+    'a combat swing has to be cheaper than a harvest swing');
+  assert.ok(PLAYER.stamSwing * 20 < PLAYER.maxStam,
+    'a fight must not be able to empty the bar in a few swings');
+});
+
+test('the metal tier buys endurance as well as time', () => {
+  const p = freshStats();
+  const swings = (w) => Math.ceil(470 / (w.dmg * p.meleeMul * chopMultiplier(w, p, HARVEST.wood)));
+  const stone = swings(WEAPONS.axe) * chopStamCost(p);
+  const metal = swings(WEAPONS.fireaxe) * chopStamCost(p);
+  assert.ok(metal < stone, `a Fire Axe fells a tree for ${metal} stamina against the Hatchet's ${stone}`);
+});
+
+test('stamina is a stat you can raise, in ceiling and in recovery', () => {
+  const base = freshStats();
+
+  const tough = recomputeStats({ attrs: { ...startingAttrs(), con: 8 }, perks: {}, hp: 100, stam: 0, equip: null });
+  assert.ok(tough.maxStam > base.maxStam, 'CON raises the ceiling');
+  assert.ok(tough.stamRegen > base.stamRegen, 'CON raises recovery too — it did not before this round');
+
+  const woody = recomputeStats({
+    attrs: { ...startingAttrs(), con: 5 }, perks: { woodcraft: 2 }, hp: 100, stam: 0, equip: null,
+  });
+  assert.ok(chopStamCost(woody) < chopStamCost(base) * 0.5,
+    'two ranks of Woodcraft roughly halve what a harvest swing costs');
+
+  // recomputeStats is the only source of modifiers (invariant 4), so the cost
+  // has to survive a rebuild rather than being mutated on purchase.
+  const again = chopStamCost(recomputeStats(woody));
+  assert.equal(again, chopStamCost(woody), 'recomputing is idempotent for the chop cost');
 });
 
 // -------------------------------------------------------------- bindings ---

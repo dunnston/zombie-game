@@ -23,6 +23,7 @@ import {
 import { clockString, darkness, phaseAt } from '../game/daynight.js';
 import { drivenCar, trunkLoad, CAR } from '../game/vehicles.js';
 import { threatLabel, threatColor } from '../game/threat.js';
+import { chopStamCost } from '../game/combat.js';
 import { dangerAtPx } from '../game/world.js';
 import { clamp, TAU, clock } from '../core/util.js';
 import { sfx } from '../core/audio.js';
@@ -111,7 +112,9 @@ function drawVitals(ctx, W, H) {
   ctx.fillText(`HP ${Math.ceil(p.hp)} / ${p.maxHp}`, x + 6, y + 12);
 
   // Stamina
-  bar(ctx, x, y + 20, w, 8, p.stam / p.maxStam, p.stam > 12 ? '#6fa8c4' : '#c47a4a');
+  // Fractional, not an absolute 12: with Marathon and high CON the bar tops
+  // out over 300, and an absolute threshold only warned in the last 4%.
+  bar(ctx, x, y + 20, w, 8, p.stam / p.maxStam, p.stam > p.maxStam * 0.15 ? '#6fa8c4' : '#c47a4a');
 
   // XP
   bar(ctx, x, y + 32, w, 10, p.xp / p.xpNext, '#9a7ec4');
@@ -1005,6 +1008,8 @@ function drawStatusTab(ctx, px, py, pw, ph) {
   const stats = [
     ['Max health', Math.round(p.maxHp)],
     ['Max stamina', Math.round(p.maxStam)],
+    ['Stamina recovery', `${p.stamRegen.toFixed(1)}/s`],
+    ['Harvest swing cost', `${chopStamCost(p).toFixed(1)} stam`],
     ['Carry capacity', Math.round(p.carryCap)],
     ['Melee damage', pct(p.meleeMul)],
     ['Firearm damage', pct(p.gunMul)],

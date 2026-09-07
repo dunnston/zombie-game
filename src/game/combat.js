@@ -5,7 +5,7 @@
 // and being able to shoot over your own walls is what makes defending a base
 // fun rather than infuriating.
 
-import { WEAPONS, STRUCTURES, THREAT, TILE, RES } from './config.js';
+import { WEAPONS, STRUCTURES, THREAT, TILE, RES, PLAYER } from './config.js';
 import {
   G, bulletBlocksPx, hasTerrainLineOfSight, notify, shake, takeRes, countRes,
   isLocal, baseOwner, presentPlayers,
@@ -101,23 +101,75 @@ export function updateBullets(dt) {
 
 // -------------------------------------------------------------------- melee --
 
-export function meleeAttack(p, w) {
+/**
+ * What one harvest swing costs in stamina. Exported so the HUD, the tests and
+ * the guest's own prediction all ask the same question rather than three
+ * copies of the arithmetic drifting apart.
+ */
+export const chopStamCost = (p) => PLAYER.stamChop * (p.chopStamMul ?? 1);
+
+/** Enough left to swing at scenery? Fighting never asks this. */
+export const canChop = (p) => p.stam >= chopStamCost(p);
+
+/**
+ * One melee swing. Returns true if the swing happened.
+ *
+ * The stamina rules live here rather than in `updatePlayer` because this is
+ * the only place that knows whether a swing was a fight or a job: the arc is
+ * searched for enemies first, and only an empty arc falls through to the
+ * scenery. A fight costs `stamSwing` and is never refused; a harvest costs
+ * `chopStamCost(p)`, stops recovery for `stamChopDelay`, and IS refused when
+ * the bar is short — which is what makes three trees a decision.
+ */
+/** Everything a swing of `w` would connect with, nearest first. */
+function meleeTargets(p, w) {
   const reach = w.range + p.r;
   const halfArc = w.arc / 2;
   const maxTargets = w.arc > 1.4 ? 6 : 3;
-  const dmg = w.dmg * p.meleeMul * (p.adrenalineActive ? 1.45 : 1);
-
-  p.swing = { t: 0, dur: Math.min(0.26, w.cd * 0.75), angle: p.angle, arc: w.arc, range: reach };
-  sfx('swing');
-
   G.spatial.query(p.x, p.y, reach + 24, scratch);
-  const hits = scratch
+  return scratch
     .filter((e) => !e.dead && dist2(e.x, e.y, p.x, p.y) < (reach + e.def.r) * (reach + e.def.r))
     .filter((e) => Math.abs(angleDelta(p.angle, Math.atan2(e.y - p.y, e.x - p.x))) < halfArc + e.def.r / reach)
     .sort((a, b) => dist2(a.x, a.y, p.x, p.y) - dist2(b.x, b.y, p.x, p.y))
     .slice(0, maxTargets);
+}
+
+/**
+ * Would this swing be turned down for want of puff? Only work is ever
+ * refused, so an enemy in the arc always answers no.
+ *
+ * Exported because a guest predicts its own swing arc locally (see
+ * `predictSwing` in net/client.js) and must ask exactly the question the host
+ * is about to ask, or it plays an animation for a swing that never happens.
+ * `fighting` is passed in when the caller has already done the arc query.
+ */
+export function swingRefused(p, w, fighting = null) {
+  if (fighting === null ? meleeTargets(p, w).length > 0 : fighting) return false;
+  return !canChop(p) && !!propInFront(p, w);
+}
+
+export function meleeAttack(p, w) {
+  const reach = w.range + p.r;
+  const dmg = w.dmg * p.meleeMul * (p.adrenalineActive ? 1.45 : 1);
+  const hits = meleeTargets(p, w);
+
+  // Nothing to fight, something to harvest, and no puff left: refuse before
+  // the animation starts, so a winded player sees why nothing is happening
+  // instead of swinging uselessly at a tree.
+  if (swingRefused(p, w, hits.length > 0)) {
+    if (!p.windedAt || G.time - p.windedAt > 3) {
+      p.windedAt = G.time;
+      if (isLocal(p)) notify('Too winded to swing — catch your breath', '#d9c46a');
+    }
+    sfx('deny');
+    return false;
+  }
+
+  p.swing = { t: 0, dur: Math.min(0.26, w.cd * 0.75), angle: p.angle, arc: w.arc, range: reach };
+  sfx('swing');
 
   if (hits.length) {
+    p.stam = Math.max(0, p.stam - PLAYER.stamSwing);
     sfx('meleeHit');
     if (isLocal(p)) shake(w.shake || 1.6);
     for (const e of hits) {
@@ -129,11 +181,31 @@ export function meleeAttack(p, w) {
     // Brief hitstop makes a heavy swing land hard. It is a feel effect for the
     // person swinging — slowing the whole world for someone else's hit is not.
     if (w.id === 'sledge' && isLocal(p)) G.slowmo = Math.max(G.slowmo, 0.06);
+  } else if (chopProp(p, w, dmg)) {
+    // Only a swing that actually bit into scenery is charged as work. Swinging
+    // at thin air is free, or every miss would be a tax on missing.
+    p.stam = Math.max(0, p.stam - chopStamCost(p));
+    p.stamLock = PLAYER.stamChopDelay;
   } else {
-    // Nothing to fight? Chop whatever scenery is in front of you instead.
-    chopProp(p, w, dmg);
+    p.stam = Math.max(0, p.stam - PLAYER.stamSwing);
   }
-  return hits.length;
+  return true;
+}
+
+/**
+ * The tile a swing would land on, if it holds scenery this weapon could
+ * actually harvest. The tool gate is part of the question: swinging a pipe at
+ * a tree should say "you need a hatchet", not "you are too tired".
+ */
+function propInFront(p, w) {
+  const reach = w.range + p.r;
+  const tx = Math.floor((p.x + Math.cos(p.angle) * reach * 0.7) / TILE);
+  const ty = Math.floor((p.y + Math.sin(p.angle) * reach * 0.7) / TILE);
+  const prop = propAtTile(G.world, tx, ty);
+  if (!prop) return null;
+  const rule = HARVEST[prop.harvest];
+  if (!rule || (rule.needs && !w[rule.needs])) return null;
+  return prop;
 }
 
 /**
@@ -198,6 +270,12 @@ function dropRes(x, y, id, n) {
  * wood supply, and the thing that opens firing lines for turrets. Felling one
  * is a real tactical decision, not just a resource tap.
  */
+/**
+ * Returns true only when the swing actually bit into the scenery. A swing at
+ * nothing, or one that bounced off a tree for want of an axe, returns false —
+ * `meleeAttack` charges those as an ordinary swing rather than as a full day's
+ * work, because neither of them moved any material.
+ */
 function chopProp(p, w, dmg) {
   const reach = w.range + p.r;
   const tx = Math.floor((p.x + Math.cos(p.angle) * reach * 0.7) / TILE);
@@ -214,7 +292,7 @@ function chopProp(p, w, dmg) {
     }
     FX.debris(prop.x, prop.y, 2, '#4a3a22');
     sfx('hitWall');
-    return true;
+    return false;
   }
   if (!G.tutorial.done.chop) {
     G.tutorial.done.chop = true;

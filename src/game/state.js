@@ -25,7 +25,12 @@ export const G = {
   // 11, for the same reason again: the litter pass got a quarter of its old
   // odds, so every rng draw after it lands differently and the props a v10
   // save's `chopped` keys refer to are not the props this generator makes.
-  version: 11,
+  //
+  // 12, twice over. The litter odds moved a third time (and gained a
+  // guaranteed starter cache at the camp), which is the same generator-stream
+  // problem again; and the shared stash stopped being a plain id->count map
+  // and became a slot container, so the shape of the payload changed too.
+  version: 12,
   world: null,
   // Every survivor in the world who is a person at a keyboard. In solo this
   // holds exactly one. `G.player` below is an alias for the *local* one, so the

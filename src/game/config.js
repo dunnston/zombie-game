@@ -799,6 +799,22 @@ export const PLAYER = {
   stamDrain: 26,
   stamRegen: 20,
   stamRegenDelay: 0.65,
+  // Work costs stamina; fighting barely does.
+  //
+  // A harvest swing is the expensive one, and unlike a sprint it also stops
+  // recovery for `stamChopDelay` afterwards — so felling trees is a burst of
+  // effort and then a breather, rather than something you do continuously. At
+  // starting stats (110 max at CON 2) a tree is six hatchet swings, so a full
+  // bar is three trees and then about six and a half seconds of waiting. A
+  // Fire Axe fells in three, so the metal tier now buys back endurance as well
+  // as time.
+  //
+  // A combat swing costs `stamSwing` and locks nothing. Fighting is never
+  // gated: running out of stamina must never leave you unable to defend
+  // yourself, only unable to keep working.
+  stamChop: 6,
+  stamSwing: 2,
+  stamChopDelay: 1.1,
   carryCap: 200,
   // The grid is generous enough that weight is normally what stops you, but
   // finite enough that carrying thirty kinds of thing still has a cost.

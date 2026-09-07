@@ -261,9 +261,11 @@ export function updatePlayer(p, dt) {
 
     if (it.fire && p.attackCd <= 0) {
       if (w.kind === 'melee') {
-        p.attackCd = w.cd;
-        p.stam = Math.max(0, p.stam - 4);
-        meleeAttack(p, w);
+        // meleeAttack owns the stamina rules — it is the only place that knows
+        // whether this swing was a fight or a job. A refused swing (too winded
+        // to harvest) takes a short beat rather than the full cooldown, so the
+        // player is not also punished with dead time for being tired.
+        p.attackCd = meleeAttack(p, w) ? w.cd : 0.3;
       } else {
         if (p.reloading && !p.reloading.shell) {
           // hold fire while a magazine swap finishes

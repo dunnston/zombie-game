@@ -13,7 +13,7 @@ import { movePlayer, createPlayer, currentWeapon } from '../game/player.js';
 import { applySaveData, restorePlayerRecord } from '../game/save.js';
 import { makeStructure } from '../game/building.js';
 import { makeSurvivor } from '../game/survivors.js';
-import { spawnBullet } from '../game/combat.js';
+import { spawnBullet, swingRefused } from '../game/combat.js';
 import { occupyTiles, releaseTiles } from '../game/vehicles.js';
 import { removeProp } from '../game/world.js';
 import { addPlayer } from '../game/state.js';
@@ -354,6 +354,10 @@ function predictSwing(me, dt) {
   }
   const w = currentWeapon(me);
   if (!w || w.kind !== 'melee' || !me.intent.fire || me.attackCd > 0) return;
+  // Work costs stamina and the host refuses a harvest swing you cannot pay
+  // for. Predicting one anyway would draw an arc for a swing that never
+  // happened — the exact stutter this function exists to avoid.
+  if (swingRefused(me, w)) { me.attackCd = 0.3; return; }
   const reach = w.range + me.r;
   me.swing = { t: 0, dur: Math.min(0.26, w.cd * 0.75), angle: me.angle, arc: w.arc, range: reach };
   me.attackCd = w.cd;
