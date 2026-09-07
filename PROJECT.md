@@ -652,7 +652,19 @@ Chromium to a frame or two a second while still reporting itself visible and
 focused; the budget guard then fires "at 1.0fps". Open a fresh tab for each run
 and measure `requestAnimationFrame` for a second before starting.
 
-The suite runs about six minutes. Kick it off asynchronously and poll:
+**Use `npm run smoke`.** It starts a dev server if one is not up, injects the
+suite, checks the page is actually running frames, and fails loudly instead of
+hanging. Do not hand-roll a Playwright script — every half-hour lost to this
+suite has been one of three harness failures (a dev server that had quietly
+died, a backgrounded page throttled to 1fps, a wait with no deadline), and the
+runner catches all three in seconds.
+
+**Run it once per branch, before pushing for review — not after every change.**
+The suite takes about 3.7 minutes; `npm test` takes under a second and covers
+most edits. CLAUDE.md §Verifying has the full table of what to run when.
+
+To drive it by hand instead, it runs about four minutes. Kick it off
+asynchronously and poll:
 
 ```js
 window.__r = null;
