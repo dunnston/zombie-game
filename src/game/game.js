@@ -3,7 +3,7 @@
 
 import {
   TILE, PLAYER, THREAT, STRUCTURES, CAMERA, WEAPONS, RECIPES, GEAR, GEAR_SLOTS, STASH_SLOTS,
-  ARMAMENTS, DEFAULT_ARMAMENT,
+  ARMAMENTS, ARMAMENT_IDS, DEFAULT_ARMAMENT,
 } from './config.js';
 import {
   G, notify, structAtPx, solidPx, shake, addRes, addResCapped, countRes, pointerOverHud,
@@ -60,6 +60,7 @@ import {
   updateSurvivors, updateUpkeep, seedRescues, recruit, reviveSurvivor,
   liveSurvivors, survivorCap, refreshAllSurvivors, makeSurvivor,
   rationsHeld, rationsCarried, JOBS, JOB_IDS, rosterLimits, freeTowers,
+  buyArmament, setTowerArmament, towerArmament, armamentUnlocked,
   assignJob, SCAVENGE, BUILDER, SURVIVOR,
 } from './survivors.js';
 import { cancelDrag, lastZones, isDragging, openStructure } from '../ui/inventory.js';
@@ -979,6 +980,7 @@ export const api = {
   seedRescues, recruit, reviveSurvivor, liveSurvivors, survivorCap,
   refreshAllSurvivors, makeSurvivor, rationsHeld, rationsCarried,
   JOBS, JOB_IDS, rosterLimits, freeTowers, assignJob, SCAVENGE, BUILDER,
+  buyArmament, setTowerArmament, towerArmament, armamentUnlocked, ARMAMENTS, ARMAMENT_IDS,
   clockString, darkness, nightFactors, SURVIVOR,
   quietAt, totalQuietAt, densityMul, suppressed, addQuiet, updatePressure, CELL,
   WEAPONS, STRUCTURES, RECIPES, CAMERA, PLAYER, THREAT,

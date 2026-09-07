@@ -16,11 +16,61 @@
 // not read. These three go through the same API the game does.
 const stashOf = (id) => window.DEADLINE.api.countRes(window.DEADLINE.G.stash, id);
 const addStash = (id, n) => window.DEADLINE.api.addRes(window.DEADLINE.G.stash, id, n);
+
+/**
+ * Makes a recipe affordable. Storage is finite now, so a section that assumed
+ * the stash would take whatever it was given has to say what it needs — the
+ * first run against v12 failed to craft a shotgun four hundred assertions in,
+ * because parts had quietly stopped fitting.
+ */
+const affordRecipe = (r) => {
+  for (const id in r.cost) setStash(id, r.cost[id] * 3);
+};
+
+/**
+ * Waits for something to become true, with a ceiling. Returns whether it did.
+ *
+ * A fixed `await frames(4)` is a guess about how long a thing takes, and it
+ * ages badly: the loopback welcome takes about 16 frames now (measured), so
+ * the four the co-op section waited had quietly become "no welcome ever
+ * arrived" — four separate failures and a crash, none of which were about
+ * co-op. Waiting on the condition is both faster and honest.
+ */
+async function waitUntil(fn, maxFrames = 90) {
+  for (let i = 0; i < maxFrames; i++) {
+    if (fn()) return true;
+    await frames(1);
+  }
+  return !!fn();
+}
+// Bulk the suite is happy to clear out to make room. Ordered least useful
+// first, so freeing space costs the run as little as possible.
+const STASH_BALLAST = [
+  'rations', 'cloth', 'stone', 'sticks', 'fiber', 'wood', 'med', 'elec',
+  'mil', 'fuel', 'battery', 'arrow', 'ammoS', 'ammoR', 'ammoP', 'scrap', 'parts',
+];
+
+/**
+ * Makes the stash hold exactly `n` of `id`.
+ *
+ * "Exactly" is the load-bearing word. The stash is 48 slots since v12 and the
+ * suite fills it over a long run, so a naive add silently under-delivers and
+ * the failure surfaces three sections later as "a watchtower cannot be built"
+ * — which is what happened the first time this suite was run against v12.
+ */
 const setStash = (id, n) => {
   const G = window.DEADLINE.G, api = window.DEADLINE.api;
-  const have = api.countRes(G.stash, id);
-  if (have > n) api.slotsTake(G.stash, id, have - n);
-  else if (have < n) api.addRes(G.stash, id, n - have);
+  api.slotsTake(G.stash, id, api.countRes(G.stash, id));
+  let got = api.addRes(G.stash, id, n);
+  for (const other of STASH_BALLAST) {
+    if (got >= n) break;
+    if (other === id) continue;
+    const have = api.countRes(G.stash, other);
+    if (!have) continue;
+    api.slotsTake(G.stash, other, have);
+    got += api.addRes(G.stash, id, n - got);
+  }
+  return got;
 };
 
 const ok = (name, pass, detail = '') => {
@@ -114,6 +164,16 @@ const ok = (name, pass, detail = '') => {
       const k = localStorage.key(i);
       if (k && k.startsWith('deadline.')) storageBefore[k] = localStorage.getItem(k);
     }
+
+    // Everything below runs inside one try. The suite is a single linear
+    // function, so before this an exception anywhere — a helper returning null
+    // and the next line dereferencing it — threw the whole run away: no
+    // results, no cleanup, and no way to tell one broken section from a
+    // broken build. It now reports what it got, says where it stopped, and
+    // still puts the browser back the way it found it. Same reasoning as the
+    // waits having deadlines: a suite that fails loudly beats one that
+    // vanishes.
+    try {
 
     // ------------------------------------------------- 0. title screen ------
     // The game boots to a menu now. Drive it with real synthetic clicks on the
@@ -215,7 +275,7 @@ const ok = (name, pass, detail = '') => {
       ok('on-screen hints name the key that is actually bound',
         !!G.tutorial.hint && G.tutorial.hint.startsWith('WASL to move'), G.tutorial.hint);
       {
-        stashOf('wood') = stashOf('wood') + 200; stashOf('scrap') = stashOf('scrap') + 200;
+        addStash('wood', 200); addStash('scrap', 200);
         d.binds.rebind('withdraw', 'KeyY');
         const stx = Math.floor(G.player.x / 32), sty = Math.floor(G.player.y / 32);
         // The assertion is about the *prompt*, and findInteractable() returns
@@ -552,8 +612,9 @@ const ok = (name, pass, detail = '') => {
     ok('workbench upgrades to tier II', upgraded && bench.tier === 2, `tier ${bench.tier}`);
     const t2 = api.RECIPES.find((r) => r.id === 'shotgun');
     ok('tier II recipe locked at tier I', !api.craft(t2, 1) || true);
-    api.craft(t2, 2);
-    ok('tier II recipe crafts at tier II', carries('shotgun'), 'shotgun');
+    affordRecipe(t2);
+    ok('tier II recipe crafts at tier II', api.craft(t2, 2) && carries('shotgun'),
+      `shotgun — ${api.craftStatus(t2, 2).reason || 'ok'}`);
 
     // Bedroll sets the respawn point
     const bed = placeNear('bedroll');
@@ -1304,7 +1365,19 @@ const ok = (name, pass, detail = '') => {
       ok('the sniper is posted on the tower', worker.tower === tower);
       ok('a posted sniper shoots much further', worker.shotRange > SURVIVOR_RANGE_BASE,
         `${worker.shotRange}`);
-      ok('a posted sniper hits much harder', worker.shotDmgMul > 1.5, `${worker.shotDmgMul}`);
+      // A tower's damage now depends on what it is ARMED with, and arrows —
+      // the free default — are deliberately weak. The reach comes with the
+      // post; the hitting power is an upgrade you buy. That is the change
+      // the owner asked for ("each of these is an upgrade that costs").
+      ok('a posted sniper on the default armament does not hit harder',
+        worker.shotDmgMul <= 1.1, `${worker.shotDmgMul}`);
+      setStash('scrap', 300); setStash('parts', 40); setStash('mil', 30);
+      ok('the sniper rifle can be bought for the base', api.buyArmament('sniper'));
+      ok('...and set on the tower', api.setTowerArmament(tower, 'sniper'));
+      await frames(4);
+      ok('a posted sniper hits much harder once armed with a rifle',
+        worker.shotDmgMul > 1.5, `${worker.shotDmgMul}`);
+      ok('an armament nobody has bought is refused', !api.setTowerArmament(tower, 'cannon'));
       ok('one tower takes one sniper', api.freeTowers().length === 0);
 
       // Losing the tower demotes them rather than stranding them.
@@ -1707,8 +1780,14 @@ const ok = (name, pass, detail = '') => {
         `${G.pickups.length} spilled`);
       const scrapBefore = stashOf('scrap');
       const carsBefore = G.vehicles.length;
+      // Storage is finite: a full stash sends the salvage to the ground
+      // instead of eating it, which is the rule for every path that used to
+      // write to an infinite pile. Captured BEFORE the salvage, or the
+      // salvage's own pickups would satisfy the assertion on their own.
+      const pickupsBefore = G.pickups.length;
       api.salvageVehicle(ride);
-      ok('a wreck can be stripped for materials', stashOf('scrap') > scrapBefore,
+      ok('a wreck can be stripped for materials',
+        stashOf('scrap') > scrapBefore || G.pickups.length > pickupsBefore,
         `${scrapBefore} -> ${stashOf('scrap')}`);
       ok('stripping removes the wreck', G.vehicles.length === carsBefore - 1);
 
@@ -2446,7 +2525,7 @@ const ok = (name, pass, detail = '') => {
       // A remote player's intent is a packet that stays put until the next one.
       // Holding "E was pressed" as data toggled a gate 17 times in 300ms.
       {
-        stashOf('wood') = stashOf('wood') + 200; stashOf('scrap') = stashOf('scrap') + 200;
+        addStash('wood', 200); addStash('scrap', 200);
         const gtx = Math.floor(p2.x / 32), gty = Math.floor(p2.y / 32);
         let gate = null;
         for (let dx = 2; dx < 7 && !gate; dx++) {
@@ -2543,7 +2622,7 @@ const ok = (name, pass, detail = '') => {
       // No password on this room, so a hello with any hash is let in. The
       // password check itself is exercised further down with one set.
       b.send('reliable', d.net.msg.hello('smoke-guest', 'Bex', null));
-      await frames(4);
+      await waitUntil(() => reliable.some((m) => m.t === 'welcome'));
       const welcome = reliable.find((m) => m.t === 'welcome');
       ok('hello is answered with a welcome carrying the whole world', !!welcome && welcome.world && welcome.world.v === G.version && welcome.world.seed === G.world.seed,
         welcome ? `v${welcome.world.v}, ${Object.keys(welcome.world.players).length} players in the record` : reliable.map((m) => m.t).join(','));
@@ -2559,7 +2638,7 @@ const ok = (name, pass, detail = '') => {
       bStale.onMessage('reliable', (m) => staleSaid.push(m));
       d.net.debugAttachGuest(aStale, 'smoke-stale');
       bStale.send('reliable', { ...d.net.msg.hello('stale-guest', 'Old', null), b: 'notthisbuild' });
-      await frames(4);
+      await waitUntil(() => staleSaid.some((m) => m.t === 'reject'));
       const refused = staleSaid.find((m) => m.t === 'reject');
       ok('a guest on a different build is refused, and told what to run',
         !!refused && /update\.sh/.test(refused.reason || ''),
@@ -2575,16 +2654,24 @@ const ok = (name, pass, detail = '') => {
       guest.x = plotG.x; guest.y = plotG.y; guest.vx = 0; guest.vy = 0;
       const gx0 = guest.x;
       const it = api.makeIntent(); it.mx = 1; it.aimX = guest.x + 200; it.aimY = guest.y;
+      const snapT0 = performance.now();
       for (let i = 0; i < 40; i++) { b.send('state', d.net.msg.intent(i, it)); await frames(1); }
+      const snapSecs = (performance.now() - snapT0) / 1000;
       ok('a guest\'s intent moves their player', guest.x - gx0 > 30, `moved ${Math.round(guest.x - gx0)}px`);
       const snaps = state.filter((m) => m.t === 'snap');
-      ok('snapshots arrive at about twenty a second', snaps.length >= 10 && snaps.length <= 16, `${snaps.length} in 40 frames`);
+      // Per SECOND, not per frame. Counting snapshots against forty frames was
+      // really measuring the frame rate: the same healthy 20Hz host failed the
+      // assertion at 42fps and passed it at 60, which says nothing about the
+      // wire and everything about how busy the tab was.
+      const snapRate = snaps.length / snapSecs;
+      ok('snapshots arrive at about twenty a second', snapRate >= 14 && snapRate <= 26,
+        `${snapRate.toFixed(1)}/s (${snaps.length} in ${snapSecs.toFixed(2)}s)`);
       const last = snaps[snaps.length - 1];
       ok('a snapshot carries every player and only nearby enemies', !!last && last.pl.length === G.players.length && Array.isArray(last.en) && Array.isArray(last.bp),
         last ? Object.keys(last).join(',') : 'none');
 
       // A command is validated and executed by the host, and echoed as an event.
-      stashOf('wood') = stashOf('wood') + 200; stashOf('scrap') = stashOf('scrap') + 200;
+      addStash('wood', 200); addStash('scrap', 200);
       let wtx = Math.floor(guest.x / 32) + 2, wty = Math.floor(guest.y / 32);
       for (let dx = 0; dx < 5 && !api.canPlace('woodWall', wtx, wty, guest).ok; dx++) wtx++;
       const built0 = G.structures.length, ev0 = reliable.length;
@@ -2669,7 +2756,7 @@ const ok = (name, pass, detail = '') => {
       b2.onMessage('reliable', (m) => rel2.push(m));
       d.net.debugAttachGuest(a2, 'smoke2');
       b2.send('reliable', d.net.msg.hello('smoke-guest', 'Bex again', null));
-      await frames(4);
+      await waitUntil(() => rel2.length > 0);
       const w2 = rel2.find((m) => m.t === 'welcome');
       ok('the same identity comes back to the same character', !!w2 && w2.n === guest.netId && !guest.away && G.players.filter((q) => q.id === 'smoke-guest').length === 1,
         w2 ? `netId ${w2.n} (was ${guest.netId})` : 'no welcome');
@@ -2683,7 +2770,7 @@ const ok = (name, pass, detail = '') => {
       b4.onMessage('reliable', (m) => rel4.push(m));
       d.net.debugAttachGuest(a4, 'smoke4');
       b4.send('reliable', d.net.msg.hello(G.player.id, 'Me again', null));
-      await frames(4);
+      await waitUntil(() => rel4.length > 0);
       const w4 = rel4.find((m) => m.t === 'welcome');
       ok('a guest with the host\'s own identity is a new player, not the host',
         !!w4 && w4.n !== G.player.netId && G.players.some((q) => q.netId === w4.n && q !== G.player && q.id === `${G.player.id}#2`),
@@ -2700,7 +2787,7 @@ const ok = (name, pass, detail = '') => {
       b3.onMessage('reliable', (m) => rel3.push(m));
       d.net.debugAttachGuest(a3, 'smoke3');
       b3.send('reliable', d.net.msg.hello('other-guest', 'Cole', await d.net.hashPassword('wrong')));
-      await frames(4);
+      await waitUntil(() => rel3.length > 0);
       ok('the wrong password is rejected', rel3.some((m) => m.t === 'reject' && /password/.test(m.reason)) && !G.players.some((q) => q.id === 'other-guest'),
         rel3.map((m) => m.t + (m.reason ? ':' + m.reason : '')).join(','));
       d.net.stopHosting();
@@ -2786,6 +2873,11 @@ const ok = (name, pass, detail = '') => {
     G.enemies.length = 0;
     d.god(false);
 
+    } catch (err) {
+      ok('the suite ran to the end without throwing', false,
+        `${(err && err.message) || err} — after ${results.length} assertions`);
+    }
+
     // Leave the browser as we found it: only the slots that existed before the
     // run, with the bytes they had, and the bindings the player had.
     for (const s of d.saves.listSlots()) if (!slotsBefore.has(s.id)) d.saves.deleteSlot(s.id);
@@ -2840,6 +2932,15 @@ const ok = (name, pass, detail = '') => {
     const { G, api } = D();
     const p = G.player;
     const ptx = Math.floor(p.x / 32), pty = Math.floor(p.y / 32);
+    // Make the precondition true rather than hoping it is. `canPlace` refuses
+    // for cost as well as for ground, and since the stash became 48 slots the
+    // suite can genuinely run itself out of wood halfway through a long run —
+    // which surfaced as "a second watchtower cannot be built" four sections
+    // after the section that emptied it, and killed the run.
+    const cost = api.structureCost(type) || {};
+    for (const id in cost) {
+      if (api.countRes(G.stash, id) + api.countRes(p.bag, id) < cost[id]) setStash(id, cost[id] * 4);
+    }
     for (let r = 1; r <= 5; r++) {
       for (let dy = -r; dy <= r; dy++) {
         for (let dx = -r; dx <= r; dx++) {
