@@ -145,6 +145,24 @@ export const WEAPONS = {
     id: 'sledge', name: 'Sledgehammer', kind: 'melee', dmg: 78, cd: 0.86,
     range: 60, arc: 1.7, knock: 340, shake: 5, structureMul: 1.0, color: '#8d7a5e',
   },
+  // ------------------------------------------------------------- the bow --
+  // A firearm as far as the code is concerned, so it reuses the whole firing,
+  // reloading and ammunition path — the "magazine" of one plus a short reload
+  // IS the draw. What makes it a different weapon is the two numbers at the
+  // end: it is almost silent, and it hits for about a quarter of what a rifle
+  // does. Three arrows to put down a walker against a rifle's one.
+  //
+  // That is the trade the owner asked for: "arrows are quiet, guns and turrets
+  // are loud... one bullet can kill the smaller zombies while it takes several
+  // arrows." Arrows are also the only ammunition made entirely of things you
+  // pick up off the ground, which is what finally gives sticks, stone and
+  // fiber a sink that never stops consuming them.
+  bow: {
+    id: 'bow', name: 'Hunting Bow', kind: 'gun', dmg: 19, cd: 0.85, mag: 1,
+    reload: 0.55, spread: 0.03, ammo: 'arrow', speed: 780, life: 0.85,
+    knock: 60, shake: 0.4, pellets: 1, threat: 0.15, noise: 90, bow: true,
+    color: '#9a7a48',
+  },
   pistol: {
     id: 'pistol', name: 'M9 Pistol', kind: 'gun', dmg: 27, cd: 0.17, mag: 12,
     reload: 1.15, spread: 0.035, ammo: 'ammoP', speed: 1150, life: 0.55,
@@ -419,6 +437,10 @@ export const RECIPES = [
   // of the two things the ground is covered in. It burns itself up, so it is a
   // consumable you keep remaking rather than a thing you own once.
   { id: 'torch', name: 'Torch', bench: 0, cost: { sticks: 3, fiber: 3 }, give: { armor: 'torch' }, xp: 6 },
+  // Bench 0, like the tools: a bow is a stick and a string, and it has to be
+  // reachable in the first ten minutes to be the quiet answer to a gun.
+  { id: 'bow', name: 'Hunting Bow', bench: 0, cost: { sticks: 8, fiber: 12, cloth: 2 }, give: { weapon: 'bow' }, xp: 18 },
+  { id: 'arrow', name: 'Arrows x10', bench: 0, cost: { sticks: 6, stone: 3, fiber: 2 }, give: { res: { arrow: 10 } }, xp: 3 },
   { id: 'pipe', name: 'Steel Pipe', bench: 1, hammer: true, cost: { wood: 6, scrap: 10 }, give: { weapon: 'pipe' }, xp: 12 },
   { id: 'ammoP', name: '9mm x24', bench: 1, cost: { scrap: 9, parts: 1 }, give: { res: { ammoP: 24 } }, xp: 6 },
   { id: 'medkit', name: 'Medkit', bench: 1, cost: { med: 5, cloth: 5 }, give: { item: 'medkit', n: 1 }, xp: 8 },
@@ -528,7 +550,7 @@ export const LOOT = {
   fuelDrum: [{ id: 'fuel', min: 8, max: 18, w: 70 }, { id: 'scrap', min: 2, max: 6, w: 30 }],
   // A stack of felled timber: the lumber camp's reason to exist.
   logPile: [
-    { id: 'wood', min: 12, max: 24, w: 64 }, { id: 'scrap', min: 1, max: 3, w: 14 },
+    { id: 'wood', min: 12, max: 24, w: 64 }, { id: 'arrow', min: 4, max: 10, w: 8 }, { id: 'scrap', min: 1, max: 3, w: 14 },
     { id: 'cloth', min: 1, max: 3, w: 12 }, { id: 'parts', min: 1, max: 1, w: 10 },
   ],
   // Palletised stock: bulk building material rather than anything personal.
@@ -607,6 +629,7 @@ export const LOOT = {
   ],
   footlocker: [
     { id: 'mil', min: 3, max: 8, w: 28 },
+    { id: 'arrow', min: 8, max: 20, w: 8 },
     { id: 'ammoR', min: 8, max: 18, w: 20 },
     { id: 'gear:milVest', min: 1, max: 1, w: 6 },
     { id: 'gear:milHelm', min: 1, max: 1, w: 6 },
@@ -624,6 +647,7 @@ export const LOOT = {
   ],
   toolrack: [
     { id: 'parts', min: 2, max: 5, w: 34 },
+    { id: 'weapon:bow', min: 1, max: 1, w: 6 }, { id: 'arrow', min: 6, max: 16, w: 10 },
     { id: 'scrap', min: 6, max: 14, w: 32 },
     { id: 'wood', min: 5, max: 12, w: 22 },
     { id: 'weapon:pipe', min: 1, max: 1, w: 6 },

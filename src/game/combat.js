@@ -369,23 +369,29 @@ export function fireGun(p, w) {
       life: w.life * p.rangeMul,
       knock: w.knock,
       pierce: w.pierce || 0,
-      color: w.id === 'shotgun' ? '#ffd08a' : '#ffe6a8',
-      size: w.id === 'rifle' ? 3 : 2.2,
+      color: w.bow ? '#c8a878' : w.id === 'shotgun' ? '#ffd08a' : '#ffe6a8',
+      size: w.bow ? 2.8 : w.id === 'rifle' ? 3 : 2.2,
+      trail: w.bow ? 14 : undefined,
       crit,
       owner: p,
       w: i === 0 ? w.id : null,      // one sound per shot, not per pellet
     });
   }
 
-  FX.muzzle(mx, my, p.angle, w.id === 'shotgun' ? 1.9 : w.id === 'rifle' ? 1.5 : 1);
-  FX.smoke(mx, my, w.id === 'shotgun' ? 4 : 1, '#7a756a');
+  // No flash and no smoke from a bow — a muzzle particle is also a light
+  // source at night (see drawNight), and a bow that lit up the treeline every
+  // shot would give away the one thing it is for.
+  if (!w.bow) {
+    FX.muzzle(mx, my, p.angle, w.id === 'shotgun' ? 1.9 : w.id === 'rifle' ? 1.5 : 1);
+    FX.smoke(mx, my, w.id === 'shotgun' ? 4 : 1, '#7a756a');
+  }
   if (isLocal(p)) shake(w.shake);
   // Recoil kick, so rapid fire visibly pushes the aim around.
   p.recoil = Math.min(0.16, (p.recoil || 0) + spread * 1.4 + 0.012);
   p.vx -= Math.cos(p.angle) * (w.id === 'shotgun' ? 90 : 22);
   p.vy -= Math.sin(p.angle) * (w.id === 'shotgun' ? 90 : 22);
 
-  sfx(w.id === 'smg' ? 'smg' : w.id === 'shotgun' ? 'shotgun' : w.id === 'rifle' ? 'rifle' : 'pistol');
+  sfx(w.bow ? 'swing' : w.id === 'smg' ? 'smg' : w.id === 'shotgun' ? 'shotgun' : w.id === 'rifle' ? 'rifle' : 'pistol');
   addThreat(THREAT.perGunshot * w.threat, '', p);
   makeNoise(p.x, p.y, w.noise, p);
   return true;

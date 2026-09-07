@@ -456,7 +456,7 @@ function drawResourceStrip(ctx, W, H) {
 
   // Ammo row
   ctx.font = '11px "Courier New", monospace';
-  const ammo = ['ammoP', 'ammoS', 'ammoR']
+  const ammo = ['arrow', 'ammoP', 'ammoS', 'ammoR']
     .map((id) => `${RES[id].short} ${countRes(p.bag, id)}`)
     .join('   ');
   ctx.fillStyle = C.gold;

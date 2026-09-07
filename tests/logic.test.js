@@ -1398,6 +1398,51 @@ test('the noise table ranks the way the trade-off needs it to', () => {
   }
 });
 
+// -------------------------------------------------------------------- bow ---
+
+test('a bow is quiet and a gun is not', () => {
+  const bow = WEAPONS.bow;
+  assert.equal(bow.kind, 'gun', 'the bow rides the whole firearm path');
+  assert.equal(bow.ammo, 'arrow');
+  assert.ok(RES.arrow, 'arrows are a resource you can carry and craft');
+  // The entire point of the weapon. It must be quieter than every firearm,
+  // and by a wide margin, or "arrows are quiet" is a label rather than a rule.
+  for (const w of Object.values(WEAPONS)) {
+    if (w.kind !== 'gun' || w.bow) continue;
+    assert.ok(bow.noise * 3 < w.noise, `a bow (${bow.noise}) must be far quieter than a ${w.id} (${w.noise})`);
+    assert.ok(bow.threat < w.threat, `and draw less Threat than a ${w.id}`);
+  }
+});
+
+test('one bullet does what several arrows do', () => {
+  // The owner: "One bullet can kill the smaller zombies while it takes several
+  // arrows." Measured against a walker, which is the small zombie.
+  const walker = ENEMIES.walker.hp;
+  const shots = (w) => Math.ceil(walker / w.dmg);
+  const arrows = shots(WEAPONS.bow);
+  assert.ok(arrows >= 3, `a walker should take at least three arrows, not ${arrows}`);
+  assert.equal(shots(WEAPONS.rifle), 1, 'a rifle round drops a walker outright');
+  assert.ok(arrows > shots(WEAPONS.pistol), 'and a pistol still beats a bow shot for shot');
+  // Damage per second, so the trade is paid for in more than one currency.
+  const dps = (w) => w.dmg / w.cd;
+  assert.ok(dps(WEAPONS.bow) < dps(WEAPONS.pistol) * 0.4,
+    'a bow has to be much slower as well as weaker — quiet is what it sells');
+});
+
+test('arrows are made of what the ground gives up', () => {
+  const r = RECIPES.find((x) => x.id === 'arrow');
+  const bow = RECIPES.find((x) => x.id === 'bow');
+  assert.ok(r && bow, 'both are craftable');
+  assert.equal(r.bench, 0);
+  assert.equal(bow.bench, 0, 'the quiet answer to a gun cannot be gated behind a bench');
+  // This is the sink that justified cutting litter again: arrows cost the
+  // three hand-gathered materials and nothing else, and you burn them forever.
+  for (const id of Object.keys(r.cost)) {
+    assert.ok(['sticks', 'stone', 'fiber'].includes(id), `arrows should not cost ${id}`);
+  }
+  assert.ok(r.give.res.arrow >= 5, 'and a craft has to be worth the trip');
+});
+
 // ---------------------------------------------------------------- storage ---
 
 test('every container holds a fixed number of slots, and the stash is the biggest', () => {

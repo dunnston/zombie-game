@@ -867,6 +867,30 @@ function drawWeapon(ctx, w, p) {
       ctx.fillStyle = '#4a3a2a'; ctx.fillRect(4, -1.6, 5, 3.2);
       ctx.fillStyle = w.color; ctx.fillRect(9, -1.2, 10, 2.4); ctx.fillRect(17, -0.8, 3, 1.6);
     } else ctx.fillRect(5, -1.6, 17, 3.2);
+  } else if (w.bow) {
+    // A limb curved away from the hand with a string across it, and a nocked
+    // arrow that draws back as the shot recharges — the bow has to read as a
+    // bow at a glance or it is just another grey stick (pillar 4).
+    const draw = p.reloading ? 0 : Math.min(1, Math.max(0, 1 - p.attackCd / (w.cd || 1)));
+    ctx.strokeStyle = w.color;
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.arc(2, 0, 11, -1.9, 1.9);
+    ctx.stroke();
+    ctx.strokeStyle = '#d8d0bc';
+    ctx.lineWidth = 1;
+    const pull = -5 * draw;
+    ctx.beginPath();
+    ctx.moveTo(-1.5, -10.4);
+    ctx.lineTo(pull, 0);
+    ctx.lineTo(-1.5, 10.4);
+    ctx.stroke();
+    ctx.strokeStyle = '#b9a072';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(pull, 0);
+    ctx.lineTo(pull + 20, 0);
+    ctx.stroke();
   } else {
     ctx.fillStyle = '#22262a';
     ctx.fillRect(-2, -2.6, 8, 5.2);
