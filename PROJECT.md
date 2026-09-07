@@ -402,7 +402,7 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | Fixed 60Hz sim with an accumulator | A stalled tab must not fast-forward the world. |
 | Co-op version check is a git-derived build id, not a hand-bumped constant | `PROTOCOL` stayed at 1 while the map expansion rewrote world generation, so the check that exists to catch exactly that never fired. A value derived from `git log -1 -- src/` cannot be forgotten. Keyed on `src/` so a docs-only commit does not refuse an otherwise identical pair, and a digest of the uncommitted changes when the tree is dirty, so two people editing the same commit differently do not land on the same id. |
 | Dropping is ctrl+click or drag-out-of-the-window, not a button | The button this replaced could never fire — it acted on the live hover, which the cursor destroyed on its way to the button. The original note in `inventory.js` argued open-space release should snap back so a slip cannot scatter your ammunition; the owner’s call is that dragging clean out of the panel is deliberate enough to tell apart from a slip, and a release inside the panel still snaps back. Both gestures also drop worn gear. |
-| A dropped pile is inert until you step away from it, rather than on a timer | Dropping spawns the pile at your feet, inside the pickup radius, so the magnet reclaimed it the next frame and dropping was a no-op. A timer would still snatch it back if you stood still a moment too long; "you have to leave it" is what a player means by dropping. Re-arms at `range * 1.2`, wider than the `range * 0.45` collect radius, so standing on the edge cannot flicker. |
+| A dropped pile is held off from its dropper until they step away, rather than on a timer | Dropping spawns the pile at your feet, inside the pickup radius, so the magnet reclaimed it the next frame and dropping was a no-op. A timer would still snatch it back if you stood still a moment too long; "you have to leave it" is what a player means by dropping. Re-arms at `range * 1.2`, wider than the `range * 0.45` collect radius, so standing on the edge cannot flicker. Keyed to the player who dropped it rather than to whoever is nearest, or a teammate standing over the pile would suppress it for everyone and dropping could not be used to hand things over. |
 | Threat meter instead of a day-N raid timer | Ties danger to player behaviour, which is pillar 6. A calendar would make power free. |
 | Bullets ignore player structures | Pillar 3. Tested the alternative; a walled base could not defend itself. |
 | Enemy `structMul` split from `dmg` | Lets walkers threaten the player while brutes threaten walls. This is what makes raid 3 feel like a different game. |
@@ -836,10 +836,14 @@ Newest first. One line per meaningful change.
   **ctrl+click a slot**, or **drag it out of the window** and release over the
   world. Both work on worn gear too, which finally gives `dropEquipped` a
   caller. Releasing over open space *inside* the panel still snaps back. And a
-  pile you put down yourself is `inert` until you step clear of it once — a
+  pile you put down yourself is held off until you step clear of it once — a
   state, not a timer, so it stays where you dropped it for as long as you stand
-  there. No save bump: `inert` is not serialised, and a reloaded pile is just
-  world loot. Node 98.
+  there. The hold-off belongs to the *dropper*, not to whoever is nearest, so a
+  teammate can pick up what you put at their feet immediately; that is how you
+  hand something over. It rides along in the save as `q` on the pickup record,
+  because a save taken while standing over your own drop otherwise handed the
+  pile straight back on load. No version bump — old saves simply lack the field
+  and mean "not held off". Both found by the Codex review. Node 98.
 
 - **2026-09-07** — Mining balance, and the metal tool tier. The owner: "there
   are WAY too many sticks, stones and fiber on the map... it is way too easy to

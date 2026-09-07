@@ -140,7 +140,7 @@ export function dropStack(p, cont, index, all = true) {
   const n = all ? s.n : 1;
   const id = s.id;
   slotsTake(c, id, n);
-  spawnPickup(p.x, p.y, kindOf(id), id, n, true);
+  spawnPickup(p.x, p.y, kindOf(id), id, n, p);
   sfx('ui');
   notify(`Dropped ${n} ${ITEMS[id].name}`, '#8a8f84');
   return true;
@@ -152,7 +152,7 @@ export function dropEquipped(p, slot) {
   if (!id) return false;
   p.equip[slot] = null;
   recomputeStats(p);
-  spawnPickup(p.x, p.y, 'gear', id, 1, true);
+  spawnPickup(p.x, p.y, 'gear', id, 1, p);
   sfx('ui');
   return true;
 }
