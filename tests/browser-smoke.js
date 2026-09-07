@@ -206,12 +206,32 @@
         G.stash.wood = (G.stash.wood || 0) + 200; G.stash.scrap = (G.stash.scrap || 0) + 200;
         d.binds.rebind('withdraw', 'KeyY');
         const stx = Math.floor(G.player.x / 32), sty = Math.floor(G.player.y / 32);
+        // The assertion is about the *prompt*, and findInteractable() returns
+        // whatever is nearest — so the spot the player will stand on has to
+        // have nothing else in reach, or a fridge two tiles away answers for
+        // the stash. The town is dense with furniture now; scan for a clear
+        // one rather than assuming due east is free.
+        const nothingElseInReach = (px, py) =>
+          G.world.containers.every((c) => c.hidden || Math.hypot(c.x - px, c.y - py) > 120) &&
+          G.structures.every((st) => st.destroyed || Math.hypot(st.x - px, st.y - py) > 120) &&
+          G.vehicles.every((v) => v.destroyed || Math.hypot(v.x - px, v.y - py) > 120);
         let stash = null;
-        for (let dx = 2; dx < 7 && !stash; dx++) {
-          if (api.canPlace('stash', stx + dx, sty).ok) stash = api.placeStructure('stash', stx + dx, sty);
+        for (let r = 2; r < 7 && !stash; r++) {
+          for (const [dx, dy] of [[r, 0], [-r, 0], [0, r], [0, -r]]) {
+            const tx = stx + dx, ty = sty + dy;
+            const cx = tx * 32 + 16, cy = ty * 32 + 16;
+            // Where the player will stand: 40px back toward them.
+            const sx = cx - Math.sign(dx) * 40, sy = cy - Math.sign(dy) * 40;
+            if (!nothingElseInReach(cx, cy) || !nothingElseInReach(sx, sy)) continue;
+            if (!api.canPlace('stash', tx, ty).ok) continue;
+            stash = api.placeStructure('stash', tx, ty);
+            if (stash) break;
+          }
         }
         if (stash) {
-          d.teleport(stash.x - 40, stash.y);
+          // Stand off the stash along whichever axis it was placed on.
+          const offX = stash.x > G.player.x ? -40 : stash.x < G.player.x ? 40 : 0;
+          d.teleport(stash.x + (offX || 0), stash.y + (offX ? 0 : (stash.y > G.player.y ? -40 : 40)));
           await frames(3);
           const hv = api.findInteractable();
           ok('the stash prompt names the rebound key', !!hv && hv.kind === 'stash' && hv.label.includes('Y: take ammo'), hv && hv.label);
@@ -2608,6 +2628,7 @@
     return null;
   }
   window.__placeNear = placeNear;
+  window.__clearOfStructures = clearOfStructures;
 
   /** A tile with no blocked tiles within `n` in any direction — real open ground. */
   function clearOpenPlot(G, n) {
@@ -2667,22 +2688,44 @@
     return clearOpenPlot(G, n);
   }
 
-  /** Open ground well away from any player-built structure. */
-  function clearOfStructures(G, x, y) {
+  /**
+   * Open ground well away from any player-built structure — and genuinely
+   * open, not merely unblocked at its centre.
+   *
+   * The sections that use this arena spawn something a few hundred pixels away
+   * and expect it to *walk* or *drive* in. There is no pathfinding, so a
+   * single tree in that corridor stops the thing under test and the assertion
+   * fails for a reason that has nothing to do with what it measures. The town
+   * used to have big enough clearings for the old ±24px check to be lucky;
+   * on the 320-tile map it stopped being lucky.
+   */
+  function clearOfStructures(G, x, y, reach = 480) {
     const api = window.DEADLINE.api;
     const far = (px, py) => G.structures.every((s) =>
       s.destroyed || Math.hypot(s.x - px, s.y - py) > 260);
-    for (let r = 300; r < 1400; r += 40) {
-      for (let a = 0; a < 20; a++) {
-        const ang = (a / 20) * Math.PI * 2;
-        const px = x + Math.cos(ang) * r;
-        const py = y + Math.sin(ang) * r;
-        if (px < 200 || py < 200 || px > G.world.w * 32 - 200 || py > G.world.h * 32 - 200) continue;
-        if (api.solidPx(px, py)) continue;
-        if (api.solidPx(px + 24, py) || api.solidPx(px - 24, py)) continue;
-        if (api.solidPx(px, py + 24) || api.solidPx(px, py - 24)) continue;
-        if (!far(px, py)) continue;
-        return { x: px, y: py };
+    // A corridor either side, wide enough for a walker's drift.
+    const openArena = (px, py) => {
+      for (let dx = -reach; dx <= reach; dx += 24) {
+        for (let dy = -72; dy <= 72; dy += 24) {
+          if (api.solidPx(px + dx, py + dy)) return false;
+        }
+      }
+      return true;
+    };
+    const lim = G.world.w * 32;
+    for (const need of [openArena, (px, py) => !api.solidPx(px, py) &&
+      !api.solidPx(px + 24, py) && !api.solidPx(px - 24, py) &&
+      !api.solidPx(px, py + 24) && !api.solidPx(px, py - 24)]) {
+      for (let r = 300; r < 2600; r += 40) {
+        for (let a = 0; a < 20; a++) {
+          const ang = (a / 20) * Math.PI * 2;
+          const px = x + Math.cos(ang) * r;
+          const py = y + Math.sin(ang) * r;
+          if (px < 200 || py < 200 || px > lim - 200 || py > lim - 200) continue;
+          if (!need(px, py)) continue;
+          if (!far(px, py)) continue;
+          return { x: px, y: py };
+        }
       }
     }
     return { x, y };

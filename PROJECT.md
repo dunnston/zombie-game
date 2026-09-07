@@ -556,6 +556,14 @@ pause, host gone — were never exercised. A protocol that keeps the last state
 must also expire it; and every client-side transition needs a hook the suite
 can call in one browser (`DEADLINE.net.client.hostGone()` now).
 
+**A test arena on a bigger map needs a bigger clearing.** Two co-op assertions
+("enemies go for the nearest player", "...and ignore a downed one") broke on the
+320-tile map for a reason unrelated to what they measure: their helper picked a
+spot whose *centre* was unblocked, then spawned a walker 420px away and waited
+for it to close. With no pathfinding (invariant 8), one tree in that corridor
+stops it. The helper now requires the whole corridor to be open, and falls back
+to the old loose check only if nothing qualifies.
+
 **Render the map before you trust it.** A 320-tile generator was checked
 first with a Node script that dumps a PNG and floods from the camp — which is
 how three sealed rooms in the *old* town and a two-tile apartment cell that

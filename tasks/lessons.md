@@ -506,3 +506,17 @@ wardrobes could close. Screenshots of each district came after, for the look.
 **Rule:** for anything spatial, assert reachability as an outcome. "Every
 container can be reached from the camp" is now a Node test; it would have
 caught the old sealed rooms on day one.
+
+### An arena is the corridor, not the centre tile
+
+Two co-op assertions failed on the bigger map — "enemies go for the nearest
+player" measured a walker closing 254 -> 236px when it wanted 20px of progress
+minimum. Nothing about enemy targeting had changed. The arena helper checked
+that its chosen spot was unblocked at the centre and ±24px, then the section
+spawned a walker 420px east and waited for it to walk in; on the old map the
+town's clearings happened to be big enough for that to work, and on the new one
+they are not. There is no pathfinding, so a single tree ends the run.
+
+**Rule:** when a test spawns something at a distance and waits for it to arrive,
+the assertion depends on the whole corridor, not the spot. Check what the test
+actually needs to be empty.
