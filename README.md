@@ -453,7 +453,14 @@ LocalStorage. A save from before slots existed is picked up as "Game 1".
 Up to four people in one town. One of you **hosts** — the game runs in their
 browser — and the others **join** with a six-character room code.
 
-### The short version: three scripts
+### The short version: double-click PLAY.cmd
+
+On Windows, open the project folder and double-click **PLAY.cmd**. It offers
+hosting an online game, joining one, playing over the same wifi, and updating —
+and hands off to the scripts below. Nothing else to install beyond Git and
+Node.
+
+### Or run the scripts directly
 
 Everything below can be done by hand, but there is a script for each case. Run
 them from Git Bash on Windows, or any shell on mac and Linux.

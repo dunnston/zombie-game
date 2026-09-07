@@ -84,9 +84,13 @@ port_busy() {
 require_free_port() {
   local port="$1" what="$2"
   if port_busy "$port"; then
+    # No shell-specific kill command here: this is read from a cmd window as
+    # often as from bash, and the two disagree about slashes.
     die "port ${port} is already in use (${what}).
-A broker or dev server from an earlier session is probably still running.
-Close that window, or on Windows: taskkill //F //IM node.exe"
+
+A game, broker or tunnel from an earlier session is still running. Close that
+window and try again — whatever started it owns it. If there is no such window
+left, end the stray 'node' or 'cloudflared' process in Task Manager."
   fi
 }
 
