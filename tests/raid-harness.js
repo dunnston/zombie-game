@@ -31,13 +31,19 @@
       }
       return true;
     };
-    for (let ty = 8; ty < W - 8; ty += 2) {
-      for (let tx = 8; tx < W - 8; tx += 2) {
-        if (G.world.danger[ty * W + tx] > 2) continue;
-        if (clear(tx, ty)) return { tx, ty };
+    // The town first (the central half of the map): the country around it is
+    // forest and farmland, and a compound in the woods measures tree-stuck
+    // raiders rather than the raid.
+    const lo = Math.floor(W / 4) + 8, hi = Math.floor((3 * W) / 4) - 8;
+    for (const [x0, x1] of [[lo, hi], [8, W - 8]]) {
+      for (let ty = x0; ty < x1; ty += 2) {
+        for (let tx = x0; tx < x1; tx += 2) {
+          if (G.world.danger[ty * W + tx] > 2) continue;
+          if (clear(tx, ty)) return { tx, ty };
+        }
       }
     }
-    return { tx: 80, ty: 80 };
+    return { tx: 160, ty: 160 };
   }
 
   /** Builds a representative mid-game base on genuinely open ground. */

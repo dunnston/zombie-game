@@ -200,6 +200,9 @@ function drawNight(ctx, W, H) {
 
 // ------------------------------------------------------------------ ground --
 
+const tileOf = (world, tx, ty) =>
+  (tx < 0 || ty < 0 || tx >= world.w || ty >= world.h ? T.WALL : world.tiles[ty * world.w + tx]);
+
 function drawGround(ctx, world, view) {
   const x0 = Math.max(0, Math.floor(view.x0 / TILE));
   const y0 = Math.max(0, Math.floor(view.y0 / TILE));
@@ -226,6 +229,43 @@ function drawGround(ctx, world, view) {
         ctx.fillStyle = '#3a5c7288';
         const w = 10 + Math.sin(G.time * 1.4 + tx * 0.7 + ty) * 5;
         ctx.fillRect(px + 4, py + 10 + Math.sin(G.time + tx) * 2, w, 2);
+        // A pale lip wherever water meets anything else — the shoreline.
+        ctx.fillStyle = '#6d8fa055';
+        if (tileOf(world, tx, ty - 1) !== T.WATER) ctx.fillRect(px, py, TILE, 3);
+        if (tileOf(world, tx, ty + 1) !== T.WATER) ctx.fillRect(px, py + TILE - 3, TILE, 3);
+        if (tileOf(world, tx - 1, ty) !== T.WATER) ctx.fillRect(px, py, 3, TILE);
+        if (tileOf(world, tx + 1, ty) !== T.WATER) ctx.fillRect(px + TILE - 3, py, 3, TILE);
+      } else if (t === T.FIELD) {
+        // Furrows.
+        ctx.fillStyle = '#3b2c1c';
+        for (let r = 4; r < TILE; r += 8) ctx.fillRect(px, py + r, TILE, 3);
+        if (h > 0.45) {
+          ctx.fillStyle = '#6a8a3a';
+          ctx.fillRect(px + 6 + ((h * 41) % 16), py + 8, 2, 3);
+          ctx.fillRect(px + 14 + ((h * 73) % 12), py + 16, 2, 3);
+        }
+      } else if (t === T.FENCE) {
+        // Rails run toward neighbouring fence tiles; a post at every tile.
+        const l = tileOf(world, tx - 1, ty) === T.FENCE, r = tileOf(world, tx + 1, ty) === T.FENCE;
+        const u = tileOf(world, tx, ty - 1) === T.FENCE, d = tileOf(world, tx, ty + 1) === T.FENCE;
+        ctx.fillStyle = '#6b4e2e';
+        if (l || r) {
+          const x0 = l ? px : px + 12, x1 = r ? px + TILE : px + 20;
+          ctx.fillRect(x0, py + 10, x1 - x0, 3); ctx.fillRect(x0, py + 19, x1 - x0, 3);
+        }
+        if (u || d) {
+          const y0 = u ? py : py + 12, y1 = d ? py + TILE : py + 20;
+          ctx.fillRect(px + 10, y0, 3, y1 - y0); ctx.fillRect(px + 19, y0, 3, y1 - y0);
+        }
+        ctx.fillStyle = '#4a3420';
+        ctx.fillRect(px + 13, py + 11, 6, 12);
+      } else if (t === T.SIDEWALK) {
+        // A sidewalk beside water is a bridge parapet.
+        ctx.fillStyle = '#8a8478';
+        if (tileOf(world, tx, ty - 1) === T.WATER) { ctx.fillRect(px, py, TILE, 4); ctx.fillStyle = '#5a554c'; ctx.fillRect(px + 4, py, 3, 8); ctx.fillRect(px + 24, py, 3, 8); }
+        else if (tileOf(world, tx, ty + 1) === T.WATER) { ctx.fillRect(px, py + TILE - 4, TILE, 4); ctx.fillStyle = '#5a554c'; ctx.fillRect(px + 4, py + TILE - 8, 3, 8); ctx.fillRect(px + 24, py + TILE - 8, 3, 8); }
+        else if (tileOf(world, tx - 1, ty) === T.WATER) { ctx.fillRect(px, py, 4, TILE); }
+        else if (tileOf(world, tx + 1, ty) === T.WATER) { ctx.fillRect(px + TILE - 4, py, 4, TILE); }
       }
       if (t === T.GRASS && h > 0.9) {
         ctx.fillStyle = '#4a5c3399';
@@ -305,8 +345,14 @@ function drawCorpses(ctx, view) {
 function drawProp(ctx, p) {
   let spr = null;
   if (p.kind === 'tree') spr = Sprites.trees[p.si % Sprites.trees.length];
+  else if (p.kind === 'pine') spr = Sprites.pines[p.si % Sprites.pines.length];
   else if (p.kind === 'bush') spr = Sprites.bushes[p.si % Sprites.bushes.length];
+  else if (p.kind === 'hay') spr = Sprites.hay[p.si % Sprites.hay.length];
+  else if (p.kind === 'reed') spr = Sprites.reeds[p.si % Sprites.reeds.length];
+  else if (p.kind === 'silo') spr = Sprites.silo;
   else if (p.kind === 'rock') spr = Sprites.rocks[p.si % Sprites.rocks.length];
+  else if (p.kind === 'boulder') spr = Sprites.boulders[p.si % Sprites.boulders.length];
+  else if (p.kind === 'thicket') spr = Sprites.thickets[p.si % Sprites.thickets.length];
   else if (p.kind === 'car') spr = Sprites.cars[p.si % Sprites.cars.length];
   else if (p.kind === 'wreck') spr = Sprites.wrecks[p.si % Sprites.wrecks.length];
   if (!spr) return;
@@ -314,13 +360,17 @@ function drawProp(ctx, p) {
   ctx.save();
   ctx.translate(p.x, p.y);
   if (p.rot) ctx.rotate(p.rot);
-  ctx.globalAlpha = 0.4;
-  ctx.fillStyle = '#000';
-  ctx.beginPath();
-  ctx.ellipse(3, 6, spr.width * 0.36, spr.height * 0.26, 0, 0, TAU);
-  ctx.fill();
-  ctx.globalAlpha = 1;
-  ctx.drawImage(spr, -spr.width / 2, -spr.height / 2);
+  if (p.kind !== 'reed') {
+    ctx.globalAlpha = 0.4;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.ellipse(3, 6, spr.width * 0.36, spr.height * 0.26, 0, 0, TAU);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  // The silo stands on its footprint; everything else is centred on its tile.
+  if (p.kind === 'silo') ctx.drawImage(spr, -spr.width / 2, -spr.height + 20);
+  else ctx.drawImage(spr, -spr.width / 2, -spr.height / 2);
 
   // Chopping feedback: a shudder on impact and a bar once it's wounded.
   if (p.hitAt !== undefined && G.time - p.hitAt < 0.12) {
@@ -728,7 +778,25 @@ function drawWeapon(ctx, w, p) {
     ctx.fillStyle = w.color;
     if (w.id === 'sledge') { ctx.fillRect(6, -1.6, 13, 3.2); ctx.fillRect(17, -5, 6, 10); }
     else if (w.id === 'machete') { ctx.fillRect(5, -1.4, 20, 3); ctx.fillRect(22, -2.4, 4, 5); }
-    else ctx.fillRect(5, -1.6, 17, 3.2);
+    // The tools read by their heads: an axe's is off to one side, a pickaxe's
+    // lies across the haft, a hammer's is a block, a knife has no haft at all.
+    else if (w.id === 'axe') { ctx.fillStyle = '#6b4e2e'; ctx.fillRect(5, -1.4, 16, 2.8); ctx.fillStyle = '#b9b3a6'; ctx.fillRect(17, -5, 6, 9); }
+    else if (w.id === 'pick') {
+      ctx.fillStyle = '#6b4e2e'; ctx.fillRect(5, -1.4, 14, 2.8);
+      ctx.fillStyle = w.color; ctx.fillRect(16, -7, 3, 14); ctx.fillRect(19, -1.3, 4, 2.6);
+    } else if (w.id === 'hammer') {
+      ctx.fillStyle = '#6b4e2e'; ctx.fillRect(5, -1.4, 12, 2.8);
+      ctx.fillStyle = w.color; ctx.fillRect(15, -5, 7, 10);
+    } else if (w.id === 'scythe') {
+      // A long snath with the blade swept back along it.
+      ctx.fillStyle = '#6b4e2e'; ctx.fillRect(5, -1.4, 20, 2.8);
+      ctx.fillStyle = w.color;
+      ctx.beginPath(); ctx.moveTo(24, -1); ctx.quadraticCurveTo(20, -11, 8, -13);
+      ctx.quadraticCurveTo(19, -8, 22, 0); ctx.closePath(); ctx.fill();
+    } else if (w.id === 'knife') {
+      ctx.fillStyle = '#4a3a2a'; ctx.fillRect(4, -1.6, 5, 3.2);
+      ctx.fillStyle = w.color; ctx.fillRect(9, -1.2, 10, 2.4); ctx.fillRect(17, -0.8, 3, 1.6);
+    } else ctx.fillRect(5, -1.6, 17, 3.2);
   } else {
     ctx.fillStyle = '#22262a';
     ctx.fillRect(-2, -2.6, 8, 5.2);

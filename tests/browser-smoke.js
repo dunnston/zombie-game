@@ -206,12 +206,32 @@
         G.stash.wood = (G.stash.wood || 0) + 200; G.stash.scrap = (G.stash.scrap || 0) + 200;
         d.binds.rebind('withdraw', 'KeyY');
         const stx = Math.floor(G.player.x / 32), sty = Math.floor(G.player.y / 32);
+        // The assertion is about the *prompt*, and findInteractable() returns
+        // whatever is nearest — so the spot the player will stand on has to
+        // have nothing else in reach, or a fridge two tiles away answers for
+        // the stash. The town is dense with furniture now; scan for a clear
+        // one rather than assuming due east is free.
+        const nothingElseInReach = (px, py) =>
+          G.world.containers.every((c) => c.hidden || Math.hypot(c.x - px, c.y - py) > 120) &&
+          G.structures.every((st) => st.destroyed || Math.hypot(st.x - px, st.y - py) > 120) &&
+          G.vehicles.every((v) => v.destroyed || Math.hypot(v.x - px, v.y - py) > 120);
         let stash = null;
-        for (let dx = 2; dx < 7 && !stash; dx++) {
-          if (api.canPlace('stash', stx + dx, sty).ok) stash = api.placeStructure('stash', stx + dx, sty);
+        for (let r = 2; r < 7 && !stash; r++) {
+          for (const [dx, dy] of [[r, 0], [-r, 0], [0, r], [0, -r]]) {
+            const tx = stx + dx, ty = sty + dy;
+            const cx = tx * 32 + 16, cy = ty * 32 + 16;
+            // Where the player will stand: 40px back toward them.
+            const sx = cx - Math.sign(dx) * 40, sy = cy - Math.sign(dy) * 40;
+            if (!nothingElseInReach(cx, cy) || !nothingElseInReach(sx, sy)) continue;
+            if (!api.canPlace('stash', tx, ty).ok) continue;
+            stash = api.placeStructure('stash', tx, ty);
+            if (stash) break;
+          }
         }
         if (stash) {
-          d.teleport(stash.x - 40, stash.y);
+          // Stand off the stash along whichever axis it was placed on.
+          const offX = stash.x > G.player.x ? -40 : stash.x < G.player.x ? 40 : 0;
+          d.teleport(stash.x + (offX || 0), stash.y + (offX ? 0 : (stash.y > G.player.y ? -40 : 40)));
           await frames(3);
           const hv = api.findInteractable();
           ok('the stash prompt names the rebound key', !!hv && hv.kind === 'stash' && hv.label.includes('Y: take ammo'), hv && hv.label);
@@ -336,7 +356,7 @@
     }
 
     // ------------------------------------------------------- 3. combat -----
-    const open = findOpenSpot(G, 78 * 32, 78 * 32);
+    const open = findOpenSpot(G, 160 * 32, 160 * 32);   // the crossroads at the camp
     d.teleport(open.x, open.y);
     G.enemies.length = 0;
     await frames(2);
@@ -976,6 +996,7 @@
       const turret2 = G.structures.find((s) => s.type === 'turret');
       if (turret2) {
         const tree = [...G.world.propGrid.values()]
+          .filter((q) => q.kind === 'tree' || q.kind === 'pine')
           .sort((a, b) => Math.hypot(a.x - turret2.x, a.y - turret2.y) - Math.hypot(b.x - turret2.x, b.y - turret2.y))[0];
         if (tree && Math.hypot(tree.x - turret2.x, tree.y - turret2.y) < 400) {
           // Put an enemy directly behind that tree, in line with the turret.
@@ -2508,7 +2529,7 @@
       b.send('reliable', d.net.msg.hello('smoke-guest', 'Bex', null));
       await frames(4);
       const welcome = reliable.find((m) => m.t === 'welcome');
-      ok('hello is answered with a welcome carrying the whole world', !!welcome && welcome.world && welcome.world.v === 8 && welcome.world.seed === G.world.seed,
+      ok('hello is answered with a welcome carrying the whole world', !!welcome && welcome.world && welcome.world.v === G.version && welcome.world.seed === G.world.seed,
         welcome ? `v${welcome.world.v}, ${Object.keys(welcome.world.players).length} players in the record` : reliable.map((m) => m.t).join(','));
       const guest = G.players.find((q) => q.netId === (welcome && welcome.n));
       ok('the guest is a real player in the host\'s world', !!guest && !guest.away && guest.name === 'Bex' && guest.id === 'smoke-guest');
@@ -2751,6 +2772,7 @@
     return null;
   }
   window.__placeNear = placeNear;
+  window.__clearOfStructures = clearOfStructures;
 
   /** A tile with no blocked tiles within `n` in any direction — real open ground. */
   function clearOpenPlot(G, n) {
@@ -2765,13 +2787,22 @@
       }
       return true;
     };
-    for (let ty = 8; ty < W - 8; ty += 2) {
-      for (let tx = 8; tx < W - 8; tx += 2) {
-        if (G.world.danger[ty * W + tx] > 2) continue;
-        if (clear(tx, ty)) return { x: tx * 32 + 16, y: ty * 32 + 16 };
+    // The town first — the country around it is forest and farmland, and a
+    // plot in the woods is one the survivors and cars under test get stuck in.
+    for (const [x0, x1] of townFirst(W)) {
+      for (let ty = x0; ty < x1; ty += 2) {
+        for (let tx = x0; tx < x1; tx += 2) {
+          if (G.world.danger[ty * W + tx] > 2) continue;
+          if (clear(tx, ty)) return { x: tx * 32 + 16, y: ty * 32 + 16 };
+        }
       }
     }
-    return { x: 80 * 32, y: 80 * 32 };
+    return { x: 160 * 32, y: 160 * 32 };
+  }
+
+  /** Scan ranges: the central half of the map, then all of it. */
+  function townFirst(W) {
+    return [[Math.floor(W / 4) + 8, Math.floor((3 * W) / 4) - 8], [8, W - 8]];
   }
 
   /** A clear plot that still has unlooted containers within scavenging range. */
@@ -2788,33 +2819,64 @@
       return true;
     };
     const loot = G.world.containers.filter((c) => !c.looted && !c.hidden);
-    for (let ty = 8; ty < W - 8; ty += 2) {
-      for (let tx = 8; tx < W - 8; tx += 2) {
-        if (G.world.danger[ty * W + tx] > 2) continue;
-        if (!clear(tx, ty)) continue;
-        const px = tx * 32 + 16, py = ty * 32 + 16;
-        if (loot.some((c) => Math.hypot(c.x - px, c.y - py) < 600)) return { x: px, y: py };
+    for (const [x0, x1] of townFirst(W)) {
+      for (let ty = x0; ty < x1; ty += 2) {
+        for (let tx = x0; tx < x1; tx += 2) {
+          if (G.world.danger[ty * W + tx] > 2) continue;
+          if (!clear(tx, ty)) continue;
+          const px = tx * 32 + 16, py = ty * 32 + 16;
+          if (loot.some((c) => Math.hypot(c.x - px, c.y - py) < 600)) return { x: px, y: py };
+        }
       }
     }
     return clearOpenPlot(G, n);
   }
 
-  /** Open ground well away from any player-built structure. */
-  function clearOfStructures(G, x, y, margin = 260) {
+  /**
+   * Open ground well away from any player-built structure — and genuinely
+   * open, not merely unblocked at its centre.
+   *
+   * The sections that use this arena spawn something a few hundred pixels away
+   * and expect it to *walk* or *drive* in. There is no pathfinding, so a
+   * single tree in that corridor stops the thing under test and the assertion
+   * fails for a reason that has nothing to do with what it measures. The town
+   * used to have big enough clearings for the old ±24px check to be lucky;
+   * on the 320-tile map it stopped being lucky.
+   *
+   * `margin` is how far from any standing structure the spot has to be — the
+   * repair section needs more than the default, because it is measuring what
+   * a repair-all does and must not catch an unrelated wall.
+   */
+  function clearOfStructures(G, x, y, margin = 260, reach = 480) {
     const api = window.DEADLINE.api;
     const far = (px, py) => G.structures.every((s) =>
       s.destroyed || Math.hypot(s.x - px, s.y - py) > margin);
-    for (let r = 300; r < 1400; r += 40) {
-      for (let a = 0; a < 20; a++) {
-        const ang = (a / 20) * Math.PI * 2;
-        const px = x + Math.cos(ang) * r;
-        const py = y + Math.sin(ang) * r;
-        if (px < 200 || py < 200 || px > G.world.w * 32 - 200 || py > G.world.h * 32 - 200) continue;
-        if (api.solidPx(px, py)) continue;
-        if (api.solidPx(px + 24, py) || api.solidPx(px - 24, py)) continue;
-        if (api.solidPx(px, py + 24) || api.solidPx(px, py - 24)) continue;
-        if (!far(px, py)) continue;
-        return { x: px, y: py };
+    // A corridor either side, wide enough for a walker's drift.
+    const openArena = (px, py) => {
+      for (let dx = -reach; dx <= reach; dx += 24) {
+        for (let dy = -72; dy <= 72; dy += 24) {
+          if (api.solidPx(px + dx, py + dy)) return false;
+        }
+      }
+      return true;
+    };
+    const lim = G.world.w * 32;
+    // Strict first, then the old loose check, so a map with no corridor that
+    // wide still returns something rather than falling back to the caller's
+    // own position.
+    for (const need of [openArena, (px, py) => !api.solidPx(px, py) &&
+      !api.solidPx(px + 24, py) && !api.solidPx(px - 24, py) &&
+      !api.solidPx(px, py + 24) && !api.solidPx(px, py - 24)]) {
+      for (let r = 300; r < 2600; r += 40) {
+        for (let a = 0; a < 20; a++) {
+          const ang = (a / 20) * Math.PI * 2;
+          const px = x + Math.cos(ang) * r;
+          const py = y + Math.sin(ang) * r;
+          if (px < 200 || py < 200 || px > lim - 200 || py > lim - 200) continue;
+          if (!need(px, py)) continue;
+          if (!far(px, py)) continue;
+          return { x: px, y: py };
+        }
       }
     }
     return { x, y };

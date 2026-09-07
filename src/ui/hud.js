@@ -385,7 +385,7 @@ function drawThreat(ctx, W, H) {
 
 // ------------------------------------------------------------- resources -----
 
-const STRIP_IDS = ['wood', 'scrap', 'cloth', 'elec', 'med', 'parts', 'mil', 'fuel'];
+const STRIP_IDS = ['wood', 'sticks', 'stone', 'fiber', 'scrap', 'cloth', 'elec', 'med', 'parts', 'mil', 'fuel'];
 
 function drawResourceStrip(ctx, W, H) {
   const p = G.player;
@@ -1293,15 +1293,44 @@ function drawCraftPanel(ctx, W, H) {
     listTop = by + bh + 10;
   }
 
+  // There are more recipes than the panel can show, and the ones that fell off
+  // the end were every Workbench II item — so the list scrolls, exactly as the
+  // survivor roster does. Without this a full recipe book silently hides its
+  // own top tier and no gun can be crafted at all.
   const list = RECIPES;
   const cols = 2;
   const cw = (w - 50) / cols;
   const chh = 46;
+  const rowH = chh + 6;
+  const listH = y + h - 12 - listTop;
+  const rows = Math.max(1, Math.floor(listH / rowH));
+  const perPage = rows * cols;
+  const maxScroll = Math.max(0, Math.ceil(list.length / cols) - rows);
+
+  if (inside(x + 20, listTop, w - 40, listH) && Input.wheel !== 0) {
+    G.ui.craftScroll = clamp((G.ui.craftScroll || 0) + Input.wheel, 0, maxScroll);
+  }
+  const scrollRow = clamp(G.ui.craftScroll || 0, 0, maxScroll);
+  G.ui.craftScroll = scrollRow;
+
+  const first = scrollRow * cols;
+  const shown = list.slice(first, first + perPage);
+
+  if (maxScroll > 0) {
+    ctx.font = '10px "Courier New", monospace';
+    ctx.fillStyle = C.dim;
+    ctx.textAlign = 'right';
+    ctx.fillText(
+      `showing ${first + 1}-${Math.min(list.length, first + shown.length)} of ${list.length}  ·  scroll for more`,
+      x + w - 20, listTop - 6,
+    );
+    ctx.textAlign = 'left';
+  }
+
   let i = 0;
-  for (const r of list) {
+  for (const r of shown) {
     const cx = x + 20 + (i % cols) * (cw + 10);
-    const cy = listTop + Math.floor(i / cols) * (chh + 6);
-    if (cy + chh > y + h - 12) break;
+    const cy = listTop + Math.floor(i / cols) * rowH;
     i++;
 
     const st = craftStatus(r, tier);
@@ -1350,8 +1379,11 @@ function drawMapPanel(ctx, W, H) {
   ctx.textAlign = 'center';
   for (const l of world.locations) {
     const [lx, ly, lw, lh] = l.rect;
-    const cx = mx((lx + lw / 2) * TILE);
-    const cy = my((ly + lh / 2) * TILE);
+    // A district the size of the forest labels itself off-centre so the
+    // places inside it stay readable.
+    const [ltx, lty] = l.label || [lx + lw / 2, ly + lh / 2];
+    const cx = mx(ltx * TILE);
+    const cy = my(lty * TILE);
     ctx.strokeStyle = l.discovered ? 'rgba(180,210,150,0.5)' : 'rgba(120,130,110,0.28)';
     ctx.lineWidth = 1;
     ctx.strokeRect(mx(lx * TILE), my(ly * TILE), lw * TILE * sc, lh * TILE * sc);

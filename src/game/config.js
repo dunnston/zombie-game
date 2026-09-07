@@ -2,14 +2,15 @@
 // Pure data + pure helpers, so the balance tests can import it under Node.
 
 export const TILE = 32;
-export const WORLD_TILES = 160;
-export const WORLD_SIZE = TILE * WORLD_TILES; // 5120px square
+export const WORLD_TILES = 320;
+export const WORLD_SIZE = TILE * WORLD_TILES; // 10240px square
 
 // ---------------------------------------------------------------- terrain ---
 
 export const T = {
   GRASS: 0, ROAD: 1, SIDEWALK: 2, DIRT: 3, FLOOR_WOOD: 4,
   WALL: 5, WATER: 6, RUBBLE: 7, LOT: 8, FLOOR_TILE: 9, GRAVEL: 10,
+  FIELD: 11, SAND: 12, FENCE: 13,
 };
 
 export const TERRAIN = {
@@ -24,9 +25,16 @@ export const TERRAIN = {
   [T.LOT]:        { a: '#313236', b: '#3a3b4064' },
   [T.FLOOR_TILE]: { a: '#54544f', b: '#5d5d5764' },
   [T.GRAVEL]:     { a: '#3e3d38', b: '#4a4941aa' },
+  [T.FIELD]:      { a: '#4b3a26', b: '#5a4630aa' },   // tilled farmland
+  [T.SAND]:       { a: '#6e6449', b: '#7c7255aa' },   // river banks and shores
+  [T.FENCE]:      { a: '#38472a', b: '#31402552' },   // grass under a rail fence
 };
 
-export const SOLID_TILES = new Set([T.WALL, T.WATER]);
+export const SOLID_TILES = new Set([T.WALL, T.WATER, T.FENCE]);
+
+// Solid to feet, not to bullets: you can shoot across a river or over a farm
+// fence, you just cannot walk there. Walls and trees still stop rounds.
+export const SHOOT_OVER = new Set([T.WATER, T.FENCE]);
 
 // -------------------------------------------------------------- resources ---
 
@@ -35,6 +43,10 @@ export const SOLID_TILES = new Set([T.WALL, T.WATER]);
 // `stack` is how many fit in one inventory slot.
 export const RES = {
   wood:   { name: 'Wood',        short: 'WOOD', color: '#a3763f', wt: 1, stack: 50 },
+  // Gathered by hand from the scenery: the materials the first tool is made of.
+  sticks: { name: 'Sticks',      short: 'STCK', color: '#8a6a3c', wt: 0.5, stack: 50 },
+  stone:  { name: 'Stone',       short: 'STNE', color: '#8f8a80', wt: 1.5, stack: 50 },
+  fiber:  { name: 'Fiber',       short: 'FIBR', color: '#9aae5a', wt: 0.3, stack: 50 },
   scrap:  { name: 'Scrap',       short: 'SCRP', color: '#9aa2ab', wt: 1, stack: 50 },
   cloth:  { name: 'Cloth',       short: 'CLTH', color: '#c2a98a', wt: 1, stack: 50 },
   elec:   { name: 'Electronics', short: 'ELEC', color: '#59b8c4', wt: 1, stack: 30 },
@@ -76,6 +88,35 @@ export const WEAPONS = {
   machete: {
     id: 'machete', name: 'Machete', kind: 'melee', dmg: 40, cd: 0.34,
     range: 54, arc: 1.0, knock: 110, bleed: true, color: '#cfd6dd',
+  },
+  // ------------------------------------------------------------- tools --
+  // All four are made by hand from sticks, stone and fiber. Each is the best
+  // way to get one material and a poor weapon; `tool` marks them so the UI can
+  // say so, `axe`/`pick`/`knife`/`hammer` are what the game actually asks for.
+  axe: {
+    id: 'axe', name: 'Hatchet', kind: 'melee', dmg: 30, cd: 0.52,
+    range: 48, arc: 0.9, knock: 130, tool: true, axe: true, chopMul: 2.4,
+    color: '#b08a5a',
+  },
+  pick: {
+    id: 'pick', name: 'Stone Pickaxe', kind: 'melee', dmg: 26, cd: 0.62,
+    range: 50, arc: 0.9, knock: 150, tool: true, pick: true, chopMul: 2.2,
+    toolMul: 2.4, color: '#9a9088',
+  },
+  knife: {
+    id: 'knife', name: 'Stone Knife', kind: 'melee', dmg: 19, cd: 0.28,
+    range: 40, arc: 0.8, knock: 60, bleed: true, tool: true, knife: true,
+    chopMul: 1.5, color: '#c2b8a6',
+  },
+  scythe: {
+    id: 'scythe', name: 'Scythe', kind: 'melee', dmg: 24, cd: 0.46,
+    range: 62, arc: 1.6, knock: 80, bleed: true, tool: true, scythe: true,
+    chopMul: 2.0, toolMul: 2.2, color: '#b9b3a2',
+  },
+  hammer: {
+    id: 'hammer', name: 'Stone Hammer', kind: 'melee', dmg: 36, cd: 0.72,
+    range: 46, arc: 1.2, knock: 240, tool: true, hammer: true, chopMul: 1.8,
+    structureMul: 0.8, color: '#8a8078',
   },
   sledge: {
     id: 'sledge', name: 'Sledgehammer', kind: 'melee', dmg: 78, cd: 0.86,
@@ -223,6 +264,14 @@ export const STRUCTURES = {
     solid: true, tier: 1, threat: 1, wall: true,
     desc: 'The bread-and-butter wall.',
   },
+  // Built from nothing but what the ground gives up. Tougher than wood and
+  // slower to gather — the wall you can raise before you own a single tool
+  // that needs metal.
+  stoneWall: {
+    id: 'stoneWall', name: 'Stone Wall', cost: { stone: 18, sticks: 4 }, hp: 430,
+    solid: true, tier: 1, threat: 1, wall: true,
+    desc: 'Dry stone. No wood, no scrap — just what you carried up the hill.',
+  },
   reinforcedWall: {
     id: 'reinforcedWall', name: 'Reinforced Wall', cost: { wood: 12, scrap: 22 }, hp: 920,
     solid: true, tier: 1, threat: 1.5, wall: true,
@@ -263,7 +312,7 @@ export const STRUCTURES = {
 };
 
 export const BUILD_ORDER = [
-  'woodWall', 'barricade', 'reinforcedWall', 'metalWall', 'gate', 'spike',
+  'woodWall', 'stoneWall', 'barricade', 'reinforcedWall', 'metalWall', 'gate', 'spike',
   'workbench', 'stash', 'bedroll', 'bunk', 'watchtower',
   'generator', 'turret', 'floodlight',
 ];
@@ -273,7 +322,16 @@ export const BUILD_ORDER = [
 
 export const RECIPES = [
   { id: 'bandage', name: 'Bandage x2', bench: 0, cost: { cloth: 4 }, give: { item: 'bandage', n: 2 }, xp: 3 },
-  { id: 'pipe', name: 'Steel Pipe', bench: 1, cost: { wood: 6, scrap: 10 }, give: { weapon: 'pipe' }, xp: 12 },
+  // Hand tools. Nothing here needs a bench, because the bench needs wood and
+  // wood needs the hatchet.
+  { id: 'axe', name: 'Hatchet', bench: 0, cost: { sticks: 3, stone: 3, fiber: 4 }, give: { weapon: 'axe' }, xp: 10 },
+  { id: 'knife', name: 'Stone Knife', bench: 0, cost: { sticks: 2, stone: 3, fiber: 2 }, give: { weapon: 'knife' }, xp: 8 },
+  { id: 'pick', name: 'Stone Pickaxe', bench: 0, cost: { sticks: 4, stone: 4, fiber: 3 }, give: { weapon: 'pick' }, xp: 12 },
+  { id: 'scythe', name: 'Scythe', bench: 0, cost: { sticks: 5, stone: 3, fiber: 4 }, give: { weapon: 'scythe' }, xp: 12 },
+  { id: 'hammer', name: 'Stone Hammer', bench: 0, cost: { sticks: 3, stone: 6, fiber: 2 }, give: { weapon: 'hammer' }, xp: 12 },
+  // Cordage: fiber becomes cloth, but only with a blade to cut it.
+  { id: 'cordage', name: 'Cloth x4', bench: 0, tool: 'knife', cost: { fiber: 10 }, give: { res: { cloth: 4 } }, xp: 4 },
+  { id: 'pipe', name: 'Steel Pipe', bench: 1, hammer: true, cost: { wood: 6, scrap: 10 }, give: { weapon: 'pipe' }, xp: 12 },
   { id: 'ammoP', name: '9mm x24', bench: 1, cost: { scrap: 9, parts: 1 }, give: { res: { ammoP: 24 } }, xp: 6 },
   { id: 'medkit', name: 'Medkit', bench: 1, cost: { med: 5, cloth: 5 }, give: { item: 'medkit', n: 1 }, xp: 8 },
   { id: 'machete', name: 'Machete', bench: 1, cost: { scrap: 24, parts: 1 }, give: { weapon: 'machete' }, xp: 25 },
@@ -285,8 +343,8 @@ export const RECIPES = [
   { id: 'hardHat', name: 'Hard Hat', bench: 1, cost: { scrap: 14 }, give: { armor: 'hardHat' }, xp: 14 },
   { id: 'paddedLegs', name: 'Padded Leggings', bench: 1, cost: { cloth: 24, scrap: 10 }, give: { armor: 'paddedLegs' }, xp: 26 },
   { id: 'ammoS', name: 'Shells x14', bench: 1, cost: { scrap: 12, parts: 1 }, give: { res: { ammoS: 14 } }, xp: 7 },
-  { id: 'lockpick', name: 'Lockpicks x3', bench: 1, cost: { scrap: 8, parts: 1 }, give: { item: 'lockpick', n: 3 }, xp: 6 },
-  { id: 'rationPack', name: 'Ration Pack x8', bench: 1, cost: { med: 2, cloth: 3 }, give: { res: { rations: 8 } }, xp: 5 },
+  { id: 'lockpick', name: 'Lockpicks x3', bench: 1, hammer: true, cost: { scrap: 8, parts: 1 }, give: { item: 'lockpick', n: 3 }, xp: 6 },
+  { id: 'rationPack', name: 'Ration Pack x8', bench: 1, hammer: true, cost: { med: 2, cloth: 3 }, give: { res: { rations: 8 } }, xp: 5 },
   { id: 'fuel', name: 'Fuel x25', bench: 1, cost: { scrap: 10, elec: 4 }, give: { res: { fuel: 25 } }, xp: 6 },
 
   { id: 'sledge', name: 'Sledgehammer', bench: 2, cost: { wood: 18, scrap: 38, parts: 2 }, give: { weapon: 'sledge' }, xp: 45 },
@@ -321,7 +379,7 @@ export const LOOT = {
   toolbox: [
     { id: 'scrap', min: 6, max: 14, w: 34 }, { id: 'wood', min: 8, max: 18, w: 30 },
     { id: 'parts', min: 1, max: 2, w: 16 }, { id: 'elec', min: 1, max: 3, w: 12 },
-    { id: 'weapon:pipe', min: 1, max: 1, w: 6 },
+    { id: 'weapon:pipe', min: 1, max: 1, w: 6 }, { id: 'weapon:axe', min: 1, max: 1, w: 5 },
   ],
   shelf: [
     { id: 'rations', min: 4, max: 10, w: 32 },
@@ -368,6 +426,12 @@ export const LOOT = {
     { id: 'mil', min: 1, max: 3, w: 10 },
   ],
   fuelPump: [{ id: 'fuel', min: 12, max: 26, w: 100 }],
+  fuelDrum: [{ id: 'fuel', min: 8, max: 18, w: 70 }, { id: 'scrap', min: 2, max: 6, w: 30 }],
+  // A stack of felled timber: the lumber camp's reason to exist.
+  logPile: [
+    { id: 'wood', min: 12, max: 24, w: 64 }, { id: 'scrap', min: 1, max: 3, w: 14 },
+    { id: 'cloth', min: 1, max: 3, w: 12 }, { id: 'parts', min: 1, max: 1, w: 10 },
+  ],
   // Palletised stock: bulk building material rather than anything personal.
   crate: [
     { id: 'wood', min: 8, max: 18, w: 30 },
@@ -462,6 +526,7 @@ export const LOOT = {
     { id: 'wood', min: 5, max: 12, w: 22 },
     { id: 'weapon:pipe', min: 1, max: 1, w: 6 },
     { id: 'weapon:machete', min: 1, max: 1, w: 4 },
+    { id: 'weapon:axe', min: 1, max: 1, w: 8 },
   ],
   displaycase: [
     { id: 'elec', min: 4, max: 10, w: 34 },
@@ -491,6 +556,8 @@ export const CONTAINERS = {
   militaryCrate:{ table: 'militaryCrate', rolls: [3, 4], sprite: 'milcrate', label: 'Military Crate' },
   hospitalCrate:{ table: 'hospitalCrate', rolls: [2, 4], sprite: 'medcab', label: 'Supply Cabinet' },
   fuelPump:     { table: 'fuelPump', rolls: [1, 2], sprite: 'pump', label: 'Fuel Pump' },
+  fuelDrum:     { table: 'fuelDrum', rolls: [1, 2], sprite: 'drum', label: 'Fuel Drum' },
+  logPile:      { table: 'logPile', rolls: [2, 3], sprite: 'logs', label: 'Log Pile' },
 
   bookshelf:    { table: 'bookshelf', rolls: [1, 2], sprite: 'bookshelf', label: 'Bookshelf' },
   dresser:      { table: 'dresser', rolls: [1, 2], sprite: 'dresser', label: 'Dresser' },
@@ -545,6 +612,57 @@ export const FURNISHING = {
   military: [
     ['militaryCrate', 26], ['footlocker', 24], ['gunSafe', 10], ['filing', 8],
     ['desk', 8], ['electronics', 8], ['vending', 4],
+  ],
+
+  // ------------------------------------------------------------ the country --
+  barn: [
+    ['toolrack', 20], ['toolbox', 18], ['crate', 16], ['shelf', 12],
+    ['fuelDrum', 12], ['logPile', 10], ['cabinet', 6], ['kitchen', 6],
+  ],
+  farmstore: [
+    ['shelf', 22], ['toolrack', 16], ['crate', 14], ['vending', 10],
+    ['fuelDrum', 10], ['fridge', 8], ['cabinet', 8], ['toolbox', 8], ['desk', 4],
+  ],
+  // A hunting cabin or a lakeside lodge: someone's bolt-hole, rifle included.
+  cabin: [
+    ['cabinet', 14], ['bookshelf', 12], ['footlocker', 12], ['fridge', 10],
+    ['kitchen', 8], ['wardrobe', 8], ['nightstand', 8], ['toolbox', 8],
+    ['gunSafe', 7], ['shelf', 6],
+  ],
+  lumber: [
+    ['logPile', 30], ['toolrack', 16], ['toolbox', 14], ['crate', 12],
+    ['fuelDrum', 10], ['shelf', 6], ['desk', 6], ['cabinet', 6],
+  ],
+  junk: [
+    ['toolbox', 24], ['crate', 18], ['electronics', 16], ['toolrack', 12],
+    ['fuelDrum', 10], ['shelf', 8], ['filing', 6], ['desk', 6],
+  ],
+
+  // ------------------------------------------------------------- the city --
+  apartment: [
+    ['dresser', 14], ['wardrobe', 12], ['nightstand', 12], ['bookshelf', 10],
+    ['fridge', 10], ['kitchen', 10], ['cabinet', 10], ['vanity', 8],
+    ['desk', 6], ['locker', 4], ['vending', 4],
+  ],
+  office: [
+    ['desk', 26], ['filing', 22], ['electronics', 12], ['vending', 10],
+    ['locker', 8], ['bookshelf', 8], ['cabinet', 8], ['shelf', 6],
+  ],
+  bank: [
+    ['safe', 22], ['filing', 20], ['desk', 18], ['displaycase', 10],
+    ['locker', 10], ['cabinet', 8], ['electronics', 6], ['vending', 6],
+  ],
+  mall: [
+    ['shelf', 20], ['displaycase', 16], ['vending', 14], ['wardrobe', 10],
+    ['pharmacy', 10], ['fridge', 8], ['kitchen', 8], ['electronics', 8], ['cabinet', 6],
+  ],
+  drugstore: [
+    ['pharmacy', 26], ['shelf', 24], ['medcab', 10], ['vending', 10],
+    ['fridge', 10], ['cabinet', 8], ['displaycase', 6], ['desk', 6],
+  ],
+  gunshop: [
+    ['displaycase', 30], ['gunSafe', 22], ['shelf', 14], ['toolrack', 12],
+    ['policeLocker', 8], ['footlocker', 8], ['desk', 6],
   ],
 };
 

@@ -40,7 +40,8 @@ mention it.
 1. Static collision is tile-based in one `Uint8Array`; player structures live in
    a separate destructible map.
 2. Bullets use **terrain-only** collision, so they pass over your own walls.
-   This is deliberate.
+   This is deliberate. Water and fences are the exception the other way: solid
+   to feet, transparent to bullets (`bulletBlocksPx`).
 3. `damage.js` exists to break an import cycle. Route damage through it.
 4. `recomputeStats()` is the **only** source of player stat modifiers. Never
    mutate a stat on purchase.

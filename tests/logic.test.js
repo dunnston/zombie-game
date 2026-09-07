@@ -5,11 +5,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  RES, WEAPONS, ENEMIES, STRUCTURES, RECIPES, LOOT, CONTAINERS, FURNISHING, CONSUMABLES,
+  RES, WEAPONS, ENEMIES, STRUCTURES, RECIPES, LOOT, CONTAINERS, FURNISHING, CONSUMABLES, T,
   BUILD_ORDER, THREAT, RAIDS, PLAYER, TILE, WORLD_TILES,
   bagWeight, xpForLevel, raidSpec, GEAR, GEAR_SLOTS, MAX_GEAR_DR,
 } from '../src/game/config.js';
 import { createWorld, isBlockedTile, dangerAtPx, locationAtPx, propAtTile, removeProp } from '../src/game/world.js';
+import { HARVEST } from '../src/game/combat.js';
 import {
   ATTRS, ATTR_IDS, ATTR_MAX, ATTR_START, PERKS, perksFor, perkStatus,
   canRaiseAttr, recomputeStats, startingAttrs,
@@ -762,7 +763,67 @@ test('the world generates a complete, playable map', () => {
   assert.ok(w.containers.length > 150, `only ${w.containers.length} containers`);
   assert.ok(w.props.length > 400, `only ${w.props.length} props`);
   assert.ok(w.spawnTiles.length > 100, `only ${w.spawnTiles.length} spawn points`);
-  assert.equal(w.locations.length, 9);
+  assert.equal(w.locations.length, 18);
+});
+
+test('the country wraps the town with its own biomes', () => {
+  const w = createWorld(20240917);
+  const count = (t, rect) => {
+    let n = 0;
+    for (let y = rect[1]; y < rect[1] + rect[3]; y++) for (let x = rect[0]; x < rect[0] + rect[2]; x++) if (w.tiles[y * w.w + x] === t) n++;
+    return n;
+  };
+  const rectOf = (id) => w.locations.find((l) => l.id === id).rect;
+  // Farmland is tilled, the lake holds water, the forest is thick with trees.
+  assert.ok(count(T.FIELD, rectOf('farms')) > 800, 'the farms have fields');
+  assert.ok(count(T.WATER, rectOf('lake')) > 500, 'the lake has water in it');
+  assert.ok(count(T.FENCE, rectOf('ranch')) > 60, 'the ranch has a fenced paddock');
+  let pines = 0, forestTrees = 0;
+  for (const p of w.props) {
+    if (p.kind === 'pine') pines++;
+    if ((p.kind === 'pine' || p.kind === 'tree') && p.ty < 62) forestTrees++;
+  }
+  assert.ok(pines > 500, `only ${pines} pines`);
+  assert.ok(forestTrees > 1500, `the forest only has ${forestTrees} trees`);
+  // The river runs the full height of the map, and both bridges cross it.
+  for (let y = 0; y < w.h; y++) {
+    let water = 0;
+    for (let x = 40; x < 90; x++) if (w.tiles[y * w.w + x] === T.WATER) water++;
+    const bridge = (y >= 105 && y <= 110) || (y >= 157 && y <= 163);
+    if (bridge) assert.equal(water, 0, `row ${y} should be a bridge`);
+    else assert.ok(water >= 4, `row ${y} has no river`);
+  }
+});
+
+test('every district and nearly every container can be reached on foot from the camp', () => {
+  const w = createWorld(20240917);
+  const W = w.w;
+  const seen = new Uint8Array(W * W);
+  const q = [[160, 160]];
+  seen[160 * W + 160] = 1;
+  while (q.length) {
+    const [x, y] = q.pop();
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= W) continue;
+      const i = ny * W + nx;
+      if (seen[i] || w.blocked[i]) continue;
+      seen[i] = 1;
+      q.push([nx, ny]);
+    }
+  }
+  // Every location, including the ones across the river.
+  for (const l of w.locations) {
+    const [lx, ly, lw, lh] = l.rect;
+    let n = 0;
+    for (let y = ly; y < ly + lh; y++) for (let x = lx; x < lx + lw; x++) if (seen[y * W + x]) n++;
+    assert.ok(n > 50, `${l.id} is cut off from the camp (${n} reachable tiles)`);
+  }
+  // Every container has a walkable neighbour you can search it from. (Two
+  // corner pieces boxed in by their neighbours are reached diagonally.)
+  const around = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]];
+  const cutOff = w.containers.filter((c) => !around.some(([dx, dy]) => seen[(c.ty + dy) * W + c.tx + dx]));
+  assert.equal(cutOff.length, 0, `unreachable containers: ${cutOff.map((c) => `${c.kind}@${c.tx},${c.ty}`).join(' ')}`);
 });
 
 test('world edges are treated as blocked', () => {
@@ -782,6 +843,12 @@ test('danger rises with distance from the safe districts', () => {
   assert.equal(tierOf('police'), 3);
   assert.equal(tierOf('hospital'), 3);
   assert.equal(tierOf('military'), 4);
+  assert.equal(tierOf('farms'), 1);
+  assert.equal(tierOf('forest'), 2);
+  assert.equal(tierOf('heights'), 3);
+  assert.equal(tierOf('downtown'), 4);
+  // Deep in the forest, well away from the town, is still tier 2.
+  assert.equal(dangerAtPx(w, 20 * TILE, 10 * TILE), 2);
 });
 
 test('every player spawn point is safe, open, low-danger ground', () => {
@@ -805,6 +872,12 @@ test('high-value districts carry their signature loot', () => {
   assert.ok(guns.length >= 8, `police station only has ${guns.length} weapon caches`);
   const meds = w.containers.filter((c) => inLoc(c, 'hospital') && (c.table === 'pharmacy' || c.table === 'hospitalCrate'));
   assert.ok(meds.length >= 10, `hospital only has ${meds.length} medical caches`);
+  const logs = w.containers.filter((c) => inLoc(c, 'lumber') && c.table === 'logPile');
+  assert.ok(logs.length >= 12, `lumber camp only has ${logs.length} log piles`);
+  const safes = w.containers.filter((c) => inLoc(c, 'downtown') && c.table === 'gunSafe');
+  assert.ok(safes.length >= 2, `the bank only has ${safes.length} safes`);
+  const guns2 = w.containers.filter((c) => inLoc(c, 'mall') && (c.table === 'gunSafe' || c.table === 'displaycase'));
+  assert.ok(guns2.length >= 4, `the outfitters only has ${guns2.length} gun cases`);
 });
 
 test('locations are found by world position', () => {
@@ -812,13 +885,13 @@ test('locations are found by world position', () => {
   const l = w.locations.find((x) => x.id === 'police');
   const hit = locationAtPx(w, (l.rect[0] + 2) * TILE, (l.rect[1] + 2) * TILE);
   assert.equal(hit.id, 'police');
-  assert.equal(locationAtPx(w, 2 * TILE, 2 * TILE), null);
+  assert.equal(locationAtPx(w, 60 * TILE, 290 * TILE), null);   // the south-west outskirts
 });
 
 test('chopping a tree frees the tile it was blocking', () => {
   const w = createWorld(20240917);
-  const key = [...w.propGrid.keys()][0];
-  const tree = w.propGrid.get(key);
+  const tree = [...w.propGrid.values()].find((p) => p.kind === 'tree' || p.kind === 'pine');
+  const key = `${tree.tx},${tree.ty}`;
   assert.ok(tree, 'expected at least one harvestable tree');
   assert.equal(isBlockedTile(w, tree.tx, tree.ty), true);
   assert.equal(propAtTile(w, tree.tx, tree.ty), tree);
@@ -827,6 +900,174 @@ test('chopping a tree frees the tile it was blocking', () => {
   assert.equal(isBlockedTile(w, tree.tx, tree.ty), false, 'the tile should be walkable now');
   assert.equal(propAtTile(w, tree.tx, tree.ty), null);
   assert.ok(w.chopped.includes(key), 'the harvest should be recorded for the save file');
+});
+
+test('bushes and rocks are harvestable without blocking the ground', () => {
+  const w = createWorld(20240917);
+  const props = [...w.propGrid.values()];
+  const bush = props.find((p) => p.kind === 'bush');
+  const rock = props.find((p) => p.kind === 'rock');
+  assert.ok(bush && rock, 'expected bushes and rocks in the prop grid');
+  assert.equal(bush.harvest, 'fiber');
+  assert.equal(rock.harvest, 'stone');
+  assert.equal(isBlockedTile(w, bush.tx, bush.ty), false, 'a bush is walk-through');
+  assert.equal(isBlockedTile(w, rock.tx, rock.ty), false, 'a rock is walk-through');
+  // Breaking one must not free a tile something else is blocking.
+  w.blocked[bush.ty * w.w + bush.tx] = 1;
+  removeProp(w, bush);
+  assert.equal(isBlockedTile(w, bush.tx, bush.ty), true, 'removing a bush must not clear an unrelated block');
+  assert.equal(propAtTile(w, bush.tx, bush.ty), null);
+  const trees = props.filter((p) => p.harvest === 'wood');
+  assert.ok(trees.length > 1000 && props.length - trees.length > 500, `${trees.length} trees, ${props.length - trees.length} bushes and rocks`);
+});
+
+test('the hatchet is made by hand from what the scenery gives up', () => {
+  const axe = RECIPES.find((r) => r.id === 'axe');
+  assert.ok(axe && axe.bench === 0, 'the hatchet must be craftable without a workbench');
+  for (const id of Object.keys(axe.cost)) {
+    assert.ok(['sticks', 'stone', 'fiber'].includes(id), `hatchet costs ${id}, which needs an axe or a workbench to get`);
+  }
+  assert.ok(WEAPONS.axe.axe, 'the hatchet is the thing that fells trees');
+  assert.ok(WEAPONS.axe.dmg < WEAPONS.machete.dmg, 'a tool, not the best weapon');
+});
+
+test('every hand tool is craftable from gathered materials alone', () => {
+  const GATHERED = ['sticks', 'stone', 'fiber'];
+  const byId = Object.fromEntries(RECIPES.map((r) => [r.id, r]));
+  for (const id of ['axe', 'pick', 'knife', 'hammer']) {
+    const r = byId[id];
+    assert.ok(r, `${id} has no recipe`);
+    assert.equal(r.bench, 0, `${id} must be craftable without a workbench`);
+    for (const c of Object.keys(r.cost)) {
+      assert.ok(GATHERED.includes(c), `${id} costs ${c}, which cannot be gathered by hand`);
+    }
+    assert.ok(WEAPONS[r.give.weapon].tool, `${id} should be marked a tool`);
+  }
+  // Each tool is the best way to get one material and a poor weapon.
+  assert.ok(WEAPONS.axe.axe && WEAPONS.pick.pick && WEAPONS.knife.knife && WEAPONS.hammer.hammer);
+  for (const id of ['axe', 'pick', 'knife', 'hammer']) {
+    assert.ok(WEAPONS[id].dmg < WEAPONS.machete.dmg, `${id} should not outfight a machete`);
+  }
+});
+
+test('the small scenery is never gated, and the big scenery always is', () => {
+  // The tools are made from what small scenery drops, so gating a loose rock
+  // or a bush behind a tool would deadlock the opening. Every *big* source is
+  // gated, which is the reason to carry the tool at all.
+  for (const k of ['stone', 'fiber']) {
+    assert.ok(!HARVEST[k].needs, `${k} must be gatherable with bare hands`);
+  }
+  assert.equal(HARVEST.wood.needs, 'axe');
+  assert.equal(HARVEST.boulder.needs, 'pick');
+  assert.equal(HARVEST.thicket.needs, 'scythe');
+  // The boosted small source and the gated big source share a tool and a
+  // resource, so the tool has one clear job.
+  assert.equal(HARVEST.stone.boost, 'pick');
+  assert.equal(HARVEST.fiber.boost, 'scythe');
+  assert.equal(HARVEST.boulder.res, HARVEST.stone.res);
+  assert.equal(HARVEST.thicket.res, HARVEST.fiber.res);
+  for (const k of ['stone', 'fiber']) {
+    assert.ok(WEAPONS[HARVEST[k].boost].toolMul > 1, `${k}'s tool should actually yield more`);
+  }
+  // A boulder must be worth the walk over the loose rock beside it.
+  assert.ok(HARVEST.boulder.min > HARVEST.stone.max * 2, 'a boulder should dwarf a rock');
+  assert.ok(HARVEST.thicket.min > HARVEST.fiber.max * 2, 'a thicket should dwarf a bush');
+  // Every gate names a tool that exists and is craftable by hand.
+  const byId = Object.fromEntries(RECIPES.map((r) => [r.id, r]));
+  for (const rule of Object.values(HARVEST)) {
+    if (!rule.needs) continue;
+    const tool = Object.values(WEAPONS).find((wp) => wp[rule.needs]);
+    assert.ok(tool, `nothing has the '${rule.needs}' flag`);
+    assert.equal(byId[tool.id].bench, 0, `${tool.id} must be craftable by hand`);
+  }
+});
+
+test('harvesting never leaves an invisible wall behind', () => {
+  const w = createWorld(20240917);
+  const byKind = (k) => [...w.propGrid.values()].find((p) => p.kind === k);
+  // Anything that claimed its tile must give it back when it is harvested.
+  for (const kind of ['tree', 'pine', 'boulder']) {
+    const prop = byKind(kind);
+    assert.ok(prop, `no ${kind} in the world`);
+    assert.equal(prop.solid, true, `${kind} should record that it claimed its tile`);
+    assert.equal(isBlockedTile(w, prop.tx, prop.ty), true, `${kind} should block`);
+    removeProp(w, prop);
+    assert.equal(isBlockedTile(w, prop.tx, prop.ty), false,
+      `harvesting a ${kind} left its tile blocked — an invisible permanent wall`);
+  }
+  // ...and anything that never claimed one must not free a tile it does not own.
+  for (const kind of ['bush', 'rock', 'thicket']) {
+    const prop = byKind(kind);
+    assert.ok(!prop.solid, `${kind} should not claim its tile`);
+    w.blocked[prop.ty * w.w + prop.tx] = 1;      // something else is standing here
+    removeProp(w, prop);
+    assert.equal(isBlockedTile(w, prop.tx, prop.ty), true,
+      `harvesting a ${kind} cleared a tile that something else was blocking`);
+  }
+});
+
+test('the crafting panel can reach every recipe, including the top tier', () => {
+  // The panel is a fixed-height two-column grid. It used to render whatever
+  // fitted and drop the rest, which silently hid every Workbench II recipe
+  // once the tool recipes were added — no gun could be crafted at all.
+  // These are the panel's own numbers from drawCraftPanel().
+  const PANEL_H = 620, ROW_H = 52, CARD_H = 46, COLS = 2;
+  const listTop = 90;                              // the worst case: bench upgrade row shown
+  const listH = PANEL_H - 12 - listTop;
+  const rows = Math.max(1, Math.floor(listH / ROW_H));
+  const perPage = rows * COLS;
+  const maxScroll = Math.max(0, Math.ceil(RECIPES.length / COLS) - rows);
+  assert.ok(CARD_H <= ROW_H);
+  // Either everything fits, or the list must be scrollable far enough to reach
+  // the last recipe. The panel implements the second.
+  const reachable = (maxScroll * COLS) + perPage;
+  assert.ok(reachable >= RECIPES.length,
+    `only ${reachable} of ${RECIPES.length} recipes are reachable`);
+  const lastBench2 = RECIPES.map((r, i) => [i, r]).filter(([, r]) => r.bench === 2).pop();
+  assert.ok(lastBench2, 'expected Workbench II recipes to exist');
+  assert.ok(lastBench2[0] < reachable, `${lastBench2[1].id} sits past the end of the panel`);
+});
+
+test('the world carries big stone and big fiber, and both block nothing you need', () => {
+  const w = createWorld(20240917);
+  const props = [...w.propGrid.values()];
+  const boulders = props.filter((p) => p.kind === 'boulder');
+  const thickets = props.filter((p) => p.kind === 'thicket');
+  assert.ok(boulders.length > 80, `only ${boulders.length} boulders`);
+  assert.ok(thickets.length > 80, `only ${thickets.length} thickets`);
+  assert.equal(boulders[0].harvest, 'boulder');
+  assert.equal(thickets[0].harvest, 'thicket');
+  // A boulder is an obstacle; a thicket is cover you can stand in.
+  assert.ok(boulders.every((p) => isBlockedTile(w, p.tx, p.ty)), 'boulders should block');
+  assert.ok(thickets.every((p) => !isBlockedTile(w, p.tx, p.ty)), 'thickets should not block');
+  // They belong to the wild, not to the middle of town.
+  const inTown = (p) => p.tx >= 86 && p.ty >= 86 && p.tx < 234 && p.ty < 234;
+  assert.ok(boulders.filter(inTown).length < boulders.length * 0.5, 'boulders belong outside town');
+});
+
+test('a stone wall can be raised from gathered material only', () => {
+  const wall = STRUCTURES.stoneWall;
+  assert.ok(wall && wall.wall && wall.solid);
+  for (const c of Object.keys(wall.cost)) {
+    assert.ok(['stone', 'sticks', 'fiber'].includes(c), `stone wall costs ${c}`);
+  }
+  assert.ok(wall.hp > STRUCTURES.woodWall.hp, 'stone should be tougher than wood');
+  assert.ok(wall.hp < STRUCTURES.reinforcedWall.hp, 'but not tougher than reinforced');
+  assert.ok(BUILD_ORDER.includes('stoneWall'));
+});
+
+test('the hammer stands in for a bench only on simple work', () => {
+  const hammered = RECIPES.filter((r) => r.hammer);
+  assert.ok(hammered.length > 0, 'the hammer should unlock something');
+  for (const r of hammered) {
+    assert.equal(r.bench, 1, `${r.id} — the hammer must never reach Workbench II`);
+    assert.ok(!r.give.weapon || WEAPONS[r.give.weapon].kind !== 'gun',
+      `${r.id} — a hammer must not make a gun`);
+  }
+  // Cordage turns fiber into cloth, but needs a blade.
+  const cord = RECIPES.find((r) => r.id === 'cordage');
+  assert.equal(cord.tool, 'knife');
+  assert.deepEqual(Object.keys(cord.cost), ['fiber']);
 });
 
 test('world generation is deterministic for a seed', () => {

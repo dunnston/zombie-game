@@ -494,6 +494,33 @@ role-transition on the client — join, leave, host gone, pause — needs a hook
 the suite can call in one browser; `client.hostGone()` is exposed for exactly
 that.
 
+### Render the map before you trust it
+
+The 320-tile generator was checked first under Node: a script that dumps the
+tiles to a PNG, floods from the camp, and lists every container without a
+walkable neighbour. Before a browser frame was drawn it had found three rooms
+in the *old* town that had been sealed since PR #1 (the four-room partition
+could put both gaps in the far half), and a two-tile apartment cell that two
+wardrobes could close. Screenshots of each district came after, for the look.
+
+**Rule:** for anything spatial, assert reachability as an outcome. "Every
+container can be reached from the camp" is now a Node test; it would have
+caught the old sealed rooms on day one.
+
+### An arena is the corridor, not the centre tile
+
+Two co-op assertions failed on the bigger map — "enemies go for the nearest
+player" measured a walker closing 254 -> 236px when it wanted 20px of progress
+minimum. Nothing about enemy targeting had changed. The arena helper checked
+that its chosen spot was unblocked at the centre and ±24px, then the section
+spawned a walker 420px east and waited for it to walk in; on the old map the
+town's clearings happened to be big enough for that to work, and on the new one
+they are not. There is no pathfinding, so a single tree ends the run.
+
+**Rule:** when a test spawns something at a distance and waits for it to arrive,
+the assertion depends on the whole corridor, not the spot. Check what the test
+actually needs to be empty.
+
 ## Round 8 — structure repair
 
 ### A feature nobody can reach is not shipped

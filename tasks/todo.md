@@ -1,6 +1,34 @@
 # tasks/todo.md
 
-## Current round — structure repair  (branch `claude/structure-repair-mechanic-lprca4`)
+## Current round — the map expansion
+
+Owner, 2026-09-06: "I want to make the current map a lot bigger. I want to add
+a more rural area, a city area, a forest area, maybe a river and a pond."
+
+- [x] 160 → 320 tiles; the town shifted to (80, 80) with its layout intact
+- [x] The Marrow river down the west side, two bridges, sand banks, reeds
+- [x] Loon Lake (lodge, boathouse, jetty), a town pond, a farm pond, a stock pond
+- [x] Farms and ranch: fields, barns, silos, hay, paddock fences, a feed store
+- [x] Forest: pines, a lumber camp with log piles, four hunting cabins, trails
+- [x] City: Crown Heights apartments, Downtown towers + bank + plaza + garage,
+      Galleria Mall + drugstore + outfitters, streets choked with wrecks
+- [x] Junkyard and orchard in the south
+- [x] Bullets pass over water and fences (`bulletBlocksPx`)
+- [x] New game starts by the Roadside Camp
+- [x] Sealed rooms fixed (the old four-room partition and furniture in doorways)
+- [x] Save → v9; Node tests for biomes, danger tiers and reachability
+- [x] Both suites green; raid harness indices 1–3 in range
+- [x] Gathering: sticks, stone, fiber from bushes and rocks; the hand-crafted
+      Hatchet gates trees (owner, same day)
+- [x] Hand tools: Stone Knife, Stone Pickaxe and Stone Hammer beside the
+      Hatchet, all bench-0; knife and pickaxe double their material's yield;
+      knife unlocks Cordage (fiber -> cloth); hammer is a bench for simple
+      work; stone builds a Stone Wall (owner, same day)
+- [x] Boulders (pickaxe-gated) and thickets (scythe-gated): every material has
+      a hand source and a big gated source worth ~3x (owner, same day)
+- [ ] The owner walks it
+
+## Previous round — structure repair
 
 Owner, 2026-09-07: "I want to add the ability to repair structures that the
 zombies damaged." Repair already existed as a build-mode card — one that a

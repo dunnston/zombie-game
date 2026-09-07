@@ -23,14 +23,36 @@ function entryIdFor(id) {
   return id;
 }
 
-/** Recipes visible at the player's current bench access level. */
-export function visibleRecipes(benchTier) {
-  return RECIPES.filter((r) => r.bench <= benchTier);
+/**
+ * Recipes visible at the player's current bench access level. A Stone Hammer
+ * in the pack shows the simple bench-1 work too, so the tool advertises what
+ * it is for instead of the list silently growing when you happen to look.
+ */
+export function visibleRecipes(benchTier, p = G.player) {
+  const hammer = p && hasTool(p, 'hammer');
+  return RECIPES.filter((r) => r.bench <= benchTier || (r.hammer && hammer && r.bench <= 1));
+}
+
+/** Whether the player is carrying a tool with the given flag (`knife`, `hammer`). */
+export function hasTool(p, flag) {
+  for (const c of [p.hotbar, p.bag]) {
+    for (const s of c.slots) {
+      if (s && WEAPONS[s.id] && WEAPONS[s.id][flag]) return true;
+    }
+  }
+  return false;
 }
 
 export function craftStatus(r, benchTier, p = G.player) {
-  if (r.bench > benchTier) {
+  // A Stone Hammer is a workbench for simple work — the recipes marked
+  // `hammer` are the ones you could plausibly do on a flat rock. It never
+  // reaches Workbench II, and it never unlocks a gun.
+  const bench = r.hammer && hasTool(p, 'hammer') ? Math.max(benchTier, 1) : benchTier;
+  if (r.bench > bench) {
     return { ok: false, reason: r.bench === 1 ? 'Needs a Workbench' : 'Needs Workbench II' };
+  }
+  if (r.tool && !hasTool(p, r.tool)) {
+    return { ok: false, reason: `Needs a ${WEAPONS[r.tool] ? WEAPONS[r.tool].name : r.tool}` };
   }
   // Duplicates are allowed now that gear and guns are ordinary items you can
   // carry, drop, stash or hand to the next respawn. What limits you is space —
