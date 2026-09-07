@@ -2,7 +2,9 @@
 // The player can build literally anywhere in the world — "base" is just
 // wherever their structures happen to be.
 
-import { STRUCTURES, BUILD_ORDER, TILE, THREAT, BENCH_UPGRADE_COST, RES } from './config.js';
+import {
+  STRUCTURES, BUILD_ORDER, TILE, THREAT, BENCH_UPGRADE_COST, RES, DEFAULT_ARMAMENT,
+} from './config.js';
 import {
   G, structAt, addStructure, removeStructure, canAfford, spend, scaledCost, totalRes,
   notify, addRes, addResCapped, takeRes, countRes, baseOwner, presentPlayers, structChanged,
@@ -123,6 +125,9 @@ export function makeStructure(type, tx, ty, hpMul = 1) {
     // which of your three stashes the rations are in. Everything else with
     // `store` gets its own container.
     store: def.store ? (type === 'stash' ? G.stash : makeSlots(def.store)) : null,
+    // Which armament a manned tower is set to. Arrows until told otherwise,
+    // so a tower is never a thing you built that does nothing.
+    arm: def.post === 'sniper' ? DEFAULT_ARMAMENT : null,
   };
   return addStructure(s);
 }

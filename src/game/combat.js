@@ -21,6 +21,7 @@ import { spawnPickup } from './loot.js';
 import { addXp } from './progression.js';
 import { emit } from '../net/events.js';
 import { makeNoise, alertEnemies, NOISE } from './noise.js';
+import { ignite } from './fire.js';
 
 const scratch = [];
 
@@ -47,6 +48,10 @@ export function spawnBullet(x, y, angle, opts) {
     // The player object for a player's shot, or a tag for anything automated.
     owner: opts.owner || null,
     crit: opts.crit || false,
+    // Tower armaments. `burns` sets what it hits alight; `splash` is a radius
+    // that catches everything around the impact for a share of the damage.
+    burns: !!opts.burns,
+    splash: opts.splash || 0,
   });
 }
 
@@ -84,6 +89,8 @@ export function updateBullets(dt) {
         if (dist2(b.x, b.y, e.x, e.y) > rr * rr) continue;
 
         damageEnemy(e, b.dmg, { fromX: b.px, fromY: b.py, knock: b.knock, crit: b.crit, source: b.owner });
+        if (b.burns) ignite(e);
+        if (b.splash > 0) splashDamage(b, e);
         sfx('bulletHit');
         if (b.pierce > 0) {
           b.pierce--;
@@ -340,6 +347,28 @@ function chopProp(p, w, dmg) {
     addXp(p, rule.xp || 2);
   }
   return true;
+}
+
+/**
+ * A cannon round catches everything around where it landed for a share of the
+ * damage. The direct hit has already been paid, so the target is skipped.
+ */
+function splashDamage(b, hit) {
+  const r = b.splash;
+  G.spatial.query(b.x, b.y, r, scratch);
+  for (const e of scratch) {
+    if (e.dead || e === hit) continue;
+    const d2 = dist2(b.x, b.y, e.x, e.y);
+    if (d2 > r * r) continue;
+    // Full damage at the centre, a third at the edge.
+    const falloff = 1 - (Math.sqrt(d2) / r) * 0.66;
+    damageEnemy(e, b.dmg * falloff, {
+      fromX: b.x, fromY: b.y, knock: b.knock * 0.5, source: b.owner,
+    });
+    if (b.burns) ignite(e);
+  }
+  FX.ring(b.x, b.y, 6, r, 0.32, '#ffb45a', 3);
+  FX.debris(b.x, b.y, 10, '#a0764a');
 }
 
 // --------------------------------------------------------------------- guns --

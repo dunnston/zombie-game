@@ -174,6 +174,11 @@ function onReliable(m) {
         if (c) restoreSlots(c, rec.slots || []);
       }
       break;
+    case 'armaments': {
+      G.armaments = {};
+      for (const id of m.list || []) G.armaments[id] = true;
+      break;
+    }
     case 'inv': if (G.player) restorePlayerRecord(G.player, m.rec, { keepPosition: true }); break;
     case 'bullet':
       spawnBullet(m.x, m.y, m.a, { speed: m.sp, dmg: 0, life: m.lf, color: m.c, size: m.sz, owner: 'remote' });
@@ -221,6 +226,7 @@ function upsertStructure(rec) {
   s.open = !!rec.open; s.tier = rec.tier || 1; s.fuel = rec.fuel || 0; s.ammo = rec.ammo || 0;
   s.on = rec.on !== false; s.active = !!rec.active; s.running = !!rec.running; s.powered = !!rec.powered;
   s.aim = rec.aim || s.aim || 0;
+  if (rec.arm) s.arm = rec.arm;
   if (rec.destroyed) { s.destroyed = true; removeStructure(s); }
 }
 

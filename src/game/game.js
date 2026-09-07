@@ -3,6 +3,7 @@
 
 import {
   TILE, PLAYER, THREAT, STRUCTURES, CAMERA, WEAPONS, RECIPES, GEAR, GEAR_SLOTS, STASH_SLOTS,
+  ARMAMENTS, DEFAULT_ARMAMENT,
 } from './config.js';
 import {
   G, notify, structAtPx, solidPx, shake, addRes, addResCapped, countRes, pointerOverHud,
@@ -68,6 +69,7 @@ import { updateClient, sendIdleIntent } from '../net/client.js';
 import { emit } from '../net/events.js';
 import { structChanged, netHooks, equippedLight } from './state.js';
 import { makeNoise, NOISE } from './noise.js';
+import { updateFire, resetFires, ignite, igniteProp, FIRE } from './fire.js';
 import { updateFX, clearFX } from '../core/particles.js';
 import * as FX from '../core/particles.js';
 // Only UI keys are read here — panels, build mode, pause. Everything the
@@ -129,6 +131,8 @@ export function newGame(seed = 20240917) {
   G.rationDebt = 0;
   initClock();
   G.stash = makeSlots(STASH_SLOTS);
+  G.armaments = {};
+  resetFires();
   G.benchTier = 0;
   G.threat = 0;
   G.threatTier = 0;
@@ -370,6 +374,14 @@ export function findInteractable(p = G.player) {
           ? `Switch off  (${Math.round(s.fuel)}/${s.def.fuelMax} fuel)`
           : `Refuel and start  (${Math.round(s.fuel)}/${s.def.fuelMax})`,
       };
+    } else if (s.def.post === 'sniper') {
+      bestD = d;
+      const crew = G.survivors.find((q) => !q.dead && q.tower === s);
+      const arm = ARMAMENTS[s.arm || DEFAULT_ARMAMENT];
+      best = {
+        kind: 'tower', ref: s,
+        label: `${s.def.name}: ${arm.name}${crew ? '' : '  ·  nobody posted'}`,
+      };
     } else if (s.type === 'bedroll') {
       bestD = d;
       best = { kind: 'bedroll', ref: s, label: p.spawnStructure === s ? 'Respawn point (active)' : 'Set as respawn point' };
@@ -501,6 +513,10 @@ export function beginInteract(p, target) {
       p.reviving = { target: target.ref, t: 0, dur: PLAYER.reviveTime };
       sfx('ui');
       break;
+    case 'tower':
+      // Opening the screen is local UI; buying and selecting go through act.*.
+      if (isLocal(p)) { G.ui.towerRef = target.ref; setPanel('tower'); }
+      break;
     case 'store':
       // Opening a container is a local screen, not a change to the world, so
       // it does not go through act.* — the moves made inside it do.
@@ -566,6 +582,7 @@ function finishSearch(p) {
 function setPanel(name) {
   if ((G.ui.panel === 'inv' || G.ui.panel === 'store') && name !== G.ui.panel) cancelDrag();
   if (name !== 'store') G.ui.storeRef = null;
+  if (name !== 'tower') G.ui.towerRef = null;
   G.ui.panel = name;
   sfx('ui');
 }
@@ -796,7 +813,7 @@ export function update(dt) {
   // The controls panel is capturing a key: nothing else may read the keyboard.
   const rebinding = G.ui.panel === 'controls' && !!G.menu.pendingRebind;
   if (!rebinding) {
-    if (G.ui.panel === 'store' && actTap('interact')) setPanel(null);
+    if ((G.ui.panel === 'store' || G.ui.panel === 'tower') && actTap('interact')) setPanel(null);
     if (actTap('inventory')) { setPanel(G.ui.panel === 'inv' ? null : 'inv'); }
     if (actTap('map')) { setPanel(G.ui.panel === 'map' ? null : 'map'); }
     if (actTap('character')) { setPanel(G.ui.panel === 'char' ? null : 'char'); }
@@ -886,6 +903,9 @@ export function update(dt) {
   updateBullets(dt);
   updateTurrets(dt);
   updateTraps(dt);
+  // After the shooting, so anything set alight this step starts burning now
+  // rather than a frame late.
+  updateFire(dt);
   updateGenerators(dt);
   updateFloodlights();
   updateUpkeep(dt);
@@ -937,7 +957,7 @@ export const api = {
   startRaid, addXp, addRes, countRes, dangerAtPx, solidPx, shake,
   findInteractable, placeStructure, canPlace, spawnEnemy, forceEndRaid,
   visibleRecipes, craft, craftStatus, nearWorkbench, upgradeBench, baseCenter,
-  spawnEntryPickup, RECIPES, makeNoise, NOISE,
+  spawnEntryPickup, RECIPES, makeNoise, NOISE, ignite, igniteProp, FIRE,
   stashDepositAll, stashWithdrawAmmo, depositAll, withdrawSupplies, openStructure,
   grantLoot, rollContainer, spawnPickup, repairStructure, demolishStructure,
   repairCost, repairAll, planRepairAll, damagedStructures, isDamaged, costLabel, REPAIR_ALL_RANGE,

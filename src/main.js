@@ -152,12 +152,19 @@ window.DEADLINE = {
   canvas,
   newGame: (seed) => newGame(seed ?? 20240917),
   setThreat: (v) => { G.threat = v; },
+  // Amounts, not 999s: the stash is 48 slots since v12, and a thousand wood is
+  // twenty of them. Asking for 999 of thirteen things used to fill the stash
+  // with the first four and silently drop the rest — which looked exactly like
+  // "buying an armament is broken".
   giveAll: () => {
     const bulk = {
-      wood: 999, scrap: 999, cloth: 999, elec: 999, med: 999, parts: 999,
-      mil: 999, fuel: 999, battery: 99, ammoP: 999, ammoS: 999, ammoR: 999, arrow: 500,
+      wood: 100, scrap: 100, stone: 100, sticks: 100, fiber: 100, cloth: 100,
+      elec: 60, med: 60, parts: 40, mil: 40, fuel: 40, battery: 40,
+      ammoP: 240, ammoS: 120, ammoR: 180, arrow: 120,
     };
-    for (const [id, n] of Object.entries(bulk)) addRes(G.stash, id, n);
+    let short = 0;
+    for (const [id, n] of Object.entries(bulk)) short += n - addRes(G.stash, id, n);
+    if (short > 0) notify(`Stash full — ${short} units did not fit`, '#d9c46a');
   },
   teleport: (x, y) => {
     G.player.x = x; G.player.y = y;

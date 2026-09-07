@@ -8,6 +8,7 @@ import {
   RES, WEAPONS, ENEMIES, STRUCTURES, RECIPES, LOOT, CONTAINERS, FURNISHING, CONSUMABLES, T,
   BUILD_ORDER, THREAT, RAIDS, PLAYER, TILE, WORLD_TILES,
   bagWeight, xpForLevel, raidSpec, GEAR, GEAR_SLOTS, ARMOR_SLOTS, MAX_GEAR_DR, STASH_SLOTS,
+  ARMAMENTS, ARMAMENT_IDS, DEFAULT_ARMAMENT,
 } from '../src/game/config.js';
 import { createWorld, isBlockedTile, dangerAtPx, locationAtPx, propAtTile, removeProp } from '../src/game/world.js';
 import { HARVEST, chopMultiplier, chopStamCost, canChop } from '../src/game/combat.js';
@@ -41,6 +42,8 @@ import {
 } from '../src/game/saves.js';
 import { LEGACY_KEY, restoreSlots } from '../src/game/save.js';
 import { makeNoise, NOISE } from '../src/game/noise.js';
+import { FIRE, isFlammable } from '../src/game/fire.js';
+import { readFileSync } from 'node:fs';
 
 /** A localStorage stand-in for the Node tests: the same four calls, in memory. */
 function fakeStorage() {
@@ -1339,6 +1342,128 @@ test('stamina is a stat you can raise, in ceiling and in recovery', () => {
   // has to survive a rebuild rather than being mutated on purchase.
   const again = chopStamCost(recomputeStats(woody));
   assert.equal(again, chopStamCost(woody), 'recomputing is idempotent for the chop cost');
+});
+
+// -------------------------------------------------------------- armaments ---
+
+test('every armament is buildable, feedable and describable', () => {
+  assert.ok(ARMAMENT_IDS.length >= 4, 'there is a real choice to make');
+  for (const id of ARMAMENT_IDS) {
+    const a = ARMAMENTS[id];
+    assert.ok(a.name && a.desc, `${id} says what it is`);
+    assert.ok(a.dmg > 0 && a.cd > 0 && a.range > 0, `${id} has sane numbers`);
+    assert.ok(a.noise > 0, `${id} makes some sound`);
+    assert.ok(Object.keys(a.ammo).length > 0, `${id} costs something to fire`);
+    for (const res of Object.keys(a.ammo)) {
+      assert.ok(RES[res], `${id} feeds on '${res}', which is not a resource`);
+    }
+    if (id === DEFAULT_ARMAMENT) continue;
+    assert.ok(a.cost && Object.keys(a.cost).length, `${id} has to be bought`);
+    for (const res of Object.keys(a.cost)) assert.ok(RES[res], `${id} costs '${res}', which is not a resource`);
+  }
+});
+
+test('arrows are free, and everything else is an upgrade', () => {
+  // A tower you built must never be a thing that does nothing. The default is
+  // the one that costs nothing to unlock and almost nothing to feed.
+  assert.equal(ARMAMENTS[DEFAULT_ARMAMENT].cost, null);
+  assert.equal(DEFAULT_ARMAMENT, 'arrows');
+  for (const id of ARMAMENT_IDS) {
+    if (id !== DEFAULT_ARMAMENT) assert.ok(ARMAMENTS[id].cost, `${id} should be bought, not given`);
+  }
+});
+
+test('louder is stronger, which is the whole decision', () => {
+  // The owner's framing: "The trade off is noise level vs effectiveness." So
+  // the ordering by noise has to be an ordering by output too, or the choice
+  // collapses into one obviously-best answer.
+  //
+  // Two armaments buy something other than raw impact, and the measure has to
+  // know that or it punishes them for it:
+  //
+  //   - fire arrows hit SOFTER than plain ones; what they sell is the burn.
+  //   - the cannon is deliberately worse than a sniper rifle one-on-one. It
+  //     is artillery. Its 70px splash is the reason to own it, so it is
+  //     measured against a modest crowd rather than a single walker.
+  //
+  // Measured single-target: arrows 0.80, fire 0.52, sniper 1.12, cannon 1.06.
+  const CROWD = 2.5;                       // a conservative count of extra hits
+  const dps = (a) => (a.dmg * (a.splash ? CROWD : 1)) / a.cd;
+  const ladder = [...ARMAMENT_IDS]
+    .filter((id) => !ARMAMENTS[id].burns)
+    .sort((x, y) => ARMAMENTS[x].noise - ARMAMENTS[y].noise);
+  for (let i = 1; i < ladder.length; i++) {
+    const q = ARMAMENTS[ladder[i - 1]], l = ARMAMENTS[ladder[i]];
+    assert.ok(dps(l) > dps(q),
+      `${l.id} is louder than ${q.id} and must hit harder for it (${dps(l).toFixed(2)} vs ${dps(q).toFixed(2)})`);
+  }
+  // And the quiet end really is quiet: an arrow tower must be quieter than
+  // the auto turret it exists as an alternative to.
+  assert.ok(ARMAMENTS.arrows.noise < NOISE.turret);
+  assert.ok(ARMAMENTS.cannon.noise > NOISE.turret, 'the cannon is the loudest thing you own');
+  // And the cannon is the only one that hits a group, which is what it is for.
+  assert.ok(ARMAMENTS.cannon.splash > 0);
+  for (const id of ARMAMENT_IDS) {
+    if (id !== 'cannon') assert.ok(!ARMAMENTS[id].splash, `${id} hits one thing`);
+  }
+});
+
+// ------------------------------------------------------------------- fire ---
+
+test('fire spreads to zombies and scenery, and never to your base', () => {
+  // The owner chose this explicitly when asked how dangerous fire should be.
+  // Losing your own compound to your own tower would be the kind of surprise
+  // that ends a run, so the absence of a path from a fire to a structure is a
+  // decision — this is the assertion that keeps it one.
+  // Comments stripped first. The first version of this test matched the
+  // sentence in fire.js explaining that it does not touch G.structures, which
+  // is a nicely circular way to fail.
+  const src = readFileSync(new URL('../src/game/fire.js', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/.*$/gm, '');
+  assert.ok(!/G\.structures/.test(src),
+    'fire.js must not touch G.structures — player buildings do not burn, by choice');
+  assert.ok(/G\.enemies/.test(src), 'but zombies do');
+  assert.ok(/propAtTile|isFlammable/.test(src), 'and so does scenery');
+});
+
+test('only the things that should burn are flammable', () => {
+  for (const kind of ['tree', 'pine', 'bush', 'thicket', 'litter']) {
+    assert.ok(isFlammable({ kind }), `${kind} should burn`);
+  }
+  for (const kind of ['rock', 'boulder', 'silo', 'wreck', 'car']) {
+    assert.ok(!isFlammable({ kind }), `${kind} must not burn`);
+  }
+  assert.ok(!isFlammable(null), 'and nothing is not something');
+});
+
+test('a fire is bounded in time and in number', () => {
+  // A pine forest is thousands of trees. A fire with no ceiling would take the
+  // frame rate with it, and one with no lifetime would never go out.
+  assert.ok(FIRE.propLife > 2 && FIRE.propLife < 30, 'a burning tree burns out');
+  assert.ok(FIRE.burnTime > 2 && FIRE.burnTime < 20, 'and so does a burning zombie');
+  assert.ok(FIRE.maxFires > 40 && FIRE.maxFires < 400, `${FIRE.maxFires} concurrent fires is the budget`);
+  assert.ok(FIRE.toEnemyChance > 0 && FIRE.toEnemyChance < 1, 'spread is a chance, not a certainty');
+  assert.ok(FIRE.propSpreadChance < FIRE.toEnemyChance,
+    'a fire should chase a crowd more readily than it eats a forest');
+});
+
+test('the fire armament is the one that burns', () => {
+  assert.ok(ARMAMENTS.firearrows.burns, 'fire arrows set things alight');
+  for (const id of ARMAMENT_IDS) {
+    if (id !== 'firearrows') assert.ok(!ARMAMENTS[id].burns, `${id} must not start fires`);
+  }
+  // It pays for the crowd damage in raw hitting power...
+  assert.ok(ARMAMENTS.firearrows.dmg < ARMAMENTS.arrows.dmg,
+    'a fire arrow hits softer than a plain one — the burn is the damage');
+  assert.ok(ARMAMENTS.firearrows.cd > ARMAMENTS.arrows.cd, '...and in cadence');
+  // ...and it has to be worth it. A full burn is several shots' worth of
+  // damage on its own, before any of it spreads.
+  const burnTotal = FIRE.burnTime * FIRE.burnDps;
+  assert.ok(burnTotal > 30, `a burn is only ${burnTotal} damage — not worth the fuel or the risk`);
+  // It costs more to feed than a plain arrow, or it would simply be better.
+  assert.ok(Object.keys(ARMAMENTS.firearrows.ammo).length > Object.keys(ARMAMENTS.arrows.ammo).length,
+    'fire arrows have to cost more per shot than plain ones');
 });
 
 // ------------------------------------------------------------------ noise ---

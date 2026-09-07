@@ -413,6 +413,67 @@ export const STRUCTURES = {
   },
 };
 
+// ------------------------------------------------------------- armaments ---
+//
+// What the survivor on a Watchtower is shooting. Each is bought once for the
+// whole base and then chosen per tower, so two towers can cover the same
+// approach with different answers.
+//
+// The axis every entry trades along is noise against effectiveness. Arrows
+// are free, weak and almost silent; the cannon flattens a group and brings the
+// district down on you. Fire is the interesting middle: cheap ammunition and
+// crowd damage, at the risk of setting the treeline — and anything standing in
+// it — alight.
+//
+// `dmg`, `cd` and `range` are multipliers on the survivor's own numbers, so a
+// levelled-up crew is better with every armament rather than just with one.
+// `ammo` is drawn from the shared stash, per shot, exactly as 9mm always was.
+
+export const ARMAMENTS = {
+  arrows: {
+    id: 'arrows', name: 'Arrows', order: 0,
+    cost: null,                                  // the default; a tower is never useless
+    dmg: 1.0, cd: 1.25, range: 480, noise: 90,
+    ammo: { arrow: 1 },
+    speed: 780, life: 0.85, knock: 60, pierce: 0, size: 2.6, color: '#c8a878',
+    sfx: 'swing', flash: 0,
+    desc: 'Quiet, cheap, and weak. Nothing hears a tower shooting arrows.',
+  },
+  firearrows: {
+    id: 'firearrows', name: 'Fire Arrows', order: 1,
+    cost: { wood: 20, cloth: 20, fuel: 30, parts: 2 },
+    dmg: 0.75, cd: 1.45, range: 480, noise: 120,
+    ammo: { arrow: 1, fuel: 1 },
+    speed: 720, life: 0.85, knock: 60, pierce: 0, size: 3, color: '#ff9a3a',
+    sfx: 'swing', flash: 0.5, burns: true,
+    desc: 'Sets what it hits alight, and fire spreads. Watch your treeline.',
+  },
+  sniper: {
+    id: 'sniper', name: 'Sniper Rifle', order: 2,
+    cost: { scrap: 70, parts: 12, mil: 6 },
+    dmg: 1.9, cd: 1.7, range: 520, noise: 700,
+    ammo: { ammoR: 1 },
+    speed: 1700, life: 0.55, knock: 110, pierce: 1, size: 2.8, color: '#e8f0c0',
+    sfx: 'rifle', flash: 1.1,
+    desc: 'One shot, one walker. Every district hears it.',
+  },
+  cannon: {
+    id: 'cannon', name: 'Scrap Cannon', order: 3,
+    cost: { scrap: 90, parts: 8, elec: 10 },
+    dmg: 3.4, cd: 3.2, range: 420, noise: 950,
+    ammo: { scrap: 2 },
+    speed: 900, life: 0.5, knock: 260, pierce: 0, size: 4.4, color: '#ffd08a',
+    sfx: 'shotgun', flash: 1.9, splash: 70,
+    desc: 'Flattens a group. The loudest thing you can build.',
+  },
+};
+
+export const ARMAMENT_IDS = Object.keys(ARMAMENTS)
+  .sort((a, b) => ARMAMENTS[a].order - ARMAMENTS[b].order);
+
+/** The one every base starts with, so a manned tower always does something. */
+export const DEFAULT_ARMAMENT = 'arrows';
+
 export const BUILD_ORDER = [
   'woodWall', 'stoneWall', 'barricade', 'reinforcedWall', 'metalWall', 'gate', 'spike',
   'workbench', 'stash', 'chest', 'locker', 'bedroll', 'bunk', 'watchtower',

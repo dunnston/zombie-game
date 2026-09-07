@@ -3,6 +3,7 @@
 
 import {
   RES, WEAPONS, GEAR, GEAR_SLOTS, ARMOR_SLOTS, CONSUMABLES, STRUCTURES, TILE, THREAT, TERRAIN, T,
+  ARMAMENTS, ARMAMENT_IDS, DEFAULT_ARMAMENT,
   RECIPES, BENCH_UPGRADE_COST,
 } from '../game/config.js';
 import { G, countRes, totalRes, canAfford } from '../game/state.js';
@@ -83,6 +84,7 @@ export function drawHUD(ctx, deviceW, deviceH, interactive = true) {
   if (G.ui.panel === 'char') drawCharPanel(ctx, W, H);
   else if (G.ui.panel === 'inv') drawInventoryPanel(ctx, W, H, UI_KIT);
   else if (G.ui.panel === 'store') drawStoragePanel(ctx, W, H, UI_KIT);
+  else if (G.ui.panel === 'tower') drawTowerPanel(ctx, W, H);
   else if (G.ui.panel === 'craft') drawCraftPanel(ctx, W, H);
   else if (G.ui.panel === 'map') drawMapPanel(ctx, W, H);
   else if (G.ui.panel === 'controls') drawControlsPanel(ctx, W, H, () => { G.ui.panel = null; });
@@ -1293,6 +1295,73 @@ function drawPeopleTab(ctx, px, py, pw, ph) {
 }
 
 // ------------------------------------------------------------- craft panel ---
+
+/**
+ * The Watchtower screen: who is up it, and what they are shooting.
+ *
+ * Each armament is bought once for the whole base and then chosen per tower,
+ * so the panel does both jobs in one row — BUY when it is not fitted yet,
+ * SELECT when it is. The noise rating is on the card because noise against
+ * effectiveness is the entire decision.
+ */
+function drawTowerPanel(ctx, W, H) {
+  const t = G.ui.towerRef;
+  if (!t || t.destroyed) { G.ui.panel = null; return; }
+
+  const w = Math.min(560, W - 60), h = Math.min(430, H - 50);
+  const x = (W - w) / 2, y = (H - h) / 2;
+  const crew = G.survivors.find((s) => !s.dead && s.tower === t);
+  panel(ctx, x, y, w, h,
+    `${t.def.name.toUpperCase()}  —  ${primaryLabel('interact')} or ESC to close`);
+
+  ctx.font = '11px "Courier New", monospace';
+  ctx.fillStyle = crew ? C.accent : C.warn;
+  ctx.fillText(
+    crew
+      ? `Manned by ${crew.name} (level ${crew.level})${crew.posted ? '' : ' — on their way up'}`
+      : 'Nobody posted here. Assign a survivor to Sniper on the PEOPLE tab.',
+    x + 20, y + 44,
+  );
+  ctx.fillStyle = C.dim;
+  ctx.fillText('Ammunition comes out of the Supply Stash, a shot at a time.', x + 20, y + 60);
+
+  const cur = t.arm || DEFAULT_ARMAMENT;
+  let by = y + 74;
+  for (const id of ARMAMENT_IDS) {
+    const a = ARMAMENTS[id];
+    const owned = id === DEFAULT_ARMAMENT || !!(G.armaments && G.armaments[id]);
+    const active = cur === id;
+    const ammo = Object.entries(a.ammo).map(([k, n]) => `${n} ${RES[k].short}`).join(' + ');
+    const loud = a.noise >= 700 ? 'DEAFENING' : a.noise >= 300 ? 'LOUD' : a.noise >= 110 ? 'AUDIBLE' : 'QUIET';
+    const label = `${active ? '▶ ' : ''}${a.name}`;
+    const sub = owned
+      ? `${a.desc}   ·   ${ammo} a shot   ·   ${loud}`
+      : `${a.desc}   ·   ${costLabel(a.cost)}`;
+
+    const bw = w - 40;
+    if (button(ctx, x + 20, by, bw - 92, 44, label, {
+      sub, enabled: owned && !active, color: active ? C.accent : C.text,
+    })) {
+      act.setTowerArm(t, id);
+    }
+    if (!owned) {
+      if (button(ctx, x + 20 + bw - 86, by, 86, 44, 'BUY', {
+        enabled: canAfford(a.cost), center: true, color: C.gold,
+      })) act.buyArmament(id);
+    } else {
+      ctx.font = 'bold 11px "Courier New", monospace';
+      ctx.fillStyle = active ? C.accent : C.dim;
+      ctx.textAlign = 'center';
+      ctx.fillText(active ? 'FITTED' : 'READY', x + 20 + bw - 43, by + 26);
+      ctx.textAlign = 'left';
+    }
+    by += 50;
+  }
+
+  ctx.font = '10px "Courier New", monospace';
+  ctx.fillStyle = C.dim;
+  ctx.fillText('An armament is bought once and can then be set on any tower.', x + 20, y + h - 22);
+}
 
 function drawCraftPanel(ctx, W, H) {
   const w = Math.min(720, W - 60), h = Math.min(620, H - 50);

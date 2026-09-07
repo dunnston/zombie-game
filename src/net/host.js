@@ -275,7 +275,9 @@ function syncDynamicStructures() {
   const list = [];
   for (const s of G.structures) {
     if (s.destroyed) continue;
-    if (s.type === 'generator' || s.type === 'turret' || s.type === 'floodlight') list.push(packStructure(s));
+    if (s.type === 'generator' || s.type === 'turret' || s.type === 'floodlight' || s.type === 'watchtower') {
+      list.push(packStructure(s));
+    }
   }
   if (list.length) emit('dyn', { list });
 }

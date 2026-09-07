@@ -44,13 +44,18 @@ function awardKillXp(source, xp) {
  */
 export function damageEnemy(e, dmg, opts = {}) {
   if (e.dead || dmg <= 0) return 0;
-  const { fromX = e.x, fromY = e.y, knock = 0, crit = false, source = null } = opts;
+  const { fromX = e.x, fromY = e.y, knock = 0, crit = false, source = null, noAlert = false } = opts;
 
   e.hp -= dmg;
   e.flash = 0.11;
-  e.aggro = true;
-  e.target = null;              // re-evaluate: something just hurt it
-  e.alertT = 6;
+  // Damage over time asks not to re-alert. A burn ticks several times a second
+  // and without this a burning zombie would have its alert timer and its
+  // target reset every tick for as long as it lived.
+  if (!noAlert) {
+    e.aggro = true;
+    e.target = null;            // re-evaluate: something just hurt it
+    e.alertT = 6;
+  }
   G.stats.damageDealt += dmg;
 
   const dx = e.x - fromX, dy = e.y - fromY;

@@ -15,7 +15,7 @@ import { raiseAttribute, buyPerk } from '../game/progression.js';
 import {
   equipFromBag, unequip, equipBest, moveStack, splitStack, dropStack, dropEquipped, unequipTo, equipFromSlot,
 } from '../game/equipment.js';
-import { assignJob } from '../game/survivors.js';
+import { assignJob, buyArmament, setTowerArmament } from '../game/survivors.js';
 import { RECIPES } from '../game/config.js';
 import { sendCommand } from './client.js';
 
@@ -93,6 +93,14 @@ export const act = {
     if (isClient()) return sendCommand('move', { fc: fromCont, fi: fromIndex, tc: toCont, ti: toIndex, at }), false;
     return moveStack(G.player, fromCont, fromIndex, toCont, toIndex, at);
   },
+  buyArmament(id) {
+    if (isClient()) return sendCommand('buyArm', { id }), false;
+    return buyArmament(String(id), G.player);
+  },
+  setTowerArm(tower, id) {
+    if (isClient()) return sendCommand('towerArm', { tx: tower.tx, ty: tower.ty, id }), false;
+    return setTowerArmament(tower, String(id), G.player);
+  },
   depositAll(at) {
     if (isClient()) return sendCommand('deposit', { at }), 0;
     return depositAll(G.player, storeAt(G.player, at));
@@ -145,6 +153,8 @@ export function executeCommand(p, name, a) {
     case 'unequip': return unequip(p, String(a.slot));
     case 'equipBest': return equipBest(p);
     case 'move': return moveStack(p, String(a.fc), a.fi | 0, String(a.tc), a.ti | 0, tileArg(a.at));
+    case 'buyArm': return buyArmament(String(a.id), p);
+    case 'towerArm': { const s = struct(); return !!s && setTowerArmament(s, String(a.id), p); }
     case 'deposit': return depositAll(p, storeAt(p, tileArg(a.at))) > 0;
     case 'withdraw': return withdrawSupplies(p, storeAt(p, tileArg(a.at))) > 0;
     case 'split': return splitStack(p, String(a.c), a.fi | 0, a.ti | 0);

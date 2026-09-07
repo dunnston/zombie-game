@@ -5,10 +5,12 @@
 // also die permanently — which is the point. A base is worth defending because
 // of who is standing in it, not because of what the walls cost.
 
-import { TILE, RES } from './config.js';
+import {
+  TILE, RES, THREAT, ARMAMENTS, ARMAMENT_IDS, DEFAULT_ARMAMENT,
+} from './config.js';
 import {
   G, moveCircle, notify, unstick, hasTerrainLineOfSight,
-  takeRes, addRes, countRes, shake, baseOwner,
+  takeRes, addRes, countRes, shake, baseOwner, canAfford, spend, structChanged, isLocal,
 } from './state.js';
 import { spawnBullet } from './combat.js';
 import { baseCenter } from './building.js';
@@ -17,6 +19,8 @@ import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
 import { addXp } from './progression.js';
 import { emit } from '../net/events.js';
+import { makeNoise } from './noise.js';
+import { addThreat } from './threat.js';
 import { makeRng, dist2, clamp, angleDelta, TAU } from '../core/util.js';
 
 const rng = makeRng(0x5EA12345);
@@ -396,11 +400,17 @@ export function updateSurvivors(dt) {
     // A sniper only gets the tower's reach once they are actually standing on
     // it. Holding a reference to a structure on the other side of the base is
     // not the same as being up it.
+    // Manning a tower means standing on it. Holding a reference to a structure
+    // on the other side of the base is not the same as being up it — and this
+    // was the one predicate that mattered, because a second, looser one below
+    // was handing out the tower's ballistics to anyone merely walking toward
+    // it. There is one now.
     const posted = s.job === 'sniper' && s.tower &&
       dist2(s.x, s.y, s.tower.x, s.tower.y) < POST_RADIUS * POST_RADIUS;
     s.posted = posted;
-    const range = posted ? s.tower.def.sniperRange : SURVIVOR.range;
-    const dmgMul = posted ? s.tower.def.sniperDmg : 1;
+    const arm = posted ? towerArmament(s.tower) : null;
+    const range = arm ? arm.range : SURVIVOR.range;
+    const dmgMul = arm ? arm.dmg : 1;
 
     // ------------------------------------------------------------ target --
     let best = null, bestD = range * range;
@@ -478,36 +488,110 @@ export function updateSurvivors(dt) {
 
     // ------------------------------------------------------------- fire --
     if (best && s.cd <= 0) {
-      const sniping = s.job === 'sniper' && s.tower;
-      const aimErr = (sniping ? 0.04 : 0.10) - Math.min(0.03, s.level * 0.004);
+      const aimErr = (arm ? 0.04 : 0.10) - Math.min(0.03, s.level * 0.004);
       const a = s.angle + (Math.random() - 0.5) * aimErr * 2;
-      s.cd = SURVIVOR.fireCd * (sniping ? 1.7 : 1) * (s.hungry ? 1.35 : 1);
-      // Survivors draw from the stash so arming them is a real decision.
-      const paid = takeRes(G.stash, 'ammoP', 1);
-      if (paid > 0) {
+      s.cd = SURVIVOR.fireCd * (arm ? arm.cd : 1) * (s.hungry ? 1.35 : 1);
+
+      // Everyone shoots out of the shared stash, which is what makes arming
+      // your people a real decision. A tower spends whatever its armament
+      // takes; a survivor on the ground still spends 9mm.
+      const cost = arm ? arm.ammo : { ammoP: 1 };
+      const paid = payAmmo(cost);
+      if (paid) {
         spawnBullet(s.x + Math.cos(a) * 16, s.y + Math.sin(a) * 16, a, {
-          speed: sniping ? 1700 : 1150,
+          speed: arm ? arm.speed : 1150,
           dmg: s.dmg * s.shotDmgMul,
-          life: sniping ? 0.55 : 0.5,
-          knock: sniping ? 110 : 45,
-          pierce: sniping ? 1 : 0,
-          color: sniping ? '#e8f0c0' : '#cfe8b0',
-          size: sniping ? 2.8 : 2,
+          life: arm ? arm.life : 0.5,
+          knock: arm ? arm.knock : 45,
+          pierce: arm ? arm.pierce : 0,
+          color: arm ? arm.color : '#cfe8b0',
+          size: arm ? arm.size : 2,
+          burns: !!(arm && arm.burns),
+          splash: arm ? arm.splash || 0 : 0,
           owner: `survivor:${s.id}`,
         });
-        FX.muzzle(s.x + Math.cos(a) * 18, s.y + Math.sin(a) * 18, a, sniping ? 1.1 : 0.6);
-        sfx(sniping ? 'rifle' : 'smg');
+        // A flash is also a light source at night (see drawNight), so an
+        // armament that should not give its tower away has none.
+        const flash = arm ? arm.flash : 0.6;
+        if (flash > 0) FX.muzzle(s.x + Math.cos(a) * 18, s.y + Math.sin(a) * 18, a, flash);
+        sfx(arm ? arm.sfx : 'smg');
+        // The whole trade. A tower of arrows is a secret; a cannon is an
+        // announcement, and the horde comes to the tower rather than to you.
+        makeNoise(s.x, s.y, arm ? arm.noise : 400, baseOwner());
       } else {
         s.cd = 1.2;
         s.outOfAmmo = true;
         if (!G.ammoWarned || G.time - G.ammoWarned > 40) {
           G.ammoWarned = G.time;
-          notify('Your people are out of 9mm — stock the stash', '#d9c46a');
+          const what = Object.keys(cost).map((id) => RES[id].name).join(' and ');
+          notify(`Your people are out of ${what} — stock the stash`, '#d9c46a');
         }
       }
-      if (paid > 0) s.outOfAmmo = false;
+      if (paid) s.outOfAmmo = false;
     }
   }
+}
+
+// -------------------------------------------------------------- armaments --
+//
+// What a manned tower shoots. Bought once for the base, then chosen per tower,
+// so two towers covering the same approach can answer it differently.
+
+/** The armament a tower is set to, falling back to the free default. */
+export function towerArmament(tower) {
+  if (!tower || tower.destroyed) return null;
+  const id = tower.arm && ARMAMENTS[tower.arm] && armamentUnlocked(tower.arm)
+    ? tower.arm
+    : DEFAULT_ARMAMENT;
+  return ARMAMENTS[id];
+}
+
+/** Arrows are free forever; everything else has to be bought. */
+export const armamentUnlocked = (id) =>
+  id === DEFAULT_ARMAMENT || !!(G.armaments && G.armaments[id]);
+
+/**
+ * Buys an armament for the whole base. Costs come out of the pack and the
+ * stash like any other build, through the same `canAfford`/`spend` pair.
+ */
+export function buyArmament(id, p = G.player) {
+  const a = ARMAMENTS[id];
+  if (!a) return false;
+  if (armamentUnlocked(id)) { notify(`${a.name} is already fitted`, '#8a8f84'); return false; }
+  if (!canAfford(a.cost, 1, p)) {
+    sfx('deny');
+    notify(`Cannot afford ${a.name}`, '#c96a5a');
+    return false;
+  }
+  spend(a.cost, 1, p);
+  G.armaments = G.armaments || {};
+  G.armaments[id] = true;
+  sfx('craft');
+  notify(`${a.name} fitted — set it on any Watchtower`, '#b7e08a');
+  addThreat(THREAT.perCraft * 2, '', p);
+  emit('armaments', { list: Object.keys(G.armaments) });
+  return true;
+}
+
+/** Points one tower at one armament. Refuses anything not bought yet. */
+export function setTowerArmament(tower, id, p = G.player) {
+  if (!tower || tower.destroyed || tower.def.post !== 'sniper') return false;
+  if (!ARMAMENTS[id] || !armamentUnlocked(id)) { sfx('deny'); return false; }
+  tower.arm = id;
+  structChanged(tower);
+  sfx('ui');
+  if (isLocal(p)) notify(`${tower.def.name}: ${ARMAMENTS[id].name}`, '#b7e08a');
+  return true;
+}
+
+/**
+ * Spends a shot's worth of ammunition out of the shared stash, all or
+ * nothing. Partial payment would let a cannon fire on one scrap.
+ */
+function payAmmo(cost) {
+  for (const id in cost) if (countRes(G.stash, id) < cost[id]) return false;
+  for (const id in cost) takeRes(G.stash, id, cost[id]);
+  return true;
 }
 
 // ------------------------------------------------------------- job routines --

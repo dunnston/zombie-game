@@ -64,6 +64,12 @@ export const G = {
   // Supply Stash structure aliases this, so building a second one is another
   // door into the same room rather than a second room.
   stash: makeSlots(STASH_SLOTS),
+  // Tower armaments bought for the whole base. Arrows are free and are not
+  // listed here; everything else is unlocked once and then chosen per tower.
+  armaments: {},
+  // Scenery that is currently alight. See fire.js — player structures never
+  // appear here, deliberately.
+  fires: [],
   camera: { x: 0, y: 0, zoom: 1, shake: 0, shakeX: 0, shakeY: 0 },
   time: 0,
   threat: 0,
@@ -79,6 +85,8 @@ export const G = {
     // The container the storage screen is showing. Local UI only: it never
     // travels, and the moves made in it carry the tile instead.
     storeRef: null,
+    // The Watchtower whose armament screen is open. Local UI, like storeRef.
+    towerRef: null,
     levelChoices: null, tab: 0,
     hudRects: [],   // screen-space regions that swallow clicks from the world
   },
@@ -290,6 +298,7 @@ export function structRecord(s) {
     open: !!s.open, tier: s.tier || 1, fuel: Math.round((s.fuel || 0) * 10) / 10, ammo: s.ammo || 0,
     on: s.on !== false, active: !!s.active, running: !!s.running, powered: !!s.powered,
     aim: Math.round((s.aim || 0) * 100) / 100,
+    arm: s.arm || null,
   };
 }
 

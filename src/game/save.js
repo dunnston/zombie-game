@@ -9,7 +9,7 @@
 import { G, structAt, addPlayer, equippedLight } from './state.js';
 import { createWorld, removeProp } from './world.js';
 import { createPlayer, pickRandomSpawn } from './player.js';
-import { PLAYER, STASH_SLOTS } from './config.js';
+import { PLAYER, STASH_SLOTS, ARMAMENTS } from './config.js';
 import { loadIdentity } from '../net/protocol.js';
 import { makeStructure } from './building.js';
 import { recomputeStats, startingAttrs } from './perks.js';
@@ -165,6 +165,7 @@ export function serialiseGame() {
       benchTier: G.benchTier,
       stats: G.stats,
       stash: G.stash.slots,
+      armaments: Object.keys(G.armaments || {}),
       tutorial: { step: G.tutorial.step, done: G.tutorial.done },
       looted: G.world.containers.filter((c) => c.looted).map((c) => c.id),
       chopped: G.world.chopped,
@@ -201,6 +202,7 @@ export function serialiseGame() {
         // A Supply Stash aliases G.stash, which is saved once on its own —
         // writing it per structure would restore N copies of the same pile.
         store: s.store && s.type !== 'stash' ? s.store.slots : null,
+        arm: s.arm || null,
       })),
       backpacks: G.backpacks.map((b) => ({ x: b.x, y: b.y, c: b.contents })),
       // Loose items on the ground are real progress — a scavenger's delivered
@@ -248,6 +250,8 @@ export function applySaveData(raw) {
     G.benchTier = data.benchTier || 0;
     G.stash = makeSlots(STASH_SLOTS);
     restoreSlots(G.stash, data.stash || []);
+    G.armaments = {};
+    for (const id of data.armaments || []) if (ARMAMENTS[id]) G.armaments[id] = true;
     G.stats = { kills: 0, looted: 0, built: 0, crafted: 0, deaths: 0, damageDealt: 0, repaired: 0, ...(data.stats || {}) };
     G.tutorial = { step: data.tutorial?.step || 0, done: data.tutorial?.done || {}, hint: null };
     G.raid = null;
@@ -288,6 +292,7 @@ export function applySaveData(raw) {
       // the pack uses, so an unknown id becomes an empty slot rather than a
       // stack of something that no longer exists.
       if (st.store && s.t !== 'stash') restoreSlots(st.store, s.store || []);
+      if (s.arm && ARMAMENTS[s.arm]) st.arm = s.arm;
       if (s.t === 'bedroll') {
         for (const q of G.players) {
           if (q.spawnTile && q.spawnTile.tx === s.tx && q.spawnTile.ty === s.ty) {

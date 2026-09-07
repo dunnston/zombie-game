@@ -303,6 +303,7 @@ export function packStructure(s) {
     t: s.type, tx: s.tx, ty: s.ty, hp: r1(s.hp), maxHp: s.maxHp, open: !!s.open, tier: s.tier || 1,
     fuel: r1(s.fuel || 0), ammo: s.ammo || 0, on: s.on !== false, active: !!s.active,
     running: !!s.running, powered: !!s.powered, aim: r2(s.aim || 0), destroyed: !!s.destroyed,
+    arm: s.arm || null,
   };
 }
 

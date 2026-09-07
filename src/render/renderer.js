@@ -80,6 +80,10 @@ export function render(ctx, W, H) {
     if (q.dead || q.away) continue;
     drawList.push({ y: q.y, kind: 'player', ref: q });
   }
+  for (const f of G.fires) {
+    if (f.x < view.x0 - 40 || f.x > view.x1 + 40 || f.y < view.y0 - 40 || f.y > view.y1 + 40) continue;
+    drawList.push({ y: f.y + 2, kind: 'fire', ref: f });
+  }
 
   drawList.sort((a, b) => a.y - b.y);
   for (const d of drawList) {
@@ -93,6 +97,7 @@ export function render(ctx, W, H) {
       case 'survivor': drawSurvivor(ctx, d.ref); break;
       case 'rescue': drawRescue(ctx, d.ref); break;
       case 'player': drawPlayer(ctx, d.ref); break;
+      case 'fire': drawFire(ctx, d.ref); break;
       default: break;
     }
   }
@@ -201,6 +206,15 @@ function drawNight(ctx, W, H) {
       const d = i * 52;
       hole(v.x + Math.cos(v.angle) * d, v.y + Math.sin(v.angle) * d, 90 + i * 12, 0.85 - i * 0.09);
     }
+  }
+
+  // Fire is a light source. A treeline going up should be the brightest thing
+  // on the screen, and a burning zombie should be visible coming.
+  for (const f of G.fires) {
+    hole(f.x, f.y, 120 * (1 - Math.min(1, f.t / f.life) * 0.45), 0.6);
+  }
+  for (const e of G.enemies) {
+    if (!e.dead && e.burnT > 0) hole(e.x, e.y, 80, 0.45);
   }
 
   // Muzzle flashes briefly light the world around them.
@@ -555,6 +569,27 @@ function drawEnemy(ctx, e) {
   ctx.drawImage(spr, -spr.width / 2, -spr.height / 2);
   ctx.restore();
 
+  // On fire. Readability first (pillar 4): a burning zombie is about to set
+  // light to the ones around it, so you have to be able to see which one it is
+  // in a crowd, at a glance, without reading a health bar.
+  if (e.burnT > 0) {
+    ctx.save();
+    ctx.translate(e.x, e.y);
+    for (let i = 0; i < 2; i++) {
+      const ph = G.time * (9 + i * 3) + i * 2.3 + e.id;
+      const h = 9 + Math.sin(ph) * 3.5;
+      const ox = (i === 0 ? -3.5 : 3.5) + Math.sin(ph * 0.8) * 1.5;
+      ctx.fillStyle = i === 0 ? '#ff8c2a' : '#ffd86a';
+      ctx.beginPath();
+      ctx.moveTo(ox - 2.6, -e.def.r * 0.3);
+      ctx.quadraticCurveTo(ox - 1.2, -e.def.r * 0.3 - h * 0.6, ox, -e.def.r * 0.3 - h);
+      ctx.quadraticCurveTo(ox + 1.2, -e.def.r * 0.3 - h * 0.6, ox + 2.6, -e.def.r * 0.3);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   // Health bar for anything that's been hurt.
   if (e.hp < e.maxHp) {
     const w = e.def.r * 2.2;
@@ -903,6 +938,37 @@ function drawWeapon(ctx, w, p) {
       ctx.fillStyle = '#3a2f22';
       ctx.fillRect(-6, -2.2, 6, 4.4);
     }
+  }
+  ctx.restore();
+}
+
+/**
+ * A burning piece of scenery: three flames on different phases so a treeline
+ * on fire reads as motion rather than as an orange dot, plus a scorch under
+ * it. Dies down over the fire's life so a nearly-out fire looks nearly out.
+ */
+function drawFire(ctx, f) {
+  const left = 1 - Math.min(1, f.t / f.life);
+  const scale = 0.55 + left * 0.65;
+  ctx.save();
+  ctx.translate(f.x, f.y);
+  ctx.globalAlpha = 0.24 * left;
+  ctx.fillStyle = '#2a1a10';
+  ctx.beginPath();
+  ctx.ellipse(0, 3, 13, 7, 0, 0, TAU);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  for (let i = 0; i < 3; i++) {
+    const ph = G.time * (7 + i * 2.2) + i * 2.1 + (f.tx || 0);
+    const h = (11 + Math.sin(ph) * 4) * scale;
+    const ox = (i - 1) * 5 + Math.sin(ph * 0.7) * 2;
+    ctx.fillStyle = i === 1 ? '#ffd86a' : '#ff8c2a';
+    ctx.beginPath();
+    ctx.moveTo(ox - 3.4 * scale, 2);
+    ctx.quadraticCurveTo(ox - 1.6 * scale, 2 - h * 0.6, ox, 2 - h);
+    ctx.quadraticCurveTo(ox + 1.6 * scale, 2 - h * 0.6, ox + 3.4 * scale, 2);
+    ctx.closePath();
+    ctx.fill();
   }
   ctx.restore();
 }
