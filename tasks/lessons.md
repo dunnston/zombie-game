@@ -620,3 +620,23 @@ opening depends on gathering.
 **Rule:** whatever the opening loop needs, assert it is present *at the spawn*,
 not on average across the map. Averages hide a hole exactly where the player
 is standing.
+
+### The local player is the one nobody replicates
+
+A guest could not see its own weapon swing. Every other player's swing worked,
+on both machines. The snapshot even carries a swing flag — but the branch that
+applies it is the `else` of `if (p === G.player)`, because *your own* player is
+supposed to be predicted rather than copied. Prediction covered movement,
+death, downed and driving. Nobody had added the swing, so it fell down the gap
+between the two: not predicted, and deliberately not applied.
+
+This is the second bug in this shape (the first: a guest's held intent never
+expiring). Both live in the seam where "predict it" and "receive it" meet, and
+both only affect the person doing the thing — so the host sees it working
+perfectly and reports nothing wrong.
+
+**Rule:** for anything a player does to themselves, ask the question twice —
+once as "does the other side see it?" and once as "does the *actor* see it?"
+The second is the one the tests miss, because the loopback suite drives the
+host. It now has a section that makes the page a guest and runs
+`updateClient()` for real.

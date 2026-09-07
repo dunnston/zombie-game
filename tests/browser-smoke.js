@@ -2690,6 +2690,55 @@
       G.structures.forEach((s) => { if (s.type === 'woodWall') api.demolishStructure(s); });
     }
 
+    // ------------------------------------------- 11k. a guest's own hands ---
+    // A guest predicts its own picture; the host still decides every hit. The
+    // swing arc was the one piece nobody predicted and nobody sent: the
+    // snapshot carries a swing flag but only applies it to *other* players, so
+    // a guest saw its teammates swing, the host saw the guest swing, and the
+    // guest's own weapon sat still. Verified here in one browser by making the
+    // page a guest — the loop then runs updateClient() for real.
+    {
+      d.newGame(20240917);
+      await frames(4);
+      d.god(true);
+      G.enemies.length = 0;
+      let g = G.player;
+      const w = api.currentWeapon(g);
+      ok('the starting weapon is melee, so there is a swing to draw', w.kind === 'melee', w.id);
+
+      const loop = d.net.makeLoopback();
+      const cs = d.net.client.state;
+      const peerBefore = cs.peer, roleBefore = G.net.role, statsBefore = G.net.stats;
+      cs.peer = loop.a;
+      G.net.stats = { sentBytes: 0, recvBytes: 0, sentPerSec: 0, recvPerSec: 0, snaps: 0, _t: 0, _s: 0, _r: 0 };
+      G.net.role = 'client';
+
+      let seen = 0, restarts = 0, last = 1;
+      d.aimAt(g.x + 100, g.y);
+      d.mouseDown(0);
+      for (let f = 0; f < 90; f++) {
+        G.enemies.length = 0;
+        await frames(1);
+        const now = g.swing ? g.swing.t / g.swing.dur : 1;
+        if (g.swing) seen++;
+        if (now < last) restarts++;
+        last = now;
+      }
+      d.mouseUp(0);
+
+      ok('a guest sees its own swing', seen > 10, `${seen} frames with a swing arc`);
+      ok('...and it animates rather than freezing', restarts >= 1 && seen > restarts,
+        `${restarts} swings over ${seen} frames`);
+      ok('...at the weapon\'s cadence, not once a frame', restarts <= 8,
+        `${restarts} swings in 90 frames at cd ${w.cd}`);
+
+      G.net.role = roleBefore;
+      cs.peer = peerBefore;
+      G.net.stats = statsBefore;
+      await frames(2);
+      ok('the page is solo again afterwards', G.net.role !== 'client', String(G.net.role));
+    }
+
     // ----------------------------------------------------- 12. stability ---
     d.god(true);
     G.enemies.length = 0;

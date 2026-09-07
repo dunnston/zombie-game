@@ -439,6 +439,7 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | A guest joins through `applySaveData()` | The welcome carries exactly what `serialiseGame()` produces, and the guest rebuilds through the same function a slot load uses. Join and load cannot drift, and a v8 save was the join format for free. |
 | Structures, stash and inventories travel as events; positions as snapshots | Walls change rarely and must never be missed; positions change every step and a dropped one does not matter. Reliable channel for the first, unordered best-effort for the second. Inventories and the stash are diffed twice a second and sent only when they changed. |
 | Bullets are events, not entities | A guest draws the tracer from `bulletFired` and its damage is zero there; the host decides every hit. Nothing to reconcile, and a magazine of SMG fire is a few hundred bytes. |
+| The guest predicts its own *picture*, which includes its swing | Melee had no prediction and no replication for the swinging player: the snapshot's swing flag is applied in the `else` of `p === G.player`, so a guest saw everyone's swing but its own. Sending it would not fix the feel either — a 0.26s animation arriving on a 20Hz snapshot is late and stuttery. The guest now starts its own swing arc from its own input, exactly as it predicts its own movement and draws its own tracers, and the host still decides every hit. |
 | The guest predicts only its own movement | The same `movePlayer()` as the host, then a lerp toward the host's answer (snap over 48px). Everything else eases toward its last reported place. No prediction of anyone else's actions — that is where desync-shaped bugs live. |
 | The host's identity keys its own record; guests are keyed by theirs | `deadline.identity` in each browser. A returning guest with the same browser gets the same character; a stranger gets a fresh one beside the host. |
 | Kill XP for a remote player's own kill goes to them | The player object is the bullet's owner on the host, as in solo. Automated kills still pay everyone present. |
@@ -794,6 +795,14 @@ input (`key`, `tap`, `mouseDown`, `aimAt`) and the whole `api` surface.
 
 Newest first. One line per meaningful change.
 
+- **2026-09-07** — A guest can see its own weapon swing. Reported from real
+  co-op play: the remote player's attack animation showed on the host's screen
+  but not their own. The snapshot carries a swing flag and applies it only to
+  *other* players, and the guest's local prediction covered movement but not
+  its own attack — so `G.player.swing` on a guest was never set by anything.
+  The guest now predicts the swing locally (picture only; the host still owns
+  every hit), and the smoke suite grew a section that makes the page a guest
+  and checks its own arc animates at the weapon's cadence.
 - **2026-09-07** — Gathering you can actually find. The owner played the tool
   tier and could not locate sticks, stone or fiber at all. Two causes, both
   mine: raw material had to be *swung* at rather than picked up, and the town
