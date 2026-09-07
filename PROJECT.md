@@ -74,7 +74,7 @@ farms, a forest, a river and a city — and nobody has played the new ground yet
 | --- | --- |
 | Source | 42 modules, ~15,400 lines. Browser bundle depends on Vite only; the broker on `ws`. |
 | Assets | Zero. Every sprite is drawn in code at boot; every sound is WebAudio. |
-| Tests | 77 Node assertions; browser suite 361 |
+| Tests | 79 Node assertions; browser suite 361 |
 | Save format | **v9** payload (the 320-tile world; v8 was players by identity), in **slots** (index v1) |
 | Performance | ~60fps with 90 active enemies; ~66 KB/s per guest on the wire |
 
@@ -579,7 +579,7 @@ round. Current expected totals:
 
 | Suite | Expected |
 | --- | --- |
-| `npm test` (Node, pure logic) | 77 |
+| `npm test` (Node, pure logic) | 79 |
 | `tests/browser-smoke.js` | 361 |
 
 **Run the browser suite with the page visible and focused.** Its waits are
