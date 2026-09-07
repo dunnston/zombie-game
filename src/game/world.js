@@ -383,10 +383,13 @@ export function createWorld(seed = 20240917) {
     block(x, y, 1);
     // Trees are choppable: they gate sight lines and turret fire, and they
     // are the renewable-ish wood supply that early base building runs on.
+    // 470hp is six swings of the stone Hatchet at starting stats, and three of
+    // the Fire Axe. It was 70 — a single swing — which made the whole wood tier
+    // free and left nothing for a better axe to be better at.
     const tree = {
       kind: pine ? 'pine' : 'tree', si: rng.int(0, 3), rot: 0, tx: x, ty: y,
       x: (x + 0.5) * TILE, y: (y + 0.5) * TILE,
-      hp: 70, maxHp: 70, harvest: 'wood', solid: true, flash: 0,
+      hp: 470, maxHp: 470, harvest: 'wood', solid: true, flash: 0,
     };
     world.props.push(tree);
     world.propGrid.set(`${x},${y}`, tree);
@@ -855,7 +858,11 @@ export function createWorld(seed = 20240917) {
     const prop = {
       kind, si: rng.int(0, 2), rot: boulder ? 0 : rng.range(0, 6.28), tx: x, ty: y,
       x: (x + 0.5) * TILE, y: (y + 0.5) * TILE,
-      hp: boulder ? 150 : 90, maxHp: boulder ? 150 : 90,
+      // A boulder is six swings of the Stone Pickaxe and three of the Steel
+      // one. A thicket stays where it was: fiber is what the litter cut took
+      // most of, thickets are the rarest of the three big sources, and there
+      // is no metal scythe to upgrade to yet.
+      hp: boulder ? 380 : 90, maxHp: boulder ? 380 : 90,
       harvest: boulder ? 'boulder' : 'thicket', solid: boulder, flash: 0,
     };
     if (boulder) block(x, y, 1);
@@ -902,14 +909,20 @@ export function createWorld(seed = 20240917) {
   // Litter, everywhere you can walk. Weighted to sticks and fiber because they
   // are what the first tools cost most of; a little denser on soft ground than
   // on tarmac, but present on both, because "search the roadside" has to work.
+  //
+  // The first pass shipped ~14,800 pieces — about 41,000 units of free
+  // material — and the ground read as a carpet of sticks. These are a quarter
+  // of the original odds (0.30 / 0.22 / 0.10). The floor is what the camp
+  // needs, not what looks tidy: a Node test fails if a first Hatchet is no
+  // longer reachable within fifteen tiles of where the player wakes up.
   for (let i = 0; i < 90000; i++) {
     const x = rng.int(1, W - 2), y = rng.int(1, W - 2);
     if (world.blocked[idx(x, y)] || world.propGrid.has(`${x},${y}`)) continue;
     const t = world.tiles[idx(x, y)];
     let p;
-    if (t === T.GRASS || t === T.DIRT) p = 0.30;
-    else if (t === T.GRAVEL || t === T.SAND || t === T.FIELD) p = 0.22;
-    else if (t === T.ROAD || t === T.SIDEWALK || t === T.LOT || t === T.RUBBLE) p = 0.10;
+    if (t === T.GRASS || t === T.DIRT) p = 0.08;
+    else if (t === T.GRAVEL || t === T.SAND || t === T.FIELD) p = 0.055;
+    else if (t === T.ROAD || t === T.SIDEWALK || t === T.LOT || t === T.RUBBLE) p = 0.02;
     else continue;                                   // not indoors
     if (!rng.chance(p)) continue;
     const r = rng();

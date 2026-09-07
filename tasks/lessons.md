@@ -670,6 +670,7 @@ been hit because nobody had loaded a stale save.
 **Rule:** every refusal needs a sentence. "That save is from an older build
 (v9, this is v10) — the map changed" costs one line and turns a bug report
 into a shrug.
+
 ### A version constant you bump by hand is a version check that does not run
 
 Co-op refuses a guest whose `PROTOCOL` differs. `PROTOCOL` has been `1` since
@@ -705,3 +706,53 @@ domains do not.
 **Rule:** when a caret range is in play, check what is actually installed
 (`npm ls <pkg>`) before reasoning about behaviour, and probe a running server
 with the request you are worried about instead of predicting its answer.
+
+## 2026-09-07 — mining balance and the metal tools
+
+### Measure the thing the owner is complaining about, before changing it
+
+"It is way too easy to mine trees and boulders" could have been answered with a
+guess. Measuring first turned a feel note into a fact: a tree was 70hp against
+a hatchet's 83 damage a swing, so it fell in **one** hit. That is not a balance
+number anyone chose — it is what happens when prop hp is set for bare hands and
+then a tool with a 2.4x chop multiplier is added beside it and nobody re-checks.
+The same pass measured 14,847 pieces of litter carrying ~41,000 units of free
+material, which made "WAY too many" a number rather than a mood.
+
+**Rule:** print the current figure before proposing the new one. It takes one
+Node one-liner, and it changes what the fix is: this one was arithmetic, not
+design.
+
+### A balance test that re-derives the formula is not testing the formula
+
+The first version of the swing-count test copied `chopMul` out of `chopProp()`
+by hand. It would have gone on passing while the real multiplier changed under
+it — the same silent no-op this project keeps rediscovering. Exporting
+`chopMultiplier()` and having both the game and the test call it is two lines
+and closes the gap.
+
+**Rule:** if a test asserts a number the game computes, make it call the
+function the game calls.
+
+### Balance floors need ceilings
+
+The litter pass had a test asserting *more than 2,000* pieces, added when the
+failure was "the player can find nothing". It stayed green all the way to
+14,847 and a map that read as a carpet of sticks. A budget with only a floor
+only catches half the ways a number goes wrong.
+
+**Rule:** when a test exists to protect a feel, assert the range, not the bound
+you happened to be worried about that week.
+
+### Feature order in a config file can be load-bearing
+
+The metal tools carry the same `axe` / `pick` flags as the stone ones, because
+that is how the harvest gates are matched. A test that searched `WEAPONS` for
+"the tool that opens this gate" would have found the workbench-tier Fire Axe
+first and concluded that wood needs a workbench — which needs wood. Defining
+the metal tier after the stone one keeps the honest answer first, but the test
+was rewritten to assert that *some* bench-0 tool carries the flag rather than
+to trust the ordering.
+
+**Rule:** `Object.values(...).find(...)` over a content table is an ordering
+dependency. Say what you mean: `.some(...)`, or filter and check.

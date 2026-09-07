@@ -118,6 +118,24 @@ export const WEAPONS = {
     range: 46, arc: 1.2, knock: 240, tool: true, hammer: true, chopMul: 1.8,
     structureMul: 0.8, color: '#8a8078',
   },
+  // --------------------------------------------------------- metal tools --
+  // The second rung. Both are workbench recipes made of scrap and parts, and
+  // both do their stone version's job in half the swings: at starting stats a
+  // tree goes from six swings to three, and a boulder from six to three. They
+  // buy back TIME and nothing else — the yields are identical, so upgrading
+  // does not inflate the economy, it just stops it costing you a minute a tree.
+  // They must be defined *after* the stone tools: the harvest gates are matched
+  // by flag, and the bench-0 tool has to be the one a fresh game finds first.
+  fireaxe: {
+    id: 'fireaxe', name: 'Fire Axe', kind: 'melee', dmg: 34, cd: 0.46,
+    range: 52, arc: 1.0, knock: 190, tool: true, axe: true, chopMul: 4.2,
+    color: '#c4463a',
+  },
+  steelpick: {
+    id: 'steelpick', name: 'Steel Pickaxe', kind: 'melee', dmg: 30, cd: 0.56,
+    range: 54, arc: 0.9, knock: 210, tool: true, pick: true, chopMul: 4.4,
+    toolMul: 2.4, color: '#aeb6bd',
+  },
   sledge: {
     id: 'sledge', name: 'Sledgehammer', kind: 'melee', dmg: 78, cd: 0.86,
     range: 60, arc: 1.7, knock: 340, shake: 5, structureMul: 1.0, color: '#8d7a5e',
@@ -335,6 +353,10 @@ export const RECIPES = [
   { id: 'ammoP', name: '9mm x24', bench: 1, cost: { scrap: 9, parts: 1 }, give: { res: { ammoP: 24 } }, xp: 6 },
   { id: 'medkit', name: 'Medkit', bench: 1, cost: { med: 5, cloth: 5 }, give: { item: 'medkit', n: 1 }, xp: 8 },
   { id: 'machete', name: 'Machete', bench: 1, cost: { scrap: 24, parts: 1 }, give: { weapon: 'machete' }, xp: 25 },
+  // The metal tool tier. The workbench costs wood and wood costs a Hatchet, so
+  // these sit exactly one step past the stone tools that got you here.
+  { id: 'fireaxe', name: 'Fire Axe', bench: 1, cost: { wood: 8, scrap: 20, parts: 2 }, give: { weapon: 'fireaxe' }, xp: 22 },
+  { id: 'steelpick', name: 'Steel Pickaxe', bench: 1, cost: { wood: 6, scrap: 26, parts: 3 }, give: { weapon: 'steelpick' }, xp: 24 },
   { id: 'pistol', name: 'M9 Pistol', bench: 1, cost: { scrap: 28, parts: 4 }, give: { weapon: 'pistol' }, xp: 35 },
   { id: 'lightVest', name: 'Padded Vest', bench: 1, cost: { cloth: 22, scrap: 12 }, give: { armor: 'lightVest' }, xp: 25 },
   { id: 'workGloves', name: 'Work Gloves', bench: 0, cost: { cloth: 8 }, give: { armor: 'workGloves' }, xp: 8 },
@@ -527,6 +549,7 @@ export const LOOT = {
     { id: 'weapon:pipe', min: 1, max: 1, w: 6 },
     { id: 'weapon:machete', min: 1, max: 1, w: 4 },
     { id: 'weapon:axe', min: 1, max: 1, w: 8 },
+    { id: 'weapon:fireaxe', min: 1, max: 1, w: 3 },
   ],
   displaycase: [
     { id: 'elec', min: 4, max: 10, w: 34 },

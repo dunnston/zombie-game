@@ -4,7 +4,7 @@
 at the start of a session and updated at the end of one. If something here
 contradicts the code, the code is right and this file needs fixing — say so.
 
-- **Last updated:** 2026-09-07, the map expansion (in review), on top of structure repair
+- **Last updated:** 2026-09-07, the mining balance pass and the metal tool tier
 - **Repo:** https://github.com/dunnston/zombie-game
 - **Owner:** dunnston
 
@@ -74,8 +74,8 @@ farms, a forest, a river and a city — and nobody has played the new ground yet
 | --- | --- |
 | Source | 42 modules, ~15,400 lines. Browser bundle depends on Vite only; the broker on `ws`. |
 | Assets | Zero. Every sprite is drawn in code at boot; every sound is WebAudio. |
-| Tests | 90 Node assertions; browser suite 384 (`npm test`, `npm run smoke`) |
-| Save format | **v10** payload (the litter pass moved the generator's rng stream), in **slots** (index v1) |
+| Tests | 98 Node assertions; browser suite 384 (`npm test`, `npm run smoke`) |
+| Save format | **v11** payload (the litter cut moved the generator's rng stream), in **slots** (index v1) |
 | Performance | ~60fps with 90 active enemies; ~66 KB/s per guest on the wire |
 
 ### Multiplayer — where it stands
@@ -173,19 +173,26 @@ materials make four tools, none of which needs a workbench:
 
 The bottom rung is **ground litter**: loose sticks, stones and dry grass lying
 everywhere you can walk, taken with the **interact key**, not a weapon swing.
-About 15,000 pieces across the map, thickest on grass and dirt and still
-present on tarmac. Bushes and rocks answer the interact key too. That is the
-whole first minute: walk, press E, have enough for a Hatchet.
+**About 4,200 pieces** across the map, thickest on grass and dirt and sparse on
+tarmac. Bushes and rocks answer the interact key too. That is the whole first
+minute: walk, press E, have enough for a Hatchet.
 
 Above that, every material has a small source you can work with bare hands and
 a big source that needs the right tool — that pairing is the shape of the
-tier:
+tier. The big source is also **work**: swing counts below are at starting
+stats.
 
-| Material | By hand | With the tool | The tool |
-| --- | --- | --- | --- |
-| Wood | — | **Tree** → 6–11 wood + sticks | **Hatchet** (3 sticks, 3 stone, 4 fiber) |
-| Stone | Rock → 2–4 | **Boulder** → 9–16 | **Stone Pickaxe** (4, 4, 3) — also ~2.4× on rocks |
-| Fiber | Bush → 2–4 + sticks | **Thicket** → 9–15 + sticks | **Scythe** (5, 3, 4) — also ~2.2× on bushes |
+| Material | By hand | With the tool | The tool | Swings |
+| --- | --- | --- | --- | --- |
+| Wood | — | **Tree** (470hp) → 6–11 wood + sticks | **Hatchet** (3 sticks, 3 stone, 4 fiber) | 6 |
+| Stone | Rock → 2–4 | **Boulder** (380hp) → 9–16 | **Stone Pickaxe** (4, 4, 3) — also ~2.4× on rocks | 6 |
+| Fiber | Bush → 2–4 + sticks | **Thicket** (90hp) → 9–15 + sticks | **Scythe** (5, 3, 4) — also ~2.2× on bushes | 2 |
+
+The **metal tier** sits one workbench step above: the **Fire Axe** (8 wood, 20
+scrap, 2 parts) and the **Steel Pickaxe** (6 wood, 26 scrap, 3 parts) do the
+same job in three swings instead of six. Identical yields — the upgrade buys
+back time, not material. There is no metal scythe yet; thickets were left where
+they were because fiber is what the litter cut took most of.
 
 Two more tools do no harvesting at all:
 
@@ -464,6 +471,11 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | Repair is offered on `E`, not only as a build-mode tool | Repair existed since the MVP and nobody found it: it was the fifteenth card on a bar that, at 1400px wide, drew fourteen. The owner never found crafting on `C` either. A damaged wall now asks for `E` with the bill on the prompt, the raid summary counts the damage, and the tutorial says so once something is hit. The build bar shrinks its cards to fit the screen and wraps onto more rows below 60px a card for the same reason — a 900px window had still been cutting three cards off (Codex review of PR #12). |
 | REPAIR ALL skips what it cannot pay for, worst first, and its label is its plan | "Repair until the money runs out" let one steel wall block the wood walls behind it; "repair everything or nothing" made the button useless the moment you were short. `planRepairAll()` walks a ledger and `repairAll()` runs exactly that list, so the bar can print the count and the bill and what happens on click never differs from it. Range is 520px — about a compound — rather than base-wide, because with build-anywhere a second outpost is not "here". |
 | A repair bill leaves off materials the damage would not have consumed | The old bill was `max(1, ceil(...))` per material, so a scratched steel wall cost a weapon part — the same part a pistol needs. Now each material rounds and drops out at zero; only the piece's main material is pinned to at least one, so no repair is free. |
+| The gathering tier is priced in swings, and the numbers were measured before they were changed | A tree was 70hp against a hatchet's 83 a swing — **one swing**, which is not a balance figure, it is an accident. The complaint ("way too easy to mine trees and boulders") was exactly right and the fix is arithmetic, not design. Trees are 470hp and boulders 380hp: six swings each at starting stats. Thickets were left at two because fiber is the material the litter cut hit hardest. |
+| Litter is a budget with a ceiling, not just a floor | The first litter pass solved "the player can find nothing" by scattering ~14,800 pieces — about 41,000 units of free material — and overshot into "the ground is a carpet of sticks". A quarter of that (~4,200 pieces, ~11,800 units) is the current budget, and the Node test now fails at **both** ends. The coarse "things within six tiles of camp" proxies came down with it; the assertion that actually protects the opening is that twice a Hatchet's cost is reachable within fifteen tiles on worst-case rolls. |
+| The metal tools buy time, not yield | A Fire Axe that also dropped more wood would inflate the economy the litter cut had just deflated, and would make the stone tier feel like a punishment rather than a start. Identical yields, half the swings. It also keeps the upgrade explainable in one sentence, and a Node test pins `toolMul` equal between each pair. |
+| The metal tools are defined *after* the stone ones in `WEAPONS` | The harvest gates are matched by flag (`axe`, `pick`), and a test that walked `Object.values(WEAPONS)` to find "the tool that opens this gate" would have found the bench-1 Fire Axe first and concluded that wood needs a workbench — which needs wood. The test now asserts *some* bench-0 tool carries each flag rather than trusting definition order, but the ordering is still the honest one. |
+| `chopMultiplier()` is exported so the swing counts can be tested against the real formula | The whole tier is "how many swings is a tree", and the test that asserts it was re-deriving the multiplier by hand. That test would have kept passing while the formula moved under it — the exact failure mode §8 calls a silent no-op. |
 
 ---
 
@@ -502,6 +514,12 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 
 ### Wanted, not yet scheduled
 
+- **A metal scythe.** Trees and boulders now have a second rung; thickets do
+  not, so fiber is the one gated source whose tool never improves. Obvious
+  follow-up, deliberately not bundled into the mining pass.
+- **The owner plays the new gathering pace.** Six swings a tree is a measured
+  number, not a felt one. If wood turns out to be a grind before the workbench
+  exists, the lever is tree hp in `plantTree()` — and it invalidates saves.
 - Survivors assignable to a specific post (this wall, not the base centre)
 - Survivors equipping weapons from the stash instead of a fixed rifle
 - Enemies preferring weak walls, so base *design* matters as much as base cost
@@ -647,7 +665,7 @@ round. Current expected totals:
 
 | Suite | Expected |
 | --- | --- |
-| `npm test` (Node, pure logic) | 79 |
+| `npm test` (Node, pure logic) | 98 |
 | `tests/browser-smoke.js` | 384 · about 220s |
 
 **Run the browser suite with the page visible and focused.** Its waits are
@@ -798,6 +816,16 @@ input (`key`, `tap`, `mouseDown`, `aimAt`) and the whole `api` surface.
 
 Newest first. One line per meaningful change.
 
+- **2026-09-07** — Mining balance, and the metal tool tier. The owner: "there
+  are WAY too many sticks, stones and fiber on the map... it is way too easy to
+  mine trees and boulders." Measured first: 14,847 pieces of ground litter
+  (~41,000 units of free material), a tree felled in **one** hatchet swing
+  (70hp against 83) and a boulder in three. Litter cut to a quarter (~4,200
+  pieces); trees 70 → 470hp and boulders 150 → 380hp, six swings each; and a
+  **Fire Axe** and **Steel Pickaxe** at the workbench that do it in three, with
+  identical yields — the upgrade buys back time, not material. Thickets left
+  alone (no metal scythe yet; fiber is what the litter cut hit hardest). Save →
+  v11, because the litter odds moved the generator's rng stream. Node 98.
 - **2026-09-07** — Launch scripts, and a version check that actually fires.
   `scripts/play-local.sh`, `scripts/play-online.sh` and `scripts/update.sh`
   reduce a co-op session to one command each; the online one pins cloudflared's
