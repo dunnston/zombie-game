@@ -756,3 +756,67 @@ to trust the ordering.
 
 **Rule:** `Object.values(...).find(...)` over a content table is an ordering
 dependency. Say what you mean: `.some(...)`, or filter and check.
+
+## A dev server in a worktree can serve you yesterday's code (2026-09-07)
+
+Two browser measurements in the survival round were taken against a build that
+did not contain the change being measured. The vite watcher running in
+`.claude/worktrees/…` did not pick up edits to `src/`; the page loaded happily,
+reported no errors, and served the pre-edit module. The conclusion drawn from
+the first one — "the exhaustion fix did nothing" — was perfectly true of the
+code being served and false of the code on disk.
+
+Two habits fix it, and both are cheap:
+
+- **Restart the dev server before every browser check.** Do not trust HMR or
+  the watcher in a worktree.
+- **Put a guard at the top of the check.** `if (D.api.PLAYER.stamWindedRecovery
+  === undefined) return { FATAL: 'stale build' }`. A stale build is silent; a
+  missing constant is loud, and it costs one line.
+
+The same round then found the exhaustion bug for real — but only because the
+second measurement was run against a server that had actually been restarted.
+
+## Measure with a control, and pen the ambient spawner (2026-09-07)
+
+"Eight walkers moved 250px toward the noise" means nothing on its own. They
+move 91px in the same five seconds with no noise at all, because they drift
+toward the player regardless. The number is only a result once the same setup
+has been run both ways.
+
+Three separate measurements in this round were also confounded by the ambient
+spawner, which keeps a standing population near the player and kept adding
+walkers that were *nearer to the tower* than the ones being measured — so the
+tower dutifully shot at those and the planted target sat at full health,
+looking exactly like "the tower does not work". Delete anything you did not
+plant, every frame, for the length of the trial.
+
+## Write the test that fails for the right reason (2026-09-07)
+
+Two new assertions failed on their first run and both were the test's fault,
+in ways worth keeping:
+
+- One asserted that `fire.js` never mentions `G.structures` — and matched the
+  comment in `fire.js` explaining that it does not. Strip comments before
+  grepping source in a test, or the documentation defeats the assertion.
+- One asserted that louder tower armaments hit harder, and failed the cannon,
+  which is deliberately *worse* than a sniper rifle one-on-one because it is
+  artillery. The fix was to measure the cannon against a crowd, which is what
+  it is for. Had it gone the other way, the "fix" would have been to buff the
+  cannon into a louder sniper and delete the design.
+
+A test that measures the wrong quantity does not just fail; it argues for the
+wrong change.
+
+## Finishing a mechanic beats adding one (2026-09-07)
+
+"Noise attracts zombies" was on the owner's list as a new feature. It was
+already written: `alertEnemies` set an aggro flag, an alert timer and a
+destination, and every firearm carried a noise radius. It had never once
+worked, because `e.aggro` was set on first sight and cleared only when every
+player was dead — so the branch that walks toward the remembered sound was
+unreachable while anybody was alive. The feature was one expiry condition.
+
+This is the third time on this project (repair, gathering, now noise) that a
+request for something "new" was really a request to make something reachable.
+Grep for the thing before designing it.

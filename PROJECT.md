@@ -4,7 +4,8 @@
 at the start of a session and updated at the end of one. If something here
 contradicts the code, the code is right and this file needs fixing — say so.
 
-- **Last updated:** 2026-09-07, the mining balance pass and the metal tool tier
+- **Last updated:** 2026-09-07, the survival round: stamina, light, storage,
+  noise, the bow and manned towers
 - **Repo:** https://github.com/dunnston/zombie-game
 - **Owner:** dunnston
 
@@ -72,10 +73,10 @@ farms, a forest, a river and a city — and nobody has played the new ground yet
 
 | | |
 | --- | --- |
-| Source | 42 modules, ~15,400 lines. Browser bundle depends on Vite only; the broker on `ws`. |
+| Source | 44 modules, ~18,700 lines. Browser bundle depends on Vite only; the broker on `ws`. |
 | Assets | Zero. Every sprite is drawn in code at boot; every sound is WebAudio. |
-| Tests | 98 Node assertions; browser suite 384 (`npm test`, `npm run smoke`) |
-| Save format | **v11** payload (the litter cut moved the generator's rng stream), in **slots** (index v1) |
+| Tests | 126 Node assertions; browser suite 384 (`npm test`, `npm run smoke`) |
+| Save format | **v12** payload (a third litter cut, and the stash became a slot container), in **slots** (index v1) |
 | Performance | ~60fps with 90 active enemies; ~66 KB/s per guest on the wire |
 
 ### Multiplayer — where it stands
@@ -166,6 +167,55 @@ starts within thirty tiles of the Roadside Camp, not anywhere in tier-1 land.
 firearms (pistol, SMG, shotgun, rifle, carbine), with three ammo types, real
 magazines and reloads. Four enemy tiers: walker, runner, brute, behemoth.
 Walkers and runners threaten *you*; brutes are what breach a wall.
+
+**Stamina and the cost of work.** A harvest swing costs 6 stamina and stops
+recovery for 1.1s; a combat swing costs 2 and is never refused. At starting
+stats that is six swings a tree, **three trees to a full bar**, then a three
+second pause — exhaustion latches when a swing is turned down and only clears
+once you are back to half. CON raises the ceiling *and* recovery, and Woodcraft
+(CON 4) cuts the cost by 35% a rank. Fighting is never gated: being winded
+stops you working, never defending yourself.
+
+**Light.** A sixth equipment slot, the **off-hand**, holds what your other hand
+is carrying. A **Torch** (3 sticks, 3 fiber, no bench) throws a 200px pool for
+3½ minutes and then burns away; a **Flashlight** (bench 1) throws a 460px beam
+and eats **batteries**, which are in seven loot tables before they are
+craftable. `T` lights it. A lit player is noticed 90px further out — being able
+to see is being seen.
+
+**Storage.** Every container has a slot count. The **Supply Stash** (48) is
+still the base's pantry and armoury — survivors and towers feed from that one,
+and only that one — and a **Wooden Chest** (16) and **Steel Locker** (32) are
+the overflow you build more of. `E` opens a two-panel screen: contents left,
+pack and hotbar right, drag or right-click across, DEPOSIT ALL and TAKE AMMO.
+A broken container spills what was in it.
+
+**Noise.** Sound pulls zombies to where it happened. Gunfire carries 400–700px,
+a running generator 300, building 190, chopping 140, a bow just 90. A turret is
+520 — loud enough that it draws the horde onto itself, which is what an arrow
+tower exists as the alternative to. Stealth perks quieten all of it, cars
+included.
+
+**The bow.** Craftable by hand, and quiet: three arrows to put down a walker
+against a rifle's one, at a seventh of the noise. Arrows cost sticks, stone and
+fiber and nothing else, so the ground finally has a sink that never stops
+consuming it.
+
+**Manned towers.** A survivor posted on a Watchtower shoots whichever armament
+that tower is set to. Four of them, bought once for the base and then chosen
+per tower, trading noise against effectiveness:
+
+| Armament | Unlock | Ammunition | Noise | What it is |
+| --- | --- | --- | --- | --- |
+| Arrows | free | 1 arrow | 90 | Quiet, cheap, weak. Nothing hears it |
+| Fire Arrows | wood 20, cloth 20, fuel 30, parts 2 | 1 arrow + 1 fuel | 120 | Sets things alight, and fire spreads |
+| Sniper Rifle | scrap 70, parts 12, mil 6 | 1 rifle round | 700 | One shot, one walker. Every district hears |
+| Scrap Cannon | scrap 90, parts 8, elec 10 | 2 scrap | 950 | 70px splash. The loudest thing you own |
+
+**Fire.** A burning zombie takes damage over time and sets light to zombies and
+to scenery around it; burning scenery spreads, burns out and takes the prop
+with it permanently. Fire burns anyone standing in it, you included. **Player
+structures never catch** — a deliberate limit, not an oversight.
 
 **Gathering and hand tools.** Bushes break into fiber and sticks, rocks into
 stone — both with bare hands, because the tools are made of them. Those three
@@ -325,6 +375,8 @@ src/
     progression.js   XP, levels, spending points
     daynight.js  survivors.js  vehicles.js
     pressure.js      the quiet field — why cleared ground stays cleared
+    noise.js         one makeNoise(); what a sound pulls, and how far
+    fire.js          burning zombies and burning scenery. Never structures
     items.js         one registry for everything, and the slot-container ops
     equipment.js     equipping, and the moves the inventory screen makes
   ui/inventory.js    the inventory screen: grid, gear slots, hotbar, drag/drop
@@ -476,6 +528,26 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | The metal tools buy time, not yield | A Fire Axe that also dropped more wood would inflate the economy the litter cut had just deflated, and would make the stone tier feel like a punishment rather than a start. Identical yields, half the swings. It also keeps the upgrade explainable in one sentence, and a Node test pins `toolMul` equal between each pair. |
 | The metal tools are defined *after* the stone ones in `WEAPONS` | The harvest gates are matched by flag (`axe`, `pick`), and a test that walked `Object.values(WEAPONS)` to find "the tool that opens this gate" would have found the bench-1 Fire Axe first and concluded that wood needs a workbench — which needs wood. The test now asserts *some* bench-0 tool carries each flag rather than trusting definition order, but the ordering is still the honest one. |
 | `chopMultiplier()` is exported so the swing counts can be tested against the real formula | The whole tier is "how many swings is a tree", and the test that asserts it was re-deriving the multiplier by hand. That test would have kept passing while the formula moved under it — the exact failure mode §8 calls a silent no-op. |
+| `meleeAttack` owns the stamina rules, not `updatePlayer` | It is the only place that knows whether a swing was a fight or a job: the arc is searched for enemies first, and only an empty arc falls through to the scenery. Work costs 6 and is refused when the bar is short; a fight costs 2 and is never refused, because being winded must never leave you unable to defend yourself. |
+| Exhaustion latches, and clears at half | The first version set `winded` when stamina hit zero. 110 stamina is 18 swings of 6, so the bar stops at 2 and never reaches zero — a player who simply held the button felled trees forever at a sixth of the speed. Latching on the *refusal* is what makes three trees a pause instead of a throttle. Measured in the browser; the first fix did nothing at all. |
+| The camp's opening is protected directly, not by global density | Three litter passes have now traded "the ground is a carpet" against "there is nothing to pick up". What actually broke each time was narrow: enough material within a short walk of the spawn. A starter cache tops up only what the odds did not provide, and the map-wide numbers are then free to be as sparse as the ground should look. Measured: the odds alone left three stone inside fifteen tiles against a Hatchet's three. |
+| A light goes in an off-hand slot, not the hotbar or the head | Asked where it should live, the owner said "maybe there is an off-hand slot where you can carry something in your other hand". It means light never costs you your weapon or your helmet, and `ARMOR_SLOTS` splits off so every armour rule still means the five that carry damage reduction. |
+| A lit player is seen further | The torch is the only reason to be visible at night, so it has to cost something — pillar 6, the same bargain as a generator or a gunshot. |
+| A light's charge lives on the player, not in the slot | A slot is `{ id, n }` and nothing else (items.js). Rather than widen that for one item, `p.lightFuel` and `p.lightId` sit on the player and `afterEquipChange()` keeps them in step. Swapping between two different lights resets the charge; taking one off and putting it back does not. |
+| Every Supply Stash aliases one shared pile | Survivors eat and towers shoot from `G.stash`, and must never have to guess which of your three stashes the rations are in. A second stash is another door into the same room. It follows that a stash only spills its contents when it was the last one standing. |
+| `G.stashItems` is deleted rather than converted | It existed only because a plain id→count map refuses anything that is not a raw resource (`state.js` `addRes`). A slot container holds consumables, weapons and gear natively, so the parallel map — an undeclared global, written bare in two files — stops being needed at all. |
+| Storage is finite, so everything that writes to it needs a floor | Salvage, crafting overflow, raid payouts, stripped wrecks and a scavenger's haul all go through `stashOrDrop`. The rule has been the same since the slot inventory landed: anything that will not fit lands on the ground, never nowhere. |
+| A container move carries which container, and the host range-checks it | The storage screen belongs to one browser. `act.moveStack` takes a tile, the host resolves the structure itself, and a guest cannot move things into a chest it is not standing beside. |
+| Aggro expires | It was set once and cleared only when every player was dead, so anything that had ever noticed anybody walked at the nearest player for the rest of its life — and the `e.noiseX` branch that is the entire "sound attracts zombies" mechanic could not be reached while a single player was alive. Losing you does not make them peaceful; it makes them investigate. |
+| One `makeNoise`, and `noiseMul` applies to all of it | `alertEnemies` in combat.js and `makeNoise` in vehicles.js were byte-for-byte the same function under two names, and only the first respected the stealth perks — so a Ghost build's car was exactly as loud as anyone's. |
+| The bow is a `kind: 'gun'` | It reuses the firing, reloading and ammunition path unchanged; the magazine of one plus a short reload IS the draw. What makes it a different weapon is two numbers — noise 90 against a pistol's 420, and 19 damage against a rifle's 78. It also has no muzzle flash, because a flash is a light source at night and a bow that lit up the treeline would give away the one thing it is for. |
+| A held bow keeps drawing; a held gun does not | "One click, one magazine" is deliberate for firearms. For a magazine of one it meant one arrow per click, with any click during the cooldown swallowed. Found by shooting one. |
+| Arrows cost only hand-gathered material | They are the sink that made the third litter cut safe: sticks, stone and fiber, burned forever by a bow and by every arrow tower. Before this, the three materials had one-off costs and nothing ongoing. |
+| Tower armaments are bought once and chosen per tower | The owner: "each of these is an upgrade that costs to be able to do it". Arrows are free and are the default, so a tower you built is never a thing that does nothing — and the sniper post, which used to be free, is now something you buy. |
+| The cannon is worse than a sniper rifle one-on-one | It is artillery. Its 70px splash is the reason to own it, and the balance test measures it against a crowd rather than against a single walker — otherwise the numbers would have been "fixed" into making it a louder sniper. |
+| Fire spreads to zombies and scenery and never to player structures | The owner chose this when asked how dangerous fire should be. Losing your own compound to your own tower is the kind of surprise that ends a run. There is no code path from a fire to `G.structures`, and a Node test reads the module (comments stripped) to keep it that way. |
+| A burn asks `damageEnemy` not to re-alert | It ticks several times a second, and `damageEnemy` sets `aggro` and resets `target` on every call — a burning zombie would be permanently aggravated and permanently forgetting where it was going. |
+| A burnt prop is removed the way a chopped one is | `removeProp` plus `emit('prop')`, so a guest sees it go and the save's `chopped` replay stays consistent. A burnt treeline has to still be burnt when the game is loaded again. |
 
 ---
 
@@ -483,6 +555,13 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 
 ### Next up (highest value first)
 
+0. **The owner plays this round.** Twelve notes went in at once and almost
+   every number in it is measured rather than felt. The open questions:
+   is three trees and a three-second wait the right rhythm or a nuisance;
+   does a torch make night playable or just survivable; is 48 stash slots
+   generous or is the base constantly full; does an arrow tower feel worth
+   having next to a turret, or is quiet not worth that much less damage;
+   and is a spreading fire a tactic or an accident that ruins a run.
 0. **The owner walks the new map.** Is the country worth the walk, does the
    forest feel dangerous or just slow, is downtown readable at speed, is the
    river a tactic or a nuisance? Every district was screenshotted and every
@@ -496,8 +575,8 @@ The *why*, so a future session does not undo something on purpose-built reasonin
    the host to pause; in-game chat; deploying the broker and the built game
    somewhere so friends can play without the owner running `npm run signal`.
 3. **Finish the playtest response.** Crafting folded into the inventory screen
-   (the owner never found it on `C`), tiered storage containers, and light
-   hunger and thirst. See `tasks/todo.md` for the working plan.
+   (the owner never found it on `C`) and light hunger and thirst. Tiered
+   storage containers landed with this round. See `tasks/todo.md`.
 2. **Decide what to do with `GameAssets/`.** Seven 1448x1086 art boards arrived
    mid-session. They are presentation sheets, not sprite atlases: labelled,
    captioned, and with **no alpha channel**. Using them means cropping and
@@ -520,6 +599,15 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 - **The owner plays the new gathering pace.** Six swings a tree is a measured
   number, not a felt one. If wood turns out to be a grind before the workbench
   exists, the lever is tree hp in `plantTree()` — and it invalidates saves.
+- **Recovering arrows.** An arrow that misses is gone. Picking spent ones off
+  the ground would make the bow's economy feel like a bow's economy, and the
+  pickup machinery already exists.
+- **A metal scythe.** Still the one gated source whose tool never improves.
+- **Fire as a player tool.** Fire arrows are a tower armament only. A molotov
+  or a fire arrow for the bow is the obvious next step, and everything it needs
+  (`ignite`, `igniteProp`, the burn tick) is already there.
+- **Water and fire.** Nothing puts a fire out but time. A fire that stops at
+  the river, or a bucket, would make the risk something you can answer.
 - Survivors assignable to a specific post (this wall, not the base centre)
 - Survivors equipping weapons from the stash instead of a fixed rifle
 - Enemies preferring weak walls, so base *design* matters as much as base cost
@@ -650,6 +738,31 @@ for it to close. With no pathfinding (invariant 8), one tree in that corridor
 stops it. The helper now requires the whole corridor to be open, and falls back
 to the old loose check only if nothing qualifies.
 
+**A dev server in a worktree can serve you yesterday's code.** Two browser
+measurements this round were taken against a build that did not contain the
+change being measured — the vite watcher in `.claude/worktrees/…` did not pick
+up edits, and the served module was the pre-edit one while the page loaded
+happily and reported no errors. The first conclusion drawn from it ("the fix
+did nothing") was true of the code being served and false of the code on disk.
+Restart the server before every browser check, and put a guard at the top of
+the check that returns `FATAL: stale build` if the thing you just added is not
+there. A stale build is silent; a missing constant is loud.
+
+**Measure with a control, and pen the ambient spawner.** "Zombies moved 250px
+toward the noise" means nothing until you know they move 91px on their own —
+and three separate measurements this round were confounded by the ambient
+spawner quietly adding walkers that were nearer to the tower than the ones
+being measured. Run the same setup twice, once with the mechanic and once
+without, and delete anything you did not plant.
+
+**Write the test that fails for the right reason.** Two new assertions failed
+on their first run and both were the test's fault, in ways worth keeping: one
+checked that fire.js never mentions `G.structures` and matched the comment
+saying so, and one asserted that louder armaments hit harder and punished the
+cannon for being artillery. Both were fixed by making the test measure what
+the thing is actually for — comments stripped, and the cannon weighed against a
+crowd rather than a single walker.
+
 **Render the map before you trust it.** A 320-tile generator was checked
 first with a Node script that dumps a PNG and floods from the camp — which is
 how three sealed rooms in the *old* town and a two-tile apartment cell that
@@ -665,7 +778,7 @@ round. Current expected totals:
 
 | Suite | Expected |
 | --- | --- |
-| `npm test` (Node, pure logic) | 98 |
+| `npm test` (Node, pure logic) | 126 |
 | `tests/browser-smoke.js` | 384 · about 220s |
 
 **Run the browser suite with the page visible and focused.** Its waits are
@@ -815,6 +928,30 @@ input (`key`, `tap`, `mouseDown`, `aimAt`) and the whole `api` surface.
 ## 11. Changelog
 
 Newest first. One line per meaningful change.
+
+- **2026-09-07** — The survival round: twelve notes from a play session, in one
+  PR. **Stamina**: a harvest swing costs 6 and stops recovery, so a full bar is
+  three trees and then a real pause; exhaustion latches and clears at half.
+  CON raises recovery as well as the ceiling, and a new perk, Woodcraft, cuts
+  the cost. **Litter** cut again, 4,246 → 2,372, made safe by a guaranteed
+  starter cache at the camp rather than by hoping the map-wide odds land near
+  the spawn. **Light**: an off-hand slot, a Torch of sticks and fiber that
+  burns itself up, and a battery-fed Flashlight that throws a beam; a lit
+  player is noticed 90px further out. **Storage**: everything is slot-limited
+  now, the shared stash included (48 slots), plus a Wooden Chest (16) and a
+  Steel Locker (32) and a two-panel screen to drag between them; `G.stashItems`
+  is gone. **Noise**: `alertEnemies` existed and had never worked, because
+  aggro was set once and never cleared — the noise branch in enemies.js was
+  unreachable while any player lived. One implementation now, aggro expires,
+  and turrets, generators, building and chopping are audible. **The bow**: a
+  gun as far as the code is concerned, at a quarter of a rifle's damage and a
+  seventh of a pistol's noise, firing arrows made of sticks, stone and fiber —
+  which is the sink that made the litter cut safe. **Manned towers**: four
+  armaments bought once and set per tower, trading noise against effectiveness
+  — arrows 90, fire 120, sniper 700, cannon 950. **Fire**: burning zombies
+  spread to zombies and to scenery, burn out and take the prop with them, and
+  hurt whoever stands in them. Player structures never catch, by choice.
+  Save → v12, fingerprint `a62c50c2` → `cd427428`. Node 126.
 
 - **2026-09-07** — Mining balance, and the metal tool tier. The owner: "there
   are WAY too many sticks, stones and fiber on the map... it is way too easy to

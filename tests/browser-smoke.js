@@ -11,7 +11,19 @@
 (function install() {
   const D = () => window.DEADLINE;
   const results = [];
-  const ok = (name, pass, detail = '') => {
+  // The shared stash became a slot container in v12, so the suite can no
+// longer poke `G.stash.wood = 200` — that sets a property the container does
+// not read. These three go through the same API the game does.
+const stashOf = (id) => window.DEADLINE.api.countRes(window.DEADLINE.G.stash, id);
+const addStash = (id, n) => window.DEADLINE.api.addRes(window.DEADLINE.G.stash, id, n);
+const setStash = (id, n) => {
+  const G = window.DEADLINE.G, api = window.DEADLINE.api;
+  const have = api.countRes(G.stash, id);
+  if (have > n) api.slotsTake(G.stash, id, have - n);
+  else if (have < n) api.addRes(G.stash, id, n - have);
+};
+
+const ok = (name, pass, detail = '') => {
     results.push({ name, pass: !!pass, detail: String(detail) });
     return pass;
   };
@@ -203,7 +215,7 @@
       ok('on-screen hints name the key that is actually bound',
         !!G.tutorial.hint && G.tutorial.hint.startsWith('WASL to move'), G.tutorial.hint);
       {
-        G.stash.wood = (G.stash.wood || 0) + 200; G.stash.scrap = (G.stash.scrap || 0) + 200;
+        stashOf('wood') = stashOf('wood') + 200; stashOf('scrap') = stashOf('scrap') + 200;
         d.binds.rebind('withdraw', 'KeyY');
         const stx = Math.floor(G.player.x / 32), sty = Math.floor(G.player.y / 32);
         // The assertion is about the *prompt*, and findInteractable() returns
@@ -234,7 +246,9 @@
           d.teleport(stash.x + (offX || 0), stash.y + (offX ? 0 : (stash.y > G.player.y ? -40 : 40)));
           await frames(3);
           const hv = api.findInteractable();
-          ok('the stash prompt names the rebound key', !!hv && hv.kind === 'stash' && hv.label.includes('Y: take ammo'), hv && hv.label);
+          // E opens the container now; the take-ammo shortcut is still on the
+          // prompt and still names whatever the key has been rebound to.
+          ok('the stash prompt names the rebound key', !!hv && hv.kind === 'store' && hv.label.includes('Y: take ammo'), hv && hv.label);
           api.demolishStructure(stash);
         } else {
           ok('the stash prompt names the rebound key', false, 'nowhere to place a stash');
@@ -471,10 +485,10 @@
     const spot = findOpenSpot(G, p.x, p.y, 0);
     d.teleport(spot.x, spot.y);
     await frames(3);
-    const woodBefore = G.stash.wood;
+    const woodBefore = stashOf('wood');
     const wall = placeNear('woodWall');
     ok('structures can be placed', !!wall, wall ? wall.type : 'null');
-    ok('structures cost resources', G.stash.wood < woodBefore, `${woodBefore} -> ${G.stash.wood}`);
+    ok('structures cost resources', stashOf('wood') < woodBefore, `${woodBefore} -> ${stashOf('wood')}`);
     ok('placement is blocked on an occupied tile', !!wall && !api.canPlace('woodWall', wall.tx, wall.ty).ok);
 
     // Walls block movement
@@ -563,7 +577,7 @@
       // switchable off, or the player can never stop it broadcasting Threat.
       gen.fuel = 50;
       gen.on = true;
-      G.stash.fuel = 0;
+      setStash('fuel', 0);
       api.slotsTake(p.bag, 'fuel', 9999);
       await frames(2);
       d.teleport(gen.x + 30, gen.y);
@@ -577,7 +591,7 @@
       d.tap('KeyE');
       await frames(3);
       ok('switching it back on works without spare fuel', gen.on === true, `on=${gen.on}`);
-      G.stash.fuel = 500;
+      setStash('fuel', 500);
     }
 
     // ------------------------------------------------------ 6. death loop --
@@ -603,7 +617,7 @@
       bed ? `${Math.round(Math.hypot(p.x - bed.x, p.y - bed.y))}px from bedroll` : 'no bed');
     // Death costs you what you were carrying, never your progression or base.
     ok('base survives death', G.structures.length > 0, `${G.structures.length} structures`);
-    ok('stash survives death', (G.stash.scrap || 0) > 0, `scrap ${G.stash.scrap}`);
+    ok('stash survives death', stashOf('scrap') > 0, `scrap ${stashOf('scrap')}`);
     ok('level and upgrades survive death', p.level >= 1 && p.xpNext > 0);
     ok('starting weapon is never lost',
       api.slotsCount(p.hotbar, 'pipe') + api.slotsCount(p.bag, 'pipe') > 0,
@@ -682,7 +696,7 @@
         hurtWall ? G.notifications.map((n) => n.text).join(' | ') : 'no wall to damage');
       if (hurtWall) hurtWall.hp = hurtWallHp;
       ok('raid awards XP', G.player.level * 1000 + G.player.xp > xpBefore);
-      ok('raid awards materials to the stash', (G.stash.parts || 0) > 0, `parts ${G.stash.parts}`);
+      ok('raid awards materials to the stash', stashOf('parts') > 0, `parts ${stashOf('parts')}`);
       ok('threat resets after a raid', G.threat < 60, `${G.threat.toFixed(1)}`);
     }
 
@@ -711,15 +725,15 @@
       ok('a raid with nothing happening notices it has stalled',
         G.raid && (G.raid.idle || 0) > idle0 + 2,
         G.raid ? `idle ${idle0} -> ${G.raid.idle}` : 'raid already ended');
-      const stashBefore = (G.stash.parts || 0);
+      const stashBefore = stashOf('parts');
       const raidsBefore2 = G.raidsDone;
       if (G.raid) G.raid.idle = 90;   // jump the clock rather than idle for 25s
       await seconds(1.5);
       ok('a stalled raid breaks off instead of running to the backstop',
         !G.raid && G.raidsDone === raidsBefore2 + 1, `raid=${!!G.raid}`);
       ok('a raid nobody finished pays only for what was killed',
-        (G.stash.parts || 0) === stashBefore,
-        `parts ${stashBefore} -> ${G.stash.parts || 0}`);
+        stashOf('parts') === stashBefore,
+        `parts ${stashBefore} -> ${stashOf('parts')}`);
       for (let i = G.enemies.length - 1; i >= 0; i--) G.enemies.splice(i, 1);
       d.god(false);
     }
@@ -967,7 +981,7 @@
           const bagWood = api.countRes(p.bag, 'wood');
           if (bagWood > 0) api.slotsTake(p.bag, 'wood', bagWood);
           const need = api.repairCost(wallR, p).wood + api.repairCost(w2, p).wood;
-          G.stash.wood = need;
+          setStash('wood', need);
           const plan = api.planRepairAll(p);
           ok('the plan takes the worst first and stops at the budget',
             plan.pieces.length === 3 && plan.repairable === 2 && plan.skipped === 1 && plan.pieces[0].s === wallR && plan.pieces[2].ok === false,
@@ -977,10 +991,10 @@
           ok('REPAIR ALL fixes what it said it would', fixed === 2 && wallR.hp === wallR.maxHp && w2.hp === w2.maxHp,
             `fixed ${fixed}: ${Math.round(wallR.hp)} ${Math.round(w2.hp)} ${Math.round(w3.hp)}`);
           ok('...leaves the one it could not pay for', w3.hp < w3.maxHp, `${Math.round(w3.hp)}/${w3.maxHp}`);
-          ok('...and spends the stash down to nothing', (G.stash.wood || 0) === 0, `wood ${G.stash.wood}`);
+          ok('...and spends the stash down to nothing', stashOf('wood') === 0, `wood ${stashOf('wood')}`);
           ok('with nothing left, REPAIR ALL repairs nothing and says so', api.repairAll(p) === 0 &&
             G.notifications.some((n) => /Not enough materials/.test(n.text)), G.notifications.map((n) => n.text).slice(-3).join(' | '));
-          G.stash.wood = 999;
+          setStash('wood', 999);
           if (bagWood > 0) api.addRes(p.bag, 'wood', bagWood);
           api.demolishStructure(w2);
           api.demolishStructure(w3);
@@ -1102,18 +1116,18 @@
       d.teleport(plot.x, plot.y);
       sv.x = plot.x + 40; sv.y = plot.y; sv.post = null; sv.cd = 0;
       sv.hp = sv.maxHp;
-      G.stash.ammoP = 500;
-      G.stash.rations = 300;
+      setStash('ammoP', 500);
+      setStash('rations', 300);
       await frames(4);
 
       const foe = api.spawnEnemy('walker', plot.x + 170, plot.y, { aggro: false });
-      const ammoBefore = G.stash.ammoP;
+      const ammoBefore = stashOf('ammoP');
       await seconds(4);
-      ok('survivors shoot at the infected', G.stash.ammoP < ammoBefore,
-        `ammo ${ammoBefore} -> ${G.stash.ammoP}`);
+      ok('survivors shoot at the infected', stashOf('ammoP') < ammoBefore,
+        `ammo ${ammoBefore} -> ${stashOf('ammoP')}`);
       ok('survivor fire actually damages enemies', foe.dead || foe.hp < foe.maxHp,
         `hp ${foe.dead ? 'dead' : Math.round(foe.hp)}`);
-      ok('survivors draw ammo from the stash', G.stash.ammoP < 500);
+      ok('survivors draw ammo from the stash', stashOf('ammoP') < 500);
 
       // They take damage, go down, and can be helped up.
       G.enemies.length = 0;
@@ -1147,23 +1161,23 @@
       G.survivors.length = 0;
       G.survivors.push(api.makeSurvivor(p.x, p.y, {}));
       G.rationDebt = 0;
-      G.stash.rations = 40;
+      setStash('rations', 40);
       api.slotsTake(p.bag, 'rations', 9999);
-      const foodBefore = G.stash.rations;
+      const foodBefore = stashOf('rations');
       await seconds(12);
-      ok('survivors consume Rations over time', (G.stash.rations || 0) < foodBefore,
-        `${foodBefore} -> ${G.stash.rations || 0}`);
+      ok('survivors consume Rations over time', stashOf('rations') < foodBefore,
+        `${foodBefore} -> ${stashOf('rations')}`);
 
       // Regression: an empty pantry accrues debt, and restocking must clear it.
       // Billing only the current tick would leave the crew starving forever.
-      G.stash.rations = 0;
+      setStash('rations', 0);
       G.rationDebt = 0;
       await seconds(12);
       const wentHungry = G.survivors[0].hungry || G.rationDebt > 0;
       ok('an empty pantry makes the crew hungry', wentHungry,
         `debt ${G.rationDebt.toFixed(2)} hungry=${G.survivors[0].hungry}`);
       G.rationDebt = 4;                       // a real backlog
-      G.stash.rations = 400;
+      setStash('rations', 400);
       await seconds(12);
       ok('restocking the stash pays down the ration debt', G.rationDebt < 1,
         `debt ${G.rationDebt.toFixed(2)}`);
@@ -1198,8 +1212,8 @@
       G.structures.length = 0;
       G.structGrid.clear();
       d.giveAll();
-      G.stash.ammoP = 600;
-      G.stash.rations = 400;
+      setStash('ammoP', 600);
+      setStash('rations', 400);
       G.benchTier = 2;
 
       // Settle somewhere open but still within a scavenger's working radius of
@@ -1319,7 +1333,7 @@
         scav.carrying = { scrap: 5 };
         scav.carryItems = [{ id: 'weapon:pistol', n: 1 }, { id: 'item:medkit', n: 2 }];
         scav.x = stash3.x + 20; scav.y = stash3.y;
-        const scrapBefore = G.stash.scrap || 0;
+        const scrapBefore = stashOf('scrap');
         // The player is standing right there and will magnet the dropped gear
         // up within a frame, so measure what they end up holding.
         const heldCount = (id) => api.slotsCount(p.bag, id) + api.slotsCount(p.hotbar, id);
@@ -1332,8 +1346,8 @@
           scav.x = stash3.x + 20; scav.y = stash3.y;
           await seconds(0.4);
         }
-        ok('materials are delivered into the stash', (G.stash.scrap || 0) > scrapBefore,
-          `${scrapBefore} -> ${G.stash.scrap || 0}`);
+        ok('materials are delivered into the stash', stashOf('scrap') > scrapBefore,
+          `${scrapBefore} -> ${stashOf('scrap')}`);
         ok('equipment a scavenger found is not destroyed',
           heldCount('medkit') > medkitsBefore || heldCount('pistol') > 0 || G.pickups.length > 0,
           `medkits ${medkitsBefore} -> ${heldCount('medkit')}, pistol=${heldCount('pistol')}, ${G.pickups.length} on the ground`);
@@ -1343,18 +1357,18 @@
         G.pickups.length = 0;
         scav.carrying = { wood: 9 };
         scav.carryItems = [];
-        const woodBefore2 = G.stash.wood || 0;
+        const woodBefore2 = stashOf('wood');
         api.assignJob(scav, 'guard');
         ok('reassigning mid-haul does not destroy the cargo',
-          (G.stash.wood || 0) > woodBefore2 || G.pickups.length > 0,
-          `stash ${woodBefore2} -> ${G.stash.wood || 0}, ${G.pickups.length} dropped`);
+          stashOf('wood') > woodBefore2 || G.pickups.length > 0,
+          `stash ${woodBefore2} -> ${stashOf('wood')}, ${G.pickups.length} dropped`);
 
         // Builders must not repair on credit they cannot pay for.
         const wall3 = placeNear('woodWall');
         wall3.hp = wall3.maxHp * 0.2;
         const brokeHp = wall3.hp;
-        G.stash.wood = 0;
-        G.stash.scrap = 0;
+        setStash('wood', 0);
+        setStash('scrap', 0);
         scav.repairCredit = 0;
         api.assignJob(scav, 'builder');
         for (let i = 0; i < 14; i++) {
@@ -1365,8 +1379,8 @@
         ok('builders cannot repair with an empty stash',
           Math.abs(wall3.hp - brokeHp) < 1,
           `${Math.round(brokeHp)} -> ${Math.round(wall3.hp)}`);
-        G.stash.wood = 500;
-        G.stash.scrap = 500;
+        setStash('wood', 500);
+        setStash('scrap', 500);
         for (let i = 0; i < 14 && wall3.hp <= brokeHp; i++) {
           G.enemies.length = 0;
           scav.x = wall3.x + 34; scav.y = wall3.y;
@@ -1691,11 +1705,11 @@
       ok('a car can be wrecked', ride.destroyed);
       ok('a wrecked car spills its boot rather than eating it', G.pickups.length > 0,
         `${G.pickups.length} spilled`);
-      const scrapBefore = G.stash.scrap || 0;
+      const scrapBefore = stashOf('scrap');
       const carsBefore = G.vehicles.length;
       api.salvageVehicle(ride);
-      ok('a wreck can be stripped for materials', (G.stash.scrap || 0) > scrapBefore,
-        `${scrapBefore} -> ${G.stash.scrap || 0}`);
+      ok('a wreck can be stripped for materials', stashOf('scrap') > scrapBefore,
+        `${scrapBefore} -> ${stashOf('scrap')}`);
       ok('stripping removes the wreck', G.vehicles.length === carsBefore - 1);
 
       G.pickups.length = 0;
@@ -1889,7 +1903,9 @@
 
       ok('the pack is a grid of slots', p.bag.slots.length >= 20,
         `${p.bag.slots.length} slots`);
-      ok('there are five equipment slots', api.GEAR_SLOTS.length === 5,
+      // Five armour slots plus the off-hand a light goes in.
+      ok('there are five armour slots and an off-hand',
+        api.GEAR_SLOTS.length === 6 && api.GEAR_SLOTS.includes('offhand'),
         api.GEAR_SLOTS.join(','));
       ok('gear goes into the pack rather than equipping itself',
         api.slotsCount(p.bag, 'riotHelm') === 1 && !p.equip.head,
@@ -2430,7 +2446,7 @@
       // A remote player's intent is a packet that stays put until the next one.
       // Holding "E was pressed" as data toggled a gate 17 times in 300ms.
       {
-        G.stash.wood = (G.stash.wood || 0) + 200; G.stash.scrap = (G.stash.scrap || 0) + 200;
+        stashOf('wood') = stashOf('wood') + 200; stashOf('scrap') = stashOf('scrap') + 200;
         const gtx = Math.floor(p2.x / 32), gty = Math.floor(p2.y / 32);
         let gate = null;
         for (let dx = 2; dx < 7 && !gate; dx++) {
@@ -2568,7 +2584,7 @@
         last ? Object.keys(last).join(',') : 'none');
 
       // A command is validated and executed by the host, and echoed as an event.
-      G.stash.wood = (G.stash.wood || 0) + 200; G.stash.scrap = (G.stash.scrap || 0) + 200;
+      stashOf('wood') = stashOf('wood') + 200; stashOf('scrap') = stashOf('scrap') + 200;
       let wtx = Math.floor(guest.x / 32) + 2, wty = Math.floor(guest.y / 32);
       for (let dx = 0; dx < 5 && !api.canPlace('woodWall', wtx, wty, guest).ok; dx++) wtx++;
       const built0 = G.structures.length, ev0 = reliable.length;

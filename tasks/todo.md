@@ -1,6 +1,79 @@
 # tasks/todo.md
 
-## Current round — mining balance and the metal tool tier
+## Current round — stamina, light, storage, noise, the bow and manned towers
+
+Owner, 2026-09-07, after a play session. Twelve notes, taken in one PR at their
+request. Four decisions were taken with them before any code: one PR rather
+than three; fire spreads to zombies and scenery but never to player structures;
+ALL storage becomes slot-limited, the Supply Stash included; and the torch goes
+in a new off-hand slot.
+
+- [x] **Chopping costs stamina.** 6 a harvest swing, recovery locked for 1.1s,
+      2 for a combat swing and never refused. Three trees to a full bar at
+      starting stats, then a three-second pause. Measured in the browser.
+- [x] **Exhaustion latches.** The first version set `winded` at zero stamina,
+      which chopping never reaches (110 is 18 swings of 6, so the bar stops at
+      2) — a held button felled trees forever at a sixth speed. It latches on
+      the refusal now. The first fix did literally nothing; the browser found it.
+- [x] **Stamina is a stat.** CON raises recovery as well as the ceiling; a new
+      CON perk, Woodcraft, cuts harvest cost 35% a rank. Both surfaced on the
+      character sheet, and the HUD's low-stamina warning is fractional rather
+      than the absolute 12 a high-CON character never reached.
+- [x] **Litter cut again**, 4,246 → 2,372 pieces. Safe this time because the
+      camp is protected directly by a starter cache rather than by hoping the
+      global odds land near the spawn — measured, the odds alone left three
+      stone inside fifteen tiles against a Hatchet's three.
+- [x] **Off-hand slot, Torch, Flashlight, batteries.** `ARMOR_SLOTS` splits out
+      so every armour rule still means the five that carry damage reduction.
+      A lit player is noticed 90px further out.
+- [x] **Storage.** Stash → 48 slots, Chest 16, Locker 32, a two-panel drag
+      screen, `stashOrDrop` on every path that used to write to an infinite
+      pile, spilling on destruction, and `G.stashItems` deleted.
+- [x] **Noise.** One `makeNoise`, aggro that expires so the existing branch is
+      reachable at all, `noiseMul` applied everywhere, and turrets, generators,
+      building and chopping made audible.
+- [x] **Bow and arrows**, bench 0, three arrows to a walker, a seventh of a
+      pistol's noise, no muzzle flash. Arrows cost only hand-gathered material.
+- [x] **Manned towers.** Four armaments bought once and set per tower; arrows
+      free, sniper/fire/cannon bought. Fixed the `posted`/`sniping` split.
+- [x] **Fire.** Burning enemies and burning scenery, spread, burn-out that
+      removes the prop for good, damage to anyone standing in it, and no path
+      at all to a player structure.
+- [x] Save → v12, fingerprint `a62c50c2` → `cd427428`. Verified the world
+      change is isolated: containers, vehicles, tiles and every non-litter prop
+      are byte-identical to `main`.
+- [x] Node tests 98 → 126. Browser suite updated for the slot stash (it poked
+      `G.stash.wood = 200` in 42 places), the six equipment slots and the new
+      container prompt.
+- [x] Docs: PROJECT.md §3 §4 §5 §6 §7 §8 §9 §11, README, this file, lessons.
+- [ ] `npm run smoke` and the raid harness — **not run**; see the review note.
+- [ ] The owner plays it.
+
+### Review
+
+**What was measured rather than guessed.** Every balance number in this round
+was taken from the running game: three trees at 2.7s/5.9s/9.1s with the winded
+latch at 9.7s and recovery at 12.7s; a torch taking the ground around the
+player from 36.7 to 58.5 brightness and a flashlight adding 20.6 at 300px where
+a torch adds nothing; eight walkers closing 91px on their own against 250px
+after one sound; four arrows into a walker for 19/19/19/34.2; and six seconds
+of each tower armament against three walkers — arrows 81 damage for 7 arrows,
+fire 98 plus two alight and two scenery fires, sniper 174 and three kills.
+
+**Three things this round found that were already broken.** `alertEnemies` had
+never worked, because aggro never expired. `crafting.js` had grown a private
+third copy of the loot entry-id encoder the decision log says must be unique.
+And `posted` and `sniping` were two different answers to "is this survivor on
+their tower", so one walking toward it already had sniper ballistics.
+
+**Not verified: the full browser suite and the raid harness.** The standing
+instruction is not to run either unasked. This round touches combat, enemies,
+structures and raids, which is exactly the case CLAUDE.md says the raid harness
+exists for, so the §9 reference figures could legitimately have moved. The
+smoke suite was *edited* for the slot stash and has not been run since. Both
+should go before this is merged.
+
+## Previous round — mining balance and the metal tool tier
 
 Owner, 2026-09-07: "There are WAY too many sticks, stones and fiber on the map
 right now. Also it is way too easy to mine trees and boulders. We need to make
