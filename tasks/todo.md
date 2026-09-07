@@ -182,3 +182,56 @@ than reading:
 - Reading one 256px cell made the payoff depend on where inside it you stood —
   the same six kills bought 40s of calm or none. Fixed by sampling the field
   bilinearly and calibrating the threshold from the measured spread.
+
+---
+
+## Round: co-op launch scripts + a version check that fires (2026-09-07)
+
+Prompted by a real session: the owner got a LAN game working, then hit
+"could not reach a signalling server" on the second machine (the guest was
+defaulting to ws://localhost:8787, which is its own machine), and then asked
+how to find the cloudflared link to share.
+
+- [x] `scripts/lib.sh` — shared preflight, port guards, LAN IP, browser open,
+      and process-tree cleanup that works on Git Bash and on mac/linux.
+- [x] `scripts/update.sh` — pull, install, print the build id to compare.
+- [x] `scripts/play-local.sh` — broker + `vite --host`, prints the friend's URL.
+- [x] `scripts/play-online.sh` — host mode starts broker + vite + cloudflared
+      with a pinned `--metrics` port, then reads the hostname back from
+      `/quicktunnel` and prints the finished share link. Guest mode takes that
+      address and starts only vite.
+- [x] npm aliases: `update`, `play:local`, `play:online`.
+- [x] Build id derived in `vite.config.js` from `git log -1 -- src/`, read
+      through the existing `import.meta.env` guard pattern in protocol.js.
+- [x] `joinRefusal()` — pure, replaces the bare PROTOCOL compare in host.js.
+      A hello with no build field is a refusal, which catches every client
+      older than this change for free.
+- [x] Tests: logic suite covers all branches of joinRefusal; smoke suite
+      asserts a wrong-build hello is rejected and never becomes a player.
+
+### Review
+
+`npm test` 91/91. Browser smoke 386/386, `DEADLINE.errors` empty. Raid harness
+was skipped deliberately — this round touches the net handshake, vite config
+and shell scripts, and no balance data.
+
+The interesting find was that the version check we already had would not have
+caught the case it exists for: `PROTOCOL` never moved during the map expansion.
+The only thing that did catch a stale guest was the save-version check inside
+`applySaveData`, reached by accident through the welcome message, whose wording
+("this version cannot read") reads like file corruption. Both now say the same
+actionable sentence.
+
+Also learned, and worth not re-discovering: `package.json` pins vite at
+`^5.4.11` but `5.4.21` is installed, and that release blocks foreign `Host`
+headers with a 403. It has nothing to do with `--host`. LAN play is unaffected
+because IP-literal hosts pass.
+
+### Not done
+
+- `scripts/play-online.sh` host mode has not been run end to end with a live
+  tunnel in this round (the mechanism was proven manually earlier in the
+  session: `/quicktunnel` returned the hostname, and a ws client reached the
+  broker through it and got a room code back). Worth one live run.
+- Cleanup on Ctrl+C is implemented per-platform but only the port-guard path
+  has been exercised.

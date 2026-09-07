@@ -10,7 +10,10 @@
     "preview": "vite preview",
     "test": "node --test \"tests/**/*.test.js\"",
     "signal": "node server/signal.js",
-    "smoke": "node tests/run-smoke.cjs"
+    "smoke": "node tests/run-smoke.cjs",
+    "update": "bash scripts/update.sh",
+    "play:local": "bash scripts/play-local.sh",
+    "play:online": "bash scripts/play-online.sh"
   },
   "devDependencies": {
     "vite": "^5.4.11"
