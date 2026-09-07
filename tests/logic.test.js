@@ -24,6 +24,7 @@ import {
 import { G } from '../src/game/state.js';
 import {
   makeStructure, repairCost, planRepairAll, isDamaged, costLabel, REPAIR_COST_SHARE, REPAIR_ALL_RANGE,
+  buildMenu, buildBarLayout,
 } from '../src/game/building.js';
 import {
   ITEMS, makeSlots, slotsAdd, slotsTake, slotsCount, slotsWeight, stackLimit,
@@ -547,6 +548,23 @@ test('REPAIR ALL fixes the worst first and skips what you cannot pay for', () =>
   assert.equal(plan.repairable, 2);
   assert.equal(plan.skipped, 2);
   assert.deepEqual(plan.cost, { wood: costA + costB }, 'the bill counts only what will be repaired');
+});
+
+test('the build bar never drops a card, whatever the window width', () => {
+  // At 92px a 1400px window drew fourteen of sixteen cards; with a 60px floor
+  // a 900px window still drew thirteen. The ones that fell off the end were
+  // always the REPAIR and DEMOLISH tools. Wrapping is the rule now.
+  const n = buildMenu().length;
+  assert.equal(buildMenu().slice(-2).join(','), 'repair,demolish', 'the tools are last, so they are the first to be lost');
+  for (let W = 640; W <= 2560; W += 20) {
+    const { cols, rows, cw, gap } = buildBarLayout(W, n);
+    assert.ok(cols * rows >= n, `${W}px: ${cols}×${rows} holds fewer than ${n} cards`);
+    assert.ok(cols * (cw + gap) - gap <= W - 20, `${W}px: a row of ${cols}×${cw} does not fit`);
+    assert.ok(cw >= 60 && cw <= 92, `${W}px: card width ${cw}`);
+  }
+  assert.equal(buildBarLayout(1400, n).rows, 1, 'a wide window keeps one row');
+  assert.equal(buildBarLayout(900, n).rows, 2, 'a laptop split-screen wraps to two');
+  assert.ok(buildBarLayout(1400, n).cw < 92, 'a 1400px window shrinks the cards rather than losing any');
 });
 
 test('a scavenger can see containers it stands beside', () => {

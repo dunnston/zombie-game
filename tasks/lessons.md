@@ -534,3 +534,14 @@ list; `repairAll()` executes that list and nothing else.
 
 **Rule:** a preview that promises an outcome should be produced by the same
 function that delivers it.
+
+### A minimum size is a truncation in disguise
+
+The first fix for the cut-off build bar shrank cards to fit, down to a 60px
+floor. Codex pointed out that below ~988px the floor wins and the loop's
+`if (x + cw > W - 8) break` truncates again — the same cards, the same bug,
+just on a smaller window. Reproduced at 900px: thirteen of sixteen drawn.
+
+**Rule:** when you clamp a layout, decide what happens *past* the clamp — wrap,
+scroll, or paginate — and screenshot it there. A floor that silently reverts
+to the old behaviour is not a fix.

@@ -72,7 +72,7 @@ Nine rounds merged, online co-op among them. Not yet played between two houses.
 | --- | --- |
 | Source | 42 modules, ~15,400 lines. Browser bundle depends on Vite only; the broker on `ws`. |
 | Assets | Zero. Every sprite is drawn in code at boot; every sound is WebAudio. |
-| Tests | 78 Node assertions; browser suite 384 |
+| Tests | 79 Node assertions; browser suite 384 |
 | Save format | **v8** payload (players by identity), in **slots** (index v1) |
 | Performance | ~60fps with 90 active enemies; ~66 KB/s per guest on the wire |
 
@@ -392,7 +392,7 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | No TURN server in v1 | Public STUN gets most pairs through. Strict NATs will fail with a readable message. Relaying through the broker is the follow-up, not a reason to hold the PR. |
 | A guest's held intent expires after 400ms of silence, and a paused guest sends "holding nothing" every step | The host keeps the last intent it heard, so silence used to mean "carry on": a paused guest kept running, a hidden tab kept firing. Codex review of PR B. The timeout covers the cases the guest cannot announce (tab hidden, line dying); the explicit idle packet makes pausing stop you instantly. A late packet on the unordered channel now contributes only its edges — its held state is stale by definition. |
 | `client.js` reaches `toTitle()` through `netHooks`, not an import | Importing game.js from the guest session closed a cycle (game → inventory → actions → client → game) that evaluated game.js before inventory.js and broke boot with a temporal-dead-zone error. game.js fills `netHooks.toTitle` at load. Same rule as `damage.js` (invariant 3): break cycles with a hook, not a re-export. |
-| Repair is offered on `E`, not only as a build-mode tool | Repair existed since the MVP and nobody found it: it was the fifteenth card on a bar that, at 1400px wide, drew fourteen. The owner never found crafting on `C` either. A damaged wall now asks for `E` with the bill on the prompt, the raid summary counts the damage, and the tutorial says so once something is hit. The build bar shrinks its cards to fit the screen for the same reason. |
+| Repair is offered on `E`, not only as a build-mode tool | Repair existed since the MVP and nobody found it: it was the fifteenth card on a bar that, at 1400px wide, drew fourteen. The owner never found crafting on `C` either. A damaged wall now asks for `E` with the bill on the prompt, the raid summary counts the damage, and the tutorial says so once something is hit. The build bar shrinks its cards to fit the screen and wraps onto more rows below 60px a card for the same reason — a 900px window had still been cutting three cards off (Codex review of PR #12). |
 | REPAIR ALL skips what it cannot pay for, worst first, and its label is its plan | "Repair until the money runs out" let one steel wall block the wood walls behind it; "repair everything or nothing" made the button useless the moment you were short. `planRepairAll()` walks a ledger and `repairAll()` runs exactly that list, so the bar can print the count and the bill and what happens on click never differs from it. Range is 520px — about a compound — rather than base-wide, because with build-anywhere a second outpost is not "here". |
 | A repair bill leaves off materials the damage would not have consumed | The old bill was `max(1, ceil(...))` per material, so a scratched steel wall cost a weapon part — the same part a pistol needs. Now each material rounds and drops out at zero; only the piece's main material is pinned to at least one, so no repair is free. |
 
@@ -560,7 +560,7 @@ round. Current expected totals:
 
 | Suite | Expected |
 | --- | --- |
-| `npm test` (Node, pure logic) | 78 |
+| `npm test` (Node, pure logic) | 79 |
 | `tests/browser-smoke.js` | 384 |
 
 **Run the browser suite with the page visible and focused.** Its waits are
@@ -708,7 +708,9 @@ Newest first. One line per meaningful change.
   cannot pay for, with its label as the plan; the raid summary counts the
   damage; a tutorial step appears once something is hit. Bills drop materials
   the damage would not have used. The build bar shrinks its cards to fit the
-  window. Both routed through `act.*` for guests. Node 78, smoke 384.
+  window and wraps onto more rows when it cannot (Codex found the 60px floor
+  still cut three cards off a 900px window). Both routed through `act.*` for
+  guests. Node 79, smoke 384.
 
 - **2026-09-06** — PR B review round. A paused guest now tells the host it is
   holding nothing, the host expires a silent guest's intent after 400ms, a late

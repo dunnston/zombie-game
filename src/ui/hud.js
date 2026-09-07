@@ -9,7 +9,7 @@ import { G, countRes, totalRes, canAfford } from '../game/state.js';
 import { Input } from '../core/input.js';
 import { currentWeapon, bagLoad } from '../game/player.js';
 import {
-  buildMenu, structureCost, isUnlocked, nearWorkbench, upgradeBench, costLabel,
+  buildMenu, buildBarLayout, structureCost, isUnlocked, nearWorkbench, upgradeBench, costLabel,
 } from '../game/building.js';
 import { visibleRecipes, craftStatus, craft } from '../game/crafting.js';
 import { raiseAttribute, buyPerk } from '../game/progression.js';
@@ -552,7 +552,9 @@ function drawMinimap(ctx, W, H) {
 // ----------------------------------------------------------- notifications ---
 
 function drawNotifications(ctx, W, H) {
-  let y = H - 130;
+  // The build bar covers the bottom of the screen; while it is up the stack
+  // starts above it (its top is remembered from the last frame it drew).
+  let y = G.ui.buildMode && G.ui.buildBarTop ? Math.min(H - 130, G.ui.buildBarTop - 10) : H - 130;
   ctx.textAlign = 'left';
   for (let i = G.notifications.length - 1; i >= 0; i--) {
     const n = G.notifications[i];
@@ -666,45 +668,54 @@ function drawOffscreenMarkers(ctx, W, H) {
 
 function drawBuildBar(ctx, W, H) {
   const menu = buildMenu();
-  // Cards shrink so the whole menu fits the screen: at 92px a 1400px window
-  // showed fourteen of sixteen, and the two that fell off the end were the
-  // REPAIR and DEMOLISH tools — the owner could never have found them.
-  const ch = 70, gap = 5;
-  const cw = Math.max(60, Math.min(92, Math.floor((W - 20 - (menu.length - 1) * gap) / menu.length)));
+  const n = menu.length;
+  // Cards shrink so the whole menu fits the screen, and once they reach the
+  // minimum the menu wraps onto more rows instead of cutting cards off the
+  // end. At 92px a 1400px window showed fourteen of sixteen; at a 60px floor a
+  // 900px window showed thirteen — and the ones that fell off the end were
+  // always the REPAIR and DEMOLISH tools, which is how nobody found repair.
+  const ch = 70;
+  const { cols, rows, cw, gap } = buildBarLayout(W, n);
   // On a narrow card the HP figure gets a line of its own under the costs
   // instead of colliding with them; the extra card height is for that line.
   const wide = cw >= 84;
-  const total = menu.length * (cw + gap) - gap;
+  const total = cols * (cw + gap) - gap;
   const x0 = Math.max(10, W / 2 - total / 2);
-  const y = H - 160;
+  const barH = rows * (ch + gap) - gap;
+  // The bottom row sits where the single row always did; extra rows stack up.
+  const yTop = H - 160 - (barH - ch);
 
-  const barW = Math.min(total + 20, W - 20);
+  const barW = total + 20;
   // Clicks on the bar select a piece; they must not also be read as a placement
   // by the world update, or picking a card would spend resources first.
-  claim(x0 - 10, y - 26, barW, ch + 40);
+  claim(x0 - 10, yTop - 26, barW, barH + 40);
+  G.ui.buildBarTop = yTop - 26;
 
   ctx.fillStyle = C.bg;
-  ctx.fillRect(x0 - 10, y - 26, barW, ch + 40);
+  ctx.fillRect(x0 - 10, yTop - 26, barW, barH + 40);
   ctx.strokeStyle = C.borderHi;
   ctx.lineWidth = 2;
-  ctx.strokeRect(x0 - 9.5, y - 25.5, barW - 1, ch + 39);
+  ctx.strokeRect(x0 - 9.5, yTop - 25.5, barW - 1, barH + 39);
 
   const repairing = menu[G.ui.buildIndex] === 'repair';
   ctx.font = 'bold 11px "Courier New", monospace';
   ctx.fillStyle = C.borderHi;
+  // The header shares its row with the REPAIR ALL button; on a narrow bar the
+  // long form would run underneath it.
+  const roomy = barW >= 1000;
   ctx.fillText(repairing
-    ? 'REPAIR  ·  click a piece  ·  hold LMB to sweep along a wall  ·  RMB or B to exit'
-    : 'BUILD MODE  ·  wheel / 1-9 to select  ·  LMB place  ·  RMB or B to exit', x0 - 4, y - 10);
+    ? (roomy ? 'REPAIR  ·  click a piece  ·  hold LMB to sweep along a wall  ·  RMB or B to exit' : 'REPAIR  ·  click, or hold LMB to sweep')
+    : (roomy ? 'BUILD MODE  ·  wheel / 1-9 to select  ·  LMB place  ·  RMB or B to exit' : 'BUILD MODE  ·  wheel / 1-9  ·  LMB place  ·  RMB or B to exit'), x0 - 4, yTop - 10);
 
   // With the repair tool up, one button fixes everything in reach. Its label
   // is the plan the sweep would run — count and bill — so what it says is
   // what a click does.
-  if (repairing) drawRepairAllButton(ctx, x0 - 10 + barW - 8, y - 24);
+  if (repairing) drawRepairAllButton(ctx, x0 - 10 + barW - 8, yTop - 24);
 
-  for (let i = 0; i < menu.length; i++) {
+  for (let i = 0; i < n; i++) {
     const id = menu[i];
-    const x = x0 + i * (cw + gap);
-    if (x + cw > W - 8) break;
+    const x = x0 + (i % cols) * (cw + gap);
+    const y = yTop + Math.floor(i / cols) * (ch + gap);
     const sel = i === G.ui.buildIndex;
     const isTool = id === 'repair' || id === 'demolish';
     const def = STRUCTURES[id];
@@ -751,7 +762,7 @@ function drawBuildBar(ctx, W, H) {
       ctx.fillText(id === 'repair' ? 'click a piece' : 'salvage 50%', x + 6, y + 30);
     } else if (!unlocked) {
       ctx.fillStyle = '#8a6a5a';
-      ctx.fillText('WORKBENCH II', x + 6, y + 30);
+      ctx.fillText(wide ? 'WORKBENCH II' : 'BENCH II', x + 6, y + 30);
     } else {
       ctx.fillStyle = afford ? C.dim : '#a06a5a';
       let yy = y + 30;

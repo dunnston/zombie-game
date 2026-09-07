@@ -19,7 +19,9 @@ screenshots of the tool and the prompt checked by eye. Raid harness untouched
 - [x] Raid summary counts pieces left damaged (broadcast to guests, no key names).
 - [x] Tutorial step that only speaks once a structure has been hit.
 - [x] `act.repairAll` + `repairAll` command for guests; `G.stats.repaired`.
-- [x] Build bar cards shrink to fit the window so the tools are always on it.
+- [x] Build bar cards shrink to fit the window so the tools are always on it,
+      and wrap onto more rows once they hit 60px (Codex P2: a 900px window
+      still lost three cards; reproduced by screenshot, then fixed).
 - [x] Tests: Node (bill scaling, parts-free scratch, plan order/budget); smoke
       (E through the real loop, tool ghost + held sweep, REPAIR ALL plan and
       run, raid notice, guest `repair`/`repairAll` commands).

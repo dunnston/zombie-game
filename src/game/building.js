@@ -26,6 +26,19 @@ export function buildMenu() {
   return [...BUILD_ORDER, 'repair', 'demolish'];
 }
 
+/**
+ * How the build bar lays `n` cards out in a `W`px-wide window. Cards shrink
+ * from `max` to `min`, and once they hit the floor the menu wraps onto more
+ * rows — it never drops a card. Pure, so the rule can be tested under Node:
+ * the two cards that used to fall off the end were REPAIR and DEMOLISH.
+ */
+export function buildBarLayout(W, n, { max = 92, min = 60, gap = 5 } = {}) {
+  const cols = Math.max(1, Math.min(n, Math.floor((W - 20 + gap) / (min + gap))));
+  const rows = Math.ceil(n / cols);
+  const cw = Math.max(min, Math.min(max, Math.floor((W - 20 - (cols - 1) * gap) / cols)));
+  return { cols, rows, cw, gap };
+}
+
 export function isUnlocked(type) {
   const def = STRUCTURES[type];
   if (!def) return true;                 // tools are always available
