@@ -7,6 +7,7 @@ import {
 } from './state.js';
 import { spawnEnemy, MAX_ENEMIES } from './enemies.js';
 import { baseCenter, raidTarget, isDamaged } from './building.js';
+import { stashOrDrop } from './loot.js';
 import { resetThreatAfterRaid } from './threat.js';
 import { addXp } from './progression.js';
 import { sfx } from '../core/audio.js';
@@ -246,10 +247,13 @@ function finishRaid(repelled = true) {
   G.raidsDone++;
   resetThreatAfterRaid();
 
+  // The payout goes into the stash, and onto the ground at the base if the
+  // stash has no room left for it.
+  const drop = baseCenter();
   const reward = {};
   for (const id in spec.reward) {
     const n = Math.floor(spec.reward[id] * share);
-    if (n > 0) { reward[id] = n; addRes(G.stash, id, n); }
+    if (n > 0) { reward[id] = n; stashOrDrop(id, n, drop.x, drop.y); }
   }
   // Everyone who was here for it earns it.
   for (const q of presentPlayers()) addXp(q, Math.round(spec.xp * (repelled ? 1 : 0.5 + share * 0.5)));

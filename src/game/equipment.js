@@ -2,7 +2,7 @@
 // makes. Kept out of player.js so the UI has one obvious place to call into,
 // and so every path that changes what is worn goes through recomputeStats().
 
-import { GEAR, GEAR_SLOTS, ARMOR_SLOTS } from './config.js';
+import { GEAR, GEAR_SLOTS, ARMOR_SLOTS, PLAYER } from './config.js';
 import { G, notify } from './state.js';
 import {
   ITEMS, slotsAdd, slotsTake, firstEmpty, gearSlot, slotsMove, slotsSplit,
@@ -10,6 +10,8 @@ import {
 import { recomputeStats } from './perks.js';
 import { carriedWeight } from './player.js';
 import { spawnPickup } from './loot.js';
+import { structAtTile } from './building.js';
+import { dist2 } from '../core/util.js';
 import { sfx } from '../core/audio.js';
 
 /**
@@ -143,10 +145,20 @@ export function equipBest(p) {
 
 // ------------------------------------------------------------------ moves ---
 
-/** Moves or merges between any two of the player's slot containers. */
-export function moveStack(p, fromCont, fromIndex, toCont, toIndex) {
-  const from = container(p, fromCont);
-  const to = container(p, toCont);
+/**
+ * Moves or merges between any two containers this player can reach: the pack,
+ * the hotbar, and — when `at` names a tile — the store of the structure
+ * standing on it.
+ *
+ * `at` exists so a guest's move carries WHICH chest. The host resolves the
+ * structure itself and checks the player is standing beside it, rather than
+ * trusting a screen it cannot see.
+ */
+export function moveStack(p, fromCont, fromIndex, toCont, toIndex, at = null) {
+  const store = at ? reachableStore(p, at) : null;
+  if ((fromCont === 'store' || toCont === 'store') && !store) return false;
+  const from = container(p, fromCont, store);
+  const to = container(p, toCont, store);
   if (!from || !to) return false;
   const ok = from === to
     ? slotsMove(from, fromIndex, toIndex)
@@ -195,9 +207,22 @@ function kindOf(id) {
   return it.kind === 'res' ? 'res' : it.kind;
 }
 
-function container(p, name) {
+/**
+ * The store of the structure at `at`, if this player is close enough to be
+ * using it. Range-checked here rather than in the UI: the screen belongs to
+ * one browser and the rule has to hold for a guest's command too.
+ */
+function reachableStore(p, at) {
+  const s = structAtTile(at.tx | 0, at.ty | 0);
+  if (!s || s.destroyed || !s.store) return null;
+  const R = PLAYER.interactRange + 40;
+  return dist2(p.x, p.y, s.x, s.y) <= R * R ? s.store : null;
+}
+
+function container(p, name, store = null) {
   if (name === 'bag') return p.bag;
   if (name === 'hotbar') return p.hotbar;
+  if (name === 'store') return store;
   return null;
 }
 

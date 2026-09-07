@@ -6,7 +6,7 @@ import {
   firstEmpty, makeSlots, packAllowance,
 } from './items.js';
 import { recomputeStats } from './perks.js';
-import { G, addResCapped, notify, solidPx, nearestPlayer, baseOwner } from './state.js';
+import { G, addRes, addResCapped, notify, solidPx, nearestPlayer, baseOwner } from './state.js';
 import { makeRng, weightedPick, dist2, clamp, TAU } from '../core/util.js';
 import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
@@ -265,6 +265,22 @@ export function entryToPickup(entry) {
   return { kind: 'res', id: entry };
 }
 
+/**
+ * The entry id for a bare item id — what you need to drop something you are
+ * holding in a slot. Same grammar as the two functions around it, and it lives
+ * here for the same reason: crafting.js had grown its own private copy keyed
+ * on `ITEMS[id].kind`, which is exactly the drift the decision log says this
+ * pair exists to prevent.
+ */
+export function itemEntryId(id) {
+  const it = ITEMS[id];
+  if (!it) return id;
+  if (it.kind === 'weapon') return `weapon:${id}`;
+  if (it.kind === 'gear') return `gear:${id}`;
+  if (it.kind === 'consumable') return `item:${id}`;
+  return id;
+}
+
 /** Rebuilds the entry id a pickup came from, for handing back to giveEntry. */
 const pickupEntryId = (it) =>
   it.kind === 'res' ? it.id
@@ -272,6 +288,20 @@ const pickupEntryId = (it) =>
       : it.kind === 'weapon' ? `weapon:${it.id}`
         : it.kind === 'key' ? `key:${it.id}`
           : `gear:${it.id}`;
+
+/**
+ * Into the shared stash if it fits, onto the ground beside `x,y` if it does
+ * not. The stash holds a finite number of slots since v12, so every path that
+ * used to be able to write to it unconditionally now needs somewhere for the
+ * remainder to go — and the rule has been the same since the slot inventory
+ * landed: anything that will not fit lands on the ground, never nowhere.
+ */
+export function stashOrDrop(id, n, x, y) {
+  if (n <= 0) return 0;
+  const took = addRes(G.stash, id, n);
+  if (took < n) spawnEntryPickup(x, y, itemEntryId(id), n - took);
+  return took;
+}
 
 /** Drops a loot entry on the ground, decoding its kind from the entry id. */
 export function spawnEntryPickup(x, y, entry, n) {

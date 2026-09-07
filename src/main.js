@@ -2,7 +2,7 @@
 // browser smoke test drives.
 
 import './style.css';
-import { G } from './game/state.js';
+import { G, addRes } from './game/state.js';
 import { ENEMIES } from './game/config.js';
 import {
   initInput, endFrame, Input, snapshotEdges, clearEdges, restoreEdges,
@@ -153,10 +153,11 @@ window.DEADLINE = {
   newGame: (seed) => newGame(seed ?? 20240917),
   setThreat: (v) => { G.threat = v; },
   giveAll: () => {
-    Object.assign(G.stash, {
-      wood: 999, scrap: 999, cloth: 999, elec: 999, med: 999,
-      parts: 999, mil: 999, fuel: 999, ammoP: 999, ammoS: 999, ammoR: 999,
-    });
+    const bulk = {
+      wood: 999, scrap: 999, cloth: 999, elec: 999, med: 999, parts: 999,
+      mil: 999, fuel: 999, battery: 99, ammoP: 999, ammoS: 999, ammoR: 999, arrow: 500,
+    };
+    for (const [id, n] of Object.entries(bulk)) addRes(G.stash, id, n);
   },
   teleport: (x, y) => {
     G.player.x = x; G.player.y = y;

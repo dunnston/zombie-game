@@ -8,6 +8,7 @@
 import { G } from '../game/state.js';
 import {
   placeStructure, repairStructure, repairAll, demolishStructure, upgradeBench, structAtTile,
+  depositAll, withdrawSupplies,
 } from '../game/building.js';
 import { craft } from '../game/crafting.js';
 import { raiseAttribute, buyPerk } from '../game/progression.js';
@@ -19,6 +20,22 @@ import { RECIPES } from '../game/config.js';
 import { sendCommand } from './client.js';
 
 const isClient = () => G.net.role === 'client';
+
+/** A wire {tx, ty} coerced to integers, or null. */
+const tileArg = (at) => (at && typeof at === 'object' ? { tx: at.tx | 0, ty: at.ty | 0 } : null);
+
+/**
+ * The container the player means, range-checked. Falls back to the shared
+ * stash when no tile is given, which is what the old E-beside-the-stash and
+ * take-ammo shortcuts pass.
+ */
+function storeAt(p, at) {
+  if (!at) return G.stash;
+  const s = structAtTile(at.tx, at.ty);
+  if (!s || s.destroyed || !s.store) return null;
+  const R = 116;                                   // interactRange plus a little
+  return (s.x - p.x) ** 2 + (s.y - p.y) ** 2 <= R * R ? s.store : null;
+}
 
 export const act = {
   place(type, tx, ty) {
@@ -70,9 +87,19 @@ export const act = {
     if (isClient()) return sendCommand('equipBest', {}), 0;
     return equipBest(G.player);
   },
-  moveStack(fromCont, fromIndex, toCont, toIndex) {
-    if (isClient()) return sendCommand('move', { fc: fromCont, fi: fromIndex, tc: toCont, ti: toIndex }), false;
-    return moveStack(G.player, fromCont, fromIndex, toCont, toIndex);
+  // `at` is {tx, ty} when either end of the move is a chest, locker or stash.
+  // The host resolves the structure and checks the range itself.
+  moveStack(fromCont, fromIndex, toCont, toIndex, at = null) {
+    if (isClient()) return sendCommand('move', { fc: fromCont, fi: fromIndex, tc: toCont, ti: toIndex, at }), false;
+    return moveStack(G.player, fromCont, fromIndex, toCont, toIndex, at);
+  },
+  depositAll(at) {
+    if (isClient()) return sendCommand('deposit', { at }), 0;
+    return depositAll(G.player, storeAt(G.player, at));
+  },
+  withdrawSupplies(at) {
+    if (isClient()) return sendCommand('withdraw', { at }), 0;
+    return withdrawSupplies(G.player, storeAt(G.player, at));
   },
   splitStack(cont, fromIndex, toIndex) {
     if (isClient()) return sendCommand('split', { c: cont, fi: fromIndex, ti: toIndex }), false;
@@ -117,7 +144,9 @@ export function executeCommand(p, name, a) {
     case 'equip': return equipFromBag(p, a.i | 0);
     case 'unequip': return unequip(p, String(a.slot));
     case 'equipBest': return equipBest(p);
-    case 'move': return moveStack(p, String(a.fc), a.fi | 0, String(a.tc), a.ti | 0);
+    case 'move': return moveStack(p, String(a.fc), a.fi | 0, String(a.tc), a.ti | 0, tileArg(a.at));
+    case 'deposit': return depositAll(p, storeAt(p, tileArg(a.at))) > 0;
+    case 'withdraw': return withdrawSupplies(p, storeAt(p, tileArg(a.at))) > 0;
     case 'split': return splitStack(p, String(a.c), a.fi | 0, a.ti | 0);
     case 'drop': return dropStack(p, String(a.c), a.i | 0, a.all !== false);
     case 'dropEq': return dropEquipped(p, String(a.slot));

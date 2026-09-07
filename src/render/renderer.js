@@ -1313,7 +1313,11 @@ function drawRepairOverlay(ctx, g, p) {
 
 function drawInteractPrompt(ctx) {
   const h = G.ui.hover;
-  if (!h || G.ui.buildMode || G.player.searching || G.player.reviving) return;
+  // A panel over the world hides the prompt too. It always should have — the
+  // HUD's own key hints are gated on `!G.ui.panel` — but it only became
+  // obvious when E started opening a screen on the very thing being pointed
+  // at, and the prompt showed through the panel describing it.
+  if (!h || G.ui.panel || G.ui.buildMode || G.player.searching || G.player.reviving) return;
   const ref = h.ref;
   ctx.save();
   ctx.textAlign = 'center';

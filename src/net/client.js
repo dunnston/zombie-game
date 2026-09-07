@@ -10,7 +10,7 @@ import { G, notify, netHooks, removeStructure, structAt } from '../game/state.js
 import { ENEMIES, TILE } from '../game/config.js';
 import { gatherLocalIntent, clearIntent } from '../game/intent.js';
 import { movePlayer, createPlayer, currentWeapon } from '../game/player.js';
-import { applySaveData, restorePlayerRecord } from '../game/save.js';
+import { applySaveData, restorePlayerRecord, restoreSlots } from '../game/save.js';
 import { makeStructure } from '../game/building.js';
 import { makeSurvivor } from '../game/survivors.js';
 import { spawnBullet, swingRefused } from '../game/combat.js';
@@ -168,7 +168,12 @@ function onReliable(m) {
     case 'struct': upsertStructure(m.s); break;
     case 'sdel': { const s = structAt(m.tx, m.ty); if (s) { s.destroyed = true; removeStructure(s); } break; }
     case 'dyn': for (const rec of m.list || []) upsertStructure(rec); break;
-    case 'stash': G.stash = m.stash || {}; G.stashItems = m.items || {}; break;
+    case 'stores':
+      for (const rec of m.list || []) {
+        const c = rec.tx === null ? G.stash : (structAt(rec.tx, rec.ty) || {}).store;
+        if (c) restoreSlots(c, rec.slots || []);
+      }
+      break;
     case 'inv': if (G.player) restorePlayerRecord(G.player, m.rec, { keepPosition: true }); break;
     case 'bullet':
       spawnBullet(m.x, m.y, m.a, { speed: m.sp, dmg: 0, life: m.lf, color: m.c, size: m.sz, owner: 'remote' });

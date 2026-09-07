@@ -12,7 +12,7 @@ import {
   shake, screenFlash, isLocal,
 } from './state.js';
 import { damageEnemy } from './damage.js';
-import { spawnPickup } from './loot.js';
+import { spawnPickup, stashOrDrop } from './loot.js';
 import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
 import { addXp } from './progression.js';
@@ -453,8 +453,8 @@ export function salvageVehicle(v, p = G.player) {
   if (!v.destroyed) return false;
   const scrap = 14 + Math.floor(Math.random() * 14 * p.lootMul);
   const parts = Math.random() < 0.45 ? 1 : 0;
-  addRes(G.stash, 'scrap', scrap);
-  if (parts) addRes(G.stash, 'parts', parts);
+  stashOrDrop('scrap', scrap, v.x, v.y);
+  if (parts) stashOrDrop('parts', parts, v.x, v.y);
   releaseTiles(v);
   const i = G.vehicles.indexOf(v);
   if (i >= 0) G.vehicles.splice(i, 1);

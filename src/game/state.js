@@ -2,9 +2,9 @@
 // system shares. Deliberately free of gameplay rules — those live in the
 // system modules so this file stays cycle-free.
 
-import { TILE, RES, GEAR, SHOOT_OVER, bagWeight } from './config.js';
+import { TILE, RES, GEAR, SHOOT_OVER, STASH_SLOTS, bagWeight } from './config.js';
 import {
-  ITEMS, isSlots, slotsAdd, slotsTake, slotsCount, slotsWeight, itemWeight,
+  ITEMS, isSlots, slotsAdd, slotsTake, slotsCount, slotsWeight, itemWeight, makeSlots,
 } from './items.js';
 import { isBlockedTile } from './world.js';
 import { clamp } from '../core/util.js';
@@ -58,7 +58,12 @@ export const G = {
   structures: [],
   structGrid: new Map(),   // "tx,ty" -> structure
   backpacks: [],           // death drops
-  stash: {},               // shared base storage
+  // The base's one shared pile, and the only container survivors, turrets and
+  // towers draw from. A slot container since v12: storage is finite, so a
+  // stash full of scrap really can leave your people without rations. Every
+  // Supply Stash structure aliases this, so building a second one is another
+  // door into the same room rather than a second room.
+  stash: makeSlots(STASH_SLOTS),
   camera: { x: 0, y: 0, zoom: 1, shake: 0, shakeX: 0, shakeY: 0 },
   time: 0,
   threat: 0,
@@ -71,6 +76,9 @@ export const G = {
   tutorial: { step: 0, done: {}, hint: null },
   ui: {
     panel: null, buildIndex: 0, buildMode: false, hover: null, mapOpen: false,
+    // The container the storage screen is showing. Local UI only: it never
+    // travels, and the moves made in it carry the tile instead.
+    storeRef: null,
     levelChoices: null, tab: 0,
     hudRects: [],   // screen-space regions that swallow clicks from the world
   },

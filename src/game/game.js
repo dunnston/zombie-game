@@ -2,7 +2,7 @@
 // interactions, the tutorial, and autosave.
 
 import {
-  TILE, PLAYER, THREAT, STRUCTURES, CAMERA, WEAPONS, RECIPES, GEAR, GEAR_SLOTS,
+  TILE, PLAYER, THREAT, STRUCTURES, CAMERA, WEAPONS, RECIPES, GEAR, GEAR_SLOTS, STASH_SLOTS,
 } from './config.js';
 import {
   G, notify, structAtPx, solidPx, shake, addRes, addResCapped, countRes, pointerOverHud,
@@ -18,7 +18,7 @@ import {
   equipFromBag, unequip, equipBest, moveStack, dropStack, dropEquipped,
 } from './equipment.js';
 import {
-  ITEMS, slotsCount, slotsAdd, slotsTake, slotsEntries, slotsClear, packAllowance,
+  ITEMS, slotsCount, slotsAdd, slotsTake, slotsEntries, slotsClear, packAllowance, makeSlots,
 } from './items.js';
 import {
   updateEnemies, updateSpawning, rebuildSpatial, seedArea, spawnEnemy,
@@ -32,7 +32,7 @@ import {
   buildMenu, canPlace, placeStructure, repairStructure, demolishStructure,
   updateGenerators, updateFloodlights, useGenerator, generatorRunning,
   upgradeBench, nearestStructure, nearWorkbench,
-  stashDepositAll, stashWithdrawAmmo, structureCost, isUnlocked, BUILD_RANGE,
+  stashDepositAll, stashWithdrawAmmo, depositAll, withdrawSupplies, structureCost, isUnlocked, BUILD_RANGE,
   baseCenter, refreshBedrolls,
   repairCost, repairAll, planRepairAll, damagedStructures, isDamaged, costLabel, REPAIR_ALL_RANGE,
 } from './building.js';
@@ -61,7 +61,7 @@ import {
   rationsHeld, rationsCarried, JOBS, JOB_IDS, rosterLimits, freeTowers,
   assignJob, SCAVENGE, BUILDER, SURVIVOR,
 } from './survivors.js';
-import { cancelDrag, lastZones, isDragging } from '../ui/inventory.js';
+import { cancelDrag, lastZones, isDragging, openStructure } from '../ui/inventory.js';
 import { act } from '../net/actions.js';
 import { hostAfterUpdate } from '../net/host.js';
 import { updateClient, sendIdleIntent } from '../net/client.js';
@@ -127,8 +127,7 @@ export function newGame(seed = 20240917) {
   G.survivorSeq = 0;
   G.rationDebt = 0;
   initClock();
-  G.stash = {};
-  G.stashItems = {};
+  G.stash = makeSlots(STASH_SLOTS);
   G.benchTier = 0;
   G.threat = 0;
   G.threatTier = 0;
@@ -352,7 +351,14 @@ export function findInteractable(p = G.player) {
     if (s.destroyed) continue;
     const d = dist2(p.x, p.y, s.x, s.y);
     if (d >= bestD) continue;
-    if (s.type === 'stash') { bestD = d; best = { kind: 'stash', ref: s, label: `Deposit all  ·  ${k('withdraw')}: take ammo` }; }
+    if (s.store) {
+      bestD = d;
+      const used = s.store.slots.filter(Boolean).length;
+      best = {
+        kind: 'store', ref: s,
+        label: `Open ${s.def.name}  (${used}/${s.store.slots.length})${s.type === 'stash' ? `  ·  ${k('withdraw')}: take ammo` : ''}`,
+      };
+    }
     else if (s.type === 'workbench') { bestD = d; best = { kind: 'bench', ref: s, label: s.tier >= 2 ? `Workbench II  ·  ${k('craft')}: craft` : `Upgrade Workbench  ·  ${k('craft')}: craft` }; }
     else if (s.type === 'gate') { bestD = d; best = { kind: 'gate', ref: s, label: s.open ? 'Close gate' : 'Open gate' }; }
     else if (s.type === 'generator') {
@@ -494,8 +500,10 @@ export function beginInteract(p, target) {
       p.reviving = { target: target.ref, t: 0, dur: PLAYER.reviveTime };
       sfx('ui');
       break;
-    case 'stash':
-      stashDepositAll(p);
+    case 'store':
+      // Opening a container is a local screen, not a change to the world, so
+      // it does not go through act.* — the moves made inside it do.
+      if (isLocal(p)) { G.ui.storeRef = target.ref; setPanel('store'); }
       break;
     case 'bench':
       if (target.ref.tier < 2) upgradeBench(target.ref, p);
@@ -555,7 +563,8 @@ function finishSearch(p) {
  * by a panel nobody can see.
  */
 function setPanel(name) {
-  if (G.ui.panel === 'inv' && name !== 'inv') cancelDrag();
+  if ((G.ui.panel === 'inv' || G.ui.panel === 'store') && name !== G.ui.panel) cancelDrag();
+  if (name !== 'store') G.ui.storeRef = null;
   G.ui.panel = name;
   sfx('ui');
 }
@@ -786,6 +795,7 @@ export function update(dt) {
   // The controls panel is capturing a key: nothing else may read the keyboard.
   const rebinding = G.ui.panel === 'controls' && !!G.menu.pendingRebind;
   if (!rebinding) {
+    if (G.ui.panel === 'store' && actTap('interact')) setPanel(null);
     if (actTap('inventory')) { setPanel(G.ui.panel === 'inv' ? null : 'inv'); }
     if (actTap('map')) { setPanel(G.ui.panel === 'map' ? null : 'map'); }
     if (actTap('character')) { setPanel(G.ui.panel === 'char' ? null : 'char'); }
@@ -927,6 +937,7 @@ export const api = {
   findInteractable, placeStructure, canPlace, spawnEnemy, forceEndRaid,
   visibleRecipes, craft, craftStatus, nearWorkbench, upgradeBench, baseCenter,
   spawnEntryPickup, RECIPES,
+  stashDepositAll, stashWithdrawAmmo, depositAll, withdrawSupplies, openStructure,
   grantLoot, rollContainer, spawnPickup, repairStructure, demolishStructure,
   repairCost, repairAll, planRepairAll, damagedStructures, isDamaged, costLabel, REPAIR_ALL_RANGE,
   killPlayer: (p = G.player, force = false) => killPlayer(p, force),

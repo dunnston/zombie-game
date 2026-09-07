@@ -28,7 +28,7 @@ import { equippedLight, lightActive } from '../game/state.js';
 import { dangerAtPx } from '../game/world.js';
 import { clamp, TAU, clock } from '../core/util.js';
 import { sfx } from '../core/audio.js';
-import { drawInventoryPanel } from './inventory.js';
+import { drawInventoryPanel, drawStoragePanel } from './inventory.js';
 import { drawControlsPanel } from './menu.js';
 import { ITEMS } from '../game/items.js';
 // The palette, panels, buttons and cursor live in kit.js so the title screen
@@ -82,6 +82,7 @@ export function drawHUD(ctx, deviceW, deviceH, interactive = true) {
 
   if (G.ui.panel === 'char') drawCharPanel(ctx, W, H);
   else if (G.ui.panel === 'inv') drawInventoryPanel(ctx, W, H, UI_KIT);
+  else if (G.ui.panel === 'store') drawStoragePanel(ctx, W, H, UI_KIT);
   else if (G.ui.panel === 'craft') drawCraftPanel(ctx, W, H);
   else if (G.ui.panel === 'map') drawMapPanel(ctx, W, H);
   else if (G.ui.panel === 'controls') drawControlsPanel(ctx, W, H, () => { G.ui.panel = null; });

@@ -12,7 +12,7 @@ import {
 } from './state.js';
 import { spawnBullet } from './combat.js';
 import { baseCenter } from './building.js';
-import { rollContainer, spawnPickup, spawnEntryPickup } from './loot.js';
+import { rollContainer, spawnPickup, spawnEntryPickup, stashOrDrop } from './loot.js';
 import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
 import { addXp } from './progression.js';
@@ -789,7 +789,7 @@ function nearestStash(fromX = 0, fromY = 0) {
 function deliverCargo(s, stash) {
   let total = 0;
   for (const id in s.carrying || {}) {
-    addRes(G.stash, id, s.carrying[id]);
+    stashOrDrop(id, s.carrying[id], s.x, s.y);
     total += s.carrying[id];
   }
   // Decoded by the shared grammar rather than a hand-written prefix list —

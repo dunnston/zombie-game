@@ -56,6 +56,10 @@ export const RES = {
   mil:    { name: 'Military',    short: 'MIL',  color: '#7fa14a', wt: 1, stack: 20 },
   fuel:   { name: 'Fuel',        short: 'FUEL', color: '#d2762c', wt: 1, stack: 20 },
   rations:{ name: 'Rations',     short: 'FOOD', color: '#c4a86a', wt: 1, stack: 20 },
+  // Ammunition you make rather than find. Light, stacks deep, and cheap in
+  // material the ground is covered in — which is what finally gives sticks,
+  // stone and fiber a sink that never stops consuming them.
+  arrow:  { name: 'Arrows',      short: 'ARRW', color: '#b9a072', wt: 0.15, stack: 60 },
   ammoP:  { name: '9mm Rounds',  short: '9MM',  color: '#d8c98a', wt: 0.2, stack: 120 },
   ammoS:  { name: 'Shells',      short: 'SHEL', color: '#c9584e', wt: 0.3, stack: 60 },
   ammoR:  { name: 'Rifle Rounds',short: 'RIFL', color: '#b8a05a', wt: 0.25, stack: 90 },
@@ -283,6 +287,14 @@ export const ENEMIES = {
 
 // ------------------------------------------------------------- structures ---
 
+/**
+ * How many slots the shared base stash holds. Named because two places need
+ * to agree: the structure definition below, and `G.stash` in state.js, which
+ * every Supply Stash structure aliases so the base has one pile however many
+ * access points you build.
+ */
+export const STASH_SLOTS = 48;
+
 export const STRUCTURES = {
   bedroll: {
     id: 'bedroll', name: 'Bedroll', cost: { wood: 15, cloth: 12 }, hp: 90,
@@ -300,10 +312,26 @@ export const STRUCTURES = {
     sniperRange: 520, sniperDmg: 1.9,
     desc: 'Assign a survivor here and they cover the whole approach.',
   },
+  // ------------------------------------------------------------ storage --
+  // Every container holds a fixed number of slots now. The Supply Stash is
+  // still the base's pantry and armoury — survivors eat from it and turrets
+  // and towers draw ammunition from it, and only from it — so it is the
+  // biggest, and running it out of room really will starve your people. That
+  // is the point: storage is a thing you have to build more of.
   stash: {
     id: 'stash', name: 'Supply Stash', cost: { wood: 25, scrap: 8 }, hp: 220,
-    solid: true, tier: 1, threat: 2, protect: true,
-    desc: 'Shared storage. Deposit everything with one key.',
+    solid: true, tier: 1, threat: 2, protect: true, store: STASH_SLOTS,
+    desc: 'The base pantry and armoury. 48 slots. Survivors and towers feed from this one.',
+  },
+  chest: {
+    id: 'chest', name: 'Wooden Chest', cost: { wood: 20, sticks: 8 }, hp: 180,
+    solid: true, tier: 1, threat: 0.5, protect: true, store: 16,
+    desc: 'Sixteen slots of overflow. Cheap — build as many as you need.',
+  },
+  locker: {
+    id: 'locker', name: 'Steel Locker', cost: { scrap: 34, parts: 1 }, hp: 420,
+    solid: true, tier: 1, threat: 1, protect: true, store: 32,
+    desc: 'Thirty-two slots, and it survives a raid that flattens a chest.',
   },
   workbench: {
     id: 'workbench', name: 'Workbench', cost: { wood: 30, scrap: 18 }, hp: 300,
@@ -369,7 +397,7 @@ export const STRUCTURES = {
 
 export const BUILD_ORDER = [
   'woodWall', 'stoneWall', 'barricade', 'reinforcedWall', 'metalWall', 'gate', 'spike',
-  'workbench', 'stash', 'bedroll', 'bunk', 'watchtower',
+  'workbench', 'stash', 'chest', 'locker', 'bedroll', 'bunk', 'watchtower',
   'generator', 'turret', 'floodlight',
 ];
 

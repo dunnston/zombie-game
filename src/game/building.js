@@ -8,7 +8,8 @@ import {
   notify, addRes, addResCapped, takeRes, countRes, baseOwner, presentPlayers, structChanged,
 } from './state.js';
 import { isBlockedTile } from './world.js';
-import { ITEMS, slotsEntries, packAllowance } from './items.js';
+import { ITEMS, slotsEntries, packAllowance, makeSlots, firstEmpty, slotsWeight } from './items.js';
+import { stashOrDrop } from './loot.js';
 import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
 import { addThreat } from './threat.js';
@@ -114,6 +115,13 @@ export function makeStructure(type, tx, ty, hpMul = 1) {
     on: true,
     tier: 1,
     destroyed: false,
+    // Anything with `store` carries its own slot container. The Supply Stash
+    // is the exception that also aliases G.stash — see initStores().
+    // A Supply Stash is a door into the base's one shared pile, not a pile of
+    // its own — survivors and towers read `G.stash` and must not have to guess
+    // which of your three stashes the rations are in. Everything else with
+    // `store` gets its own container.
+    store: def.store ? (type === 'stash' ? G.stash : makeSlots(def.store)) : null,
   };
   return addStructure(s);
 }
@@ -276,7 +284,7 @@ export function demolishStructure(s, p = G.player) {
   const lines = [];
   for (const id in cost) {
     const n = Math.floor(cost[id] * refundMul);
-    if (n > 0) { addRes(G.stash, id, n); lines.push(`${id} +${n}`); }
+    if (n > 0) { stashOrDrop(id, n, s.x, s.y); lines.push(`${id} +${n}`); }
   }
   removeStructure(s);
   s.destroyed = true;
@@ -445,52 +453,74 @@ export function raidTarget(from) {
   return best;
 }
 
-export function stashDepositAll(p = G.player) {
-  let moved = 0;
-  // Deposits raw materials and ammunition. Weapons, gear and medical supplies
-  // stay on you: the stash is for the haul, and a deposit-all that stripped
-  // your rifle and your bandages would be a trap rather than a convenience.
-  const entries = slotsEntries(p.bag);
-  for (const id of Object.keys(entries)) {
+/**
+ * Empties the haul into a container. Defaults to the shared stash, but the
+ * storage screen passes whichever chest you have open.
+ *
+ * Deposits raw materials and ammunition, plus consumables above a working
+ * supply of four. Weapons, gear and the bandages in your pocket stay on you:
+ * the stash is for the haul, and a deposit-all that stripped your rifle would
+ * be a trap rather than a convenience.
+ *
+ * Since storage became finite, anything that does not fit simply stays in the
+ * pack — the return value says how much actually moved, so the caller can tell
+ * the player the container is full rather than quietly eating the difference.
+ */
+export function depositAll(p = G.player, store = G.stash) {
+  if (!store) return 0;
+  let moved = 0, left = 0;
+  const want = (id, n) => {
+    if (n <= 0) return;
+    const got = addRes(store, id, n);
+    if (got > 0) takeRes(p.bag, id, got);
+    moved += got;
+    left += n - got;
+  };
+  for (const [id, n] of Object.entries(slotsEntries(p.bag))) {
     const it = ITEMS[id];
-    if (!it || it.kind !== 'res') continue;
-    const n = takeRes(p.bag, id, entries[id]);
-    if (n > 0) { addRes(G.stash, id, n); moved += n; }
+    if (!it) continue;
+    if (it.kind === 'res') want(id, n);
+    else if (it.kind === 'consumable' && n > 4) want(id, n - 4);
   }
-  // Spare consumables beyond a working supply go to the stash.
-  for (const id of Object.keys(slotsEntries(p.bag))) {
-    const it = ITEMS[id];
-    if (!it || it.kind !== 'consumable') continue;
-    const have = countRes(p.bag, id);
-    if (have > 4) {
-      const give = takeRes(p.bag, id, have - 4);
-      G.stashItems[id] = (G.stashItems[id] || 0) + give;
-      moved += give;
-    }
+  if (moved > 0) {
+    sfx('loot');
+    notify(left > 0 ? `Deposited ${moved} — no room for ${left} more` : `Deposited ${moved} items`,
+      left > 0 ? '#d9c46a' : '#b7e08a');
+  } else if (left > 0) {
+    sfx('deny');
+    notify('That container is full', '#c96a5a');
+  } else {
+    sfx('ui');
+    notify('Nothing to deposit', '#8a8f84');
   }
-  if (moved > 0) { sfx('loot'); notify(`Deposited ${moved} items`, '#b7e08a'); }
-  else { sfx('ui'); notify('Nothing to deposit', '#8a8f84'); }
   return moved;
 }
 
-/** Pulls ammo and consumables back out of the stash before heading out. */
-export function stashWithdrawAmmo(p = G.player) {
+/** Kept for the E-beside-the-stash shortcut and every existing caller. */
+export const stashDepositAll = (p = G.player) => depositAll(p, G.stash);
+
+/**
+ * Pulls ammunition and supplies back out before heading out. Weight-capped by
+ * the pack, as it always was.
+ */
+export function withdrawSupplies(p = G.player, store = G.stash) {
+  if (!store) return 0;
   let moved = 0;
-  for (const id of ['ammoP', 'ammoS', 'ammoR', 'med', 'fuel']) {
-    const have = countRes(G.stash, id);
-    if (have <= 0) continue;
+  for (const [id, have] of Object.entries(slotsEntries(store))) {
+    const it = ITEMS[id];
+    // Ammunition, medical, fuel and consumables — the going-out list. Building
+    // material stays put; nobody wants deposit-all and take-all to be a loop.
+    const wanted = it && (it.kind === 'consumable' || WITHDRAW_IDS.has(id));
+    if (!wanted || have <= 0) continue;
     const got = addResCapped(p.bag, id, have, packAllowance(p));
-    takeRes(G.stash, id, got);
+    takeRes(store, id, got);
     moved += got;
   }
-  for (const id in G.stashItems) {
-    const n = G.stashItems[id] | 0;
-    if (n <= 0) continue;
-    const got = addResCapped(p.bag, id, n, packAllowance(p));
-    moved += got;
-    G.stashItems[id] = n - got;
-  }
-  if (moved > 0) { sfx('loot'); notify(`Took ${moved} items from stash`, '#b7e08a'); }
-  else { sfx('ui'); notify('Stash has no ammo or supplies', '#8a8f84'); }
+  if (moved > 0) { sfx('loot'); notify(`Took ${moved} items`, '#b7e08a'); }
+  else { sfx('ui'); notify('Nothing there worth taking out', '#8a8f84'); }
   return moved;
 }
+
+const WITHDRAW_IDS = new Set(['ammoP', 'ammoS', 'ammoR', 'arrow', 'med', 'fuel', 'battery']);
+
+export const stashWithdrawAmmo = (p = G.player) => withdrawSupplies(p, G.stash);

@@ -3,15 +3,17 @@
 // each other.
 
 import { PLAYER, THREAT } from './config.js';
+import { slotsEntries } from './items.js';
 import {
   G, notify, shake, screenFlash, removeStructure, isLocal, presentPlayers, baseOwner, structChanged,
+  takeRes,
 } from './state.js';
 import { emit } from '../net/events.js';
 import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
 import { addXp } from './progression.js';
 import { addThreat } from './threat.js';
-import { enemyDrop, dropBackpack } from './loot.js';
+import { enemyDrop, dropBackpack, spawnEntryPickup, itemEntryId } from './loot.js';
 import { creditSurvivorKill } from './survivors.js';
 import { exitVehicle } from './vehicles.js';
 import { addQuiet } from './pressure.js';
@@ -238,9 +240,29 @@ export function damageStructure(s, dmg, fromX = s.x, fromY = s.y) {
   return dmg;
 }
 
+/**
+ * A broken container drops what was in it, the same way a wrecked car spills
+ * its boot. No path may destroy material for want of somewhere to put it.
+ *
+ * A Supply Stash is the exception with a reason: every stash aliases the one
+ * shared pile, so knocking one over while another still stands would empty the
+ * base's whole pantry onto the ground. It only spills when it was the last
+ * door into that pile.
+ */
+function spillStore(s) {
+  if (!s.store) return;
+  if (s.type === 'stash' && G.structures.some((o) => o !== s && o.type === 'stash' && !o.destroyed)) return;
+  for (const [id, n] of Object.entries(slotsEntries(s.store))) {
+    if (n <= 0) continue;
+    takeRes(s.store, id, n);
+    spawnEntryPickup(s.x + (Math.random() - 0.5) * 26, s.y + (Math.random() - 0.5) * 26, itemEntryId(id), n);
+  }
+}
+
 export function destroyStructure(s) {
   if (s.destroyed) return;
   s.destroyed = true;
+  spillStore(s);
   removeStructure(s);
   FX.debris(s.x, s.y, 20, s.def.wall ? '#8a7350' : '#9aa2ab');
   FX.smoke(s.x, s.y, 5);

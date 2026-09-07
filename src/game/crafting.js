@@ -10,18 +10,10 @@ import { GEAR } from './config.js';
 import {
   ITEMS, slotsAdd, firstEmpty, packAllowance, stackLimit, slotsWeight, itemWeight,
 } from './items.js';
-import { spawnEntryPickup } from './loot.js';
+import { spawnEntryPickup, itemEntryId, stashOrDrop } from './loot.js';
 import { primaryLabel } from '../core/bindings.js';
 
-/** The prefixed entry id for an item, so it can be spawned as a ground pickup. */
-function entryIdFor(id) {
-  const it = ITEMS[id];
-  if (!it) return id;
-  if (it.kind === 'weapon') return `weapon:${id}`;
-  if (it.kind === 'gear') return `gear:${id}`;
-  if (it.kind === 'consumable') return `item:${id}`;
-  return id;
-}
+
 
 /**
  * Recipes visible at the player's current bench access level. A Stone Hammer
@@ -95,7 +87,7 @@ export function craft(r, benchTier, p = G.player) {
   // so the one outcome that must be impossible is the output disappearing.
   const orGround = (id, wanted, got) => {
     if (got >= wanted) return;
-    spawnEntryPickup(p.x, p.y, entryIdFor(id), wanted - got);
+    spawnEntryPickup(p.x, p.y, itemEntryId(id), wanted - got);
     notify('No room — it is on the ground at your feet', '#d9c46a');
   };
 
@@ -121,7 +113,7 @@ export function craft(r, benchTier, p = G.player) {
       const want = Math.round(r.give.res[id] * (isAmmo ? p.craftYieldMul : 1));
       const got = addResCapped(p.bag, id, want, packAllowance(p));
       if (got < want) {
-        addRes(G.stash, id, want - got);
+        stashOrDrop(id, want - got, p.x, p.y);
         notify('Pack full — the rest went to your stash', '#d9c46a');
       }
     }

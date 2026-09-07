@@ -148,14 +148,35 @@ function drawSlot(ctx, r, stack, opts = {}) {
 
 // ------------------------------------------------------------------- drag ---
 
+/**
+ * The container a zone addresses. `store` is whatever the storage screen has
+ * open — a chest, a locker, or the shared stash. One resolver, so the drag
+ * code below never has to know which screen it is running on.
+ */
+function containerFor(p, kind) {
+  if (kind === 'bag') return p.bag;
+  if (kind === 'hotbar') return p.hotbar;
+  if (kind === 'store') return openStore();
+  return null;
+}
+
+/** The structure whose contents the storage screen is showing, or null. */
+export const openStructure = () =>
+  (G.ui.panel === 'store' && G.ui.storeRef && !G.ui.storeRef.destroyed ? G.ui.storeRef : null);
+
+const openStore = () => {
+  const s = openStructure();
+  return s ? s.store : null;
+};
+
 function beginDrag(p, zone) {
   if (zone.kind === 'equip') {
     const id = p.equip[zone.slot];
     if (id) drag = { from: zone, stack: { id, n: 1 } };
     return;
   }
-  const cont = zone.kind === 'bag' ? p.bag : p.hotbar;
-  const s = cont.slots[zone.i];
+  const cont = containerFor(p, zone.kind);
+  const s = cont && cont.slots[zone.i];
   if (s) drag = { from: zone, stack: s };
 }
 
@@ -177,8 +198,8 @@ function endDrag(p, zone) {
   }
 
   if (zone.kind === 'equip') {
-    const cont = from.kind === 'bag' ? p.bag : p.hotbar;
-    const s = cont.slots[from.i];
+    const cont = containerFor(p, from.kind);
+    const s = cont && cont.slots[from.i];
     if (!s) return;
     const g = GEAR[s.id];
     if (!g || g.slot !== zone.slot) {
@@ -200,13 +221,16 @@ function endDrag(p, zone) {
     return;
   }
 
-  act.moveStack(from.kind, from.i, zone.kind, zone.i);
+  // A world container is somewhere you stand beside, so the move carries which
+  // one — the host validates the range rather than trusting the screen.
+  const st = openStructure();
+  act.moveStack(from.kind, from.i, zone.kind, zone.i, st ? { tx: st.tx, ty: st.ty } : null);
 }
 
 /** Whether the stack being dragged is something the hotbar will hold. */
 function hotbarAccepts(p, from) {
-  const cont = from.kind === 'bag' ? p.bag : p.hotbar;
-  const s = cont.slots[from.i];
+  const cont = containerFor(p, from.kind);
+  const s = cont && cont.slots[from.i];
   if (!s) return true;
   const it = itemDef(s.id);
   return !it || it.kind !== 'res';
@@ -336,7 +360,7 @@ export function drawInventoryPanel(ctx, W, H, ui) {
 
   // ------------------------------------------------------------ drop, help --
   const hoverStack = over && over.kind !== 'equip'
-    ? (over.kind === 'bag' ? p.bag : p.hotbar).slots[over.i]
+    ? (containerFor(p, over.kind) || { slots: [] }).slots[over.i]
     : null;
   if (button(ctx, x + w - 152, y + h - 40, 132, 26, 'DROP HOVERED', {
     small: true, enabled: !!hoverStack, color: C.warn,
@@ -366,8 +390,8 @@ export function drawInventoryPanel(ctx, W, H, ui) {
 /** Right click: wear it, or send it between pack and hotbar. */
 function quickAction(p, zone) {
   if (zone.kind === 'equip') { act.unequip(zone.slot); return; }
-  const cont = zone.kind === 'bag' ? p.bag : p.hotbar;
-  const s = cont.slots[zone.i];
+  const cont = containerFor(p, zone.kind);
+  const s = cont && cont.slots[zone.i];
   if (!s) return;
   const it = itemDef(s.id);
   if (!it) return;
@@ -381,12 +405,138 @@ function quickAction(p, zone) {
     return;
   }
 
-  const toKind = zone.kind === 'bag' ? 'hotbar' : 'bag';
-  const to = toKind === 'bag' ? p.bag : p.hotbar;
+  // With a container open, right-click is "send it across" — pack to chest and
+  // chest to pack. That is the move people actually want to repeat, and doing
+  // it a stack at a time by hand is the thing a storage screen is for.
+  const st = openStructure();
+  const toKind = st
+    ? (zone.kind === 'store' ? 'bag' : 'store')
+    : (zone.kind === 'bag' ? 'hotbar' : 'bag');
+  const to = containerFor(p, toKind);
+  if (!to) return;
   let target = to.slots.findIndex((t) => t && t.id === s.id && t.n < stackLimit(s.id));
   if (target < 0) target = to.slots.findIndex((t) => !t);
   if (target < 0) { sfx('deny'); notify('No room', '#c96a5a'); return; }
-  act.moveStack(zone.kind, zone.i, toKind, target);
+  act.moveStack(zone.kind, zone.i, toKind, target, st ? { tx: st.tx, ty: st.ty } : null);
+}
+
+// ------------------------------------------------------------- storage ---
+
+/**
+ * A chest, a locker or the shared stash, side by side with the pack.
+ *
+ * Deliberately the same file as the inventory screen rather than a second one:
+ * it reuses `drag`, `zones`, `hitZone`, `beginDrag`/`endDrag`, `drawSlot` and
+ * the tooltip. A second drag implementation is how two screens end up
+ * disagreeing about what a half-finished drag means.
+ */
+export function drawStoragePanel(ctx, W, H, ui) {
+  const { panel, button, claim, uiMouse, mouseDown, mouseUp } = ui;
+  const p = G.player;
+  const st = openStructure();
+  if (!p || !st || !st.store) { G.ui.panel = null; return; }
+  const store = st.store;
+
+  const storeRows = Math.ceil(store.slots.length / COLS);
+  const gridW = COLS * (CELL + GAP) - GAP;
+  const w = Math.min(760, W - 60);
+  const h = Math.min(Math.max(430, 150 + storeRows * (CELL + GAP)), H - 50);
+  const x = (W - w) / 2;
+  const y = (H - h) / 2;
+  claim(x, y, w, h);
+
+  const used = store.slots.filter(Boolean).length;
+  panel(ctx, x, y, w, h,
+    `${st.def.name.toUpperCase()}  —  ${used}/${store.slots.length} slots  ·  drag or right-click to move  ·  ${primaryLabel('interact')} or ESC to close`);
+
+  const m = uiMouse();
+  const zones = [];
+  const isHot = (r) => m.x >= r.x && m.x <= r.x + r.w && m.y >= r.y && m.y <= r.y + r.h;
+
+  // ------------------------------------------------------------ container --
+  const sx = x + 20, sy = y + 54;
+  ctx.font = 'bold 11px "Courier New", monospace';
+  ctx.fillStyle = used >= store.slots.length ? C.warn : C.dim;
+  ctx.fillText(used >= store.slots.length ? 'FULL — build another' : 'CONTAINER', sx, sy - 8);
+  for (const r of slotRects(sx, sy, store.slots.length)) {
+    r.kind = 'store';
+    const dragged = drag && drag.from.kind === 'store' && drag.from.i === r.i;
+    drawSlot(ctx, r, store.slots[r.i], { hot: isHot(r), dimStack: dragged });
+    zones.push(r);
+  }
+  const storeBottom = sy + storeRows * (CELL + GAP);
+
+  // The stash is the one container the base itself eats and shoots from, so it
+  // says so — a chest full of rations feeds nobody.
+  if (st.type === 'stash') {
+    ctx.font = '10px "Courier New", monospace';
+    ctx.fillStyle = C.dim;
+    ctx.fillText('Survivors and towers draw from this one', sx, storeBottom + 14);
+  }
+
+  // ------------------------------------------------------------------ pack --
+  const gx = x + 20 + gridW + 34, gy = y + 54;
+  ctx.font = 'bold 11px "Courier New", monospace';
+  ctx.fillStyle = C.dim;
+  ctx.fillText('PACK', gx, gy - 8);
+  for (const r of slotRects(gx, gy, p.bag.slots.length)) {
+    r.kind = 'bag';
+    const dragged = drag && drag.from.kind === 'bag' && drag.from.i === r.i;
+    drawSlot(ctx, r, p.bag.slots[r.i], { hot: isHot(r), dimStack: dragged });
+    zones.push(r);
+  }
+  const packBottom = gy + Math.ceil(p.bag.slots.length / COLS) * (CELL + GAP);
+
+  const weight = carriedWeight(p);
+  const frac = weight / p.carryCap;
+  ctx.font = '11px "Courier New", monospace';
+  ctx.fillStyle = frac > 1 ? C.warn : C.dim;
+  ctx.fillText(`WEIGHT  ${weight.toFixed(1)} / ${Math.round(p.carryCap)}`, gx, packBottom + 12);
+  ctx.fillStyle = '#1a2016';
+  ctx.fillRect(gx, packBottom + 18, gridW, 8);
+  ctx.fillStyle = frac > 1 ? C.warn : frac > 0.85 ? C.gold : C.accent;
+  ctx.fillRect(gx, packBottom + 18, gridW * clamp(frac, 0, 1), 8);
+
+  // ---------------------------------------------------------------- hotbar --
+  const hbY = packBottom + 52;
+  ctx.font = 'bold 11px "Courier New", monospace';
+  ctx.fillStyle = C.dim;
+  ctx.fillText('HOTBAR', gx, hbY - 8);
+  for (const r of slotRects(gx, hbY, p.hotbar.slots.length, p.hotbar.slots.length)) {
+    r.kind = 'hotbar';
+    const dragged = drag && drag.from.kind === 'hotbar' && drag.from.i === r.i;
+    drawSlot(ctx, r, p.hotbar.slots[r.i], { hot: isHot(r), selected: r.i === p.slot, dimStack: dragged });
+    zones.push(r);
+  }
+
+  // ----------------------------------------------------------------- input --
+  const over = hitZone(zones, m.x, m.y);
+  if (mouseDown() && over && !drag) beginDrag(p, over);
+  if (mouseUp() && drag) endDrag(p, over);
+  if (Input.rightPressed && over && !drag) quickAction(p, over);
+
+  // The two bulk moves, on buttons rather than only on keys — the shortcuts
+  // still work from outside this screen, but nobody should have to know that.
+  const by = y + h - 40;
+  if (button(ctx, x + 20, by, 150, 26, 'DEPOSIT ALL', { small: true })) {
+    act.depositAll({ tx: st.tx, ty: st.ty });
+  }
+  if (button(ctx, x + 178, by, 168, 26, 'TAKE AMMO & SUPPLIES', { small: true })) {
+    act.withdrawSupplies({ tx: st.tx, ty: st.ty });
+  }
+
+  const hoverStack = over && over.kind !== 'equip'
+    ? (containerFor(p, over.kind) || { slots: [] }).slots[over.i]
+    : null;
+  if (over && !drag && hoverStack) drawTooltip(ctx, hoverStack.id, m.x, m.y, x, y, w, h);
+
+  if (drag) {
+    ctx.globalAlpha = 0.92;
+    drawSlot(ctx, { x: m.x - CELL / 2, y: m.y - CELL / 2, w: CELL, h: CELL }, drag.stack, {});
+    ctx.globalAlpha = 1;
+  }
+
+  lastZones = zones;
 }
 
 function drawTooltip(ctx, id, mx, my, px, py, pw, ph) {

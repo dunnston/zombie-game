@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import {
   RES, WEAPONS, ENEMIES, STRUCTURES, RECIPES, LOOT, CONTAINERS, FURNISHING, CONSUMABLES, T,
   BUILD_ORDER, THREAT, RAIDS, PLAYER, TILE, WORLD_TILES,
-  bagWeight, xpForLevel, raidSpec, GEAR, GEAR_SLOTS, ARMOR_SLOTS, MAX_GEAR_DR,
+  bagWeight, xpForLevel, raidSpec, GEAR, GEAR_SLOTS, ARMOR_SLOTS, MAX_GEAR_DR, STASH_SLOTS,
 } from '../src/game/config.js';
 import { createWorld, isBlockedTile, dangerAtPx, locationAtPx, propAtTile, removeProp } from '../src/game/world.js';
 import { HARVEST, chopMultiplier, chopStamCost, canChop } from '../src/game/combat.js';
@@ -22,10 +22,10 @@ import { pointsForLevel } from '../src/game/progression.js';
 import {
   SURVIVOR, JOBS, JOB_IDS, SCAVENGE, BUILDER, POST_RADIUS, canSeeContainer,
 } from '../src/game/survivors.js';
-import { G, equippedLight, lightActive } from '../src/game/state.js';
+import { G, equippedLight, lightActive, addRes, takeRes, countRes } from '../src/game/state.js';
 import {
   makeStructure, repairCost, planRepairAll, isDamaged, costLabel, REPAIR_COST_SHARE, REPAIR_ALL_RANGE,
-  buildMenu, buildBarLayout,
+  buildMenu, buildBarLayout, withdrawSupplies, depositAll,
 } from '../src/game/building.js';
 import {
   ITEMS, makeSlots, slotsAdd, slotsTake, slotsCount, slotsWeight, stackLimit,
@@ -39,7 +39,7 @@ import {
   listSlots, createSlot, deleteSlot, renameSlot, defaultName, latestSlot, hasSave,
   migrateLegacy, saveGame, playtimeLabel, INDEX_KEY,
 } from '../src/game/saves.js';
-import { LEGACY_KEY } from '../src/game/save.js';
+import { LEGACY_KEY, restoreSlots } from '../src/game/save.js';
 
 /** A localStorage stand-in for the Node tests: the same four calls, in memory. */
 function fakeStorage() {
@@ -1338,6 +1338,81 @@ test('stamina is a stat you can raise, in ceiling and in recovery', () => {
   // has to survive a rebuild rather than being mutated on purchase.
   const again = chopStamCost(recomputeStats(woody));
   assert.equal(again, chopStamCost(woody), 'recomputing is idempotent for the chop cost');
+});
+
+// ---------------------------------------------------------------- storage ---
+
+test('every container holds a fixed number of slots, and the stash is the biggest', () => {
+  const stores = Object.values(STRUCTURES).filter((s) => s.store);
+  assert.ok(stores.length >= 3, 'there is a real storage ladder, not one box');
+  for (const s of stores) {
+    assert.ok(Number.isInteger(s.store) && s.store > 0, `${s.id} has a sane slot count`);
+    assert.ok(s.protect, `${s.id} should count as base infrastructure`);
+  }
+  // The stash is the only container survivors and towers feed from, so running
+  // out of room in it is a real consequence — it has to be the roomiest.
+  assert.equal(STRUCTURES.stash.store, STASH_SLOTS);
+  for (const s of stores) {
+    if (s.id !== 'stash') assert.ok(s.store < STASH_SLOTS, `${s.id} must not out-hold the stash`);
+  }
+  // Cheap wood box, tougher metal one. Storage should be a build decision.
+  assert.ok(STRUCTURES.chest.store < STRUCTURES.locker.store);
+  assert.ok(STRUCTURES.chest.hp < STRUCTURES.locker.hp);
+  for (const id of ['chest', 'locker']) assert.ok(BUILD_ORDER.includes(id), `${id} is on the build bar`);
+});
+
+test('the shared stash is a slot container, and a full one refuses politely', () => {
+  const stash = makeSlots(4);
+  // Four slots of scrap is 200; the 201st has nowhere to go and must be
+  // reported as not taken rather than silently vanishing.
+  assert.equal(addRes(stash, 'scrap', 300), 200);
+  assert.equal(slotsCount(stash, 'scrap'), 200);
+  assert.equal(addRes(stash, 'wood', 10), 0, 'a full container takes nothing more');
+  assert.equal(takeRes(stash, 'scrap', 60), 60);
+  assert.equal(addRes(stash, 'wood', 10), 10, 'and takes it again once there is room');
+});
+
+test('a stash full of junk really can starve your survivors', () => {
+  // The owner chose this trade-off explicitly when asked. It is the whole
+  // reason storage is worth building more of, so assert it rather than let a
+  // later "fix" quietly restore an infinite pile.
+  const stash = makeSlots(2);
+  addRes(stash, 'scrap', 100);
+  assert.equal(addRes(stash, 'rations', 5), 0, 'no room left for food');
+  assert.equal(countRes(stash, 'rations'), 0);
+});
+
+test('a container round-trips through a save as slots', () => {
+  const store = makeSlots(6);
+  addRes(store, 'wood', 40);
+  addRes(store, 'ammoP', 30);
+  const saved = JSON.parse(JSON.stringify(store.slots));
+
+  const restored = makeSlots(6);
+  restoreSlots(restored, saved);
+  assert.equal(countRes(restored, 'wood'), 40);
+  assert.equal(countRes(restored, 'ammoP'), 30);
+
+  // The sanitiser has to survive content changes: an id that no longer exists
+  // becomes an empty slot, never a stack of nothing.
+  const junk = makeSlots(3);
+  restoreSlots(junk, [{ id: 'notAThing', n: 5 }, null, { id: 'wood', n: 2 }]);
+  assert.equal(junk.slots[0], null);
+  assert.equal(countRes(junk, 'wood'), 2);
+});
+
+test('the withdraw list is what you take out, not everything', () => {
+  // Deposit-all then take-all must not be a loop: building material stays put.
+  const store = makeSlots(10);
+  addRes(store, 'wood', 50);
+  addRes(store, 'ammoP', 40);
+  addRes(store, 'arrow', 20);
+  const p = { bag: makeSlots(20), hotbar: makeSlots(6), carryCap: 999 };
+  withdrawSupplies(p, store);
+  assert.equal(countRes(p.bag, 'ammoP'), 40, 'ammunition comes out');
+  assert.equal(countRes(p.bag, 'arrow'), 20, 'so do arrows');
+  assert.equal(countRes(p.bag, 'wood'), 0, 'building material does not');
+  assert.equal(countRes(store, 'wood'), 50);
 });
 
 // ------------------------------------------------------------------ light ---
