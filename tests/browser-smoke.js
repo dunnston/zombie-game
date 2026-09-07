@@ -2535,6 +2535,22 @@
       ok('the guest is a real player in the host\'s world', !!guest && !guest.away && guest.name === 'Bex' && guest.id === 'smoke-guest');
       ok('the roster names both of them', !!welcome && welcome.roster.map((r) => r.name).join(',') === 'Ash,Bex', welcome && welcome.roster.map((r) => r.name).join(','));
 
+      // A friend who has not pulled must be turned away rather than quietly
+      // desynced. PROTOCOL alone never caught this: it stayed at 1 while the
+      // map expansion rewrote the world underneath it.
+      const { a: aStale, b: bStale } = d.net.makeLoopback();
+      const staleSaid = [];
+      bStale.onMessage('reliable', (m) => staleSaid.push(m));
+      d.net.debugAttachGuest(aStale, 'smoke-stale');
+      bStale.send('reliable', { ...d.net.msg.hello('stale-guest', 'Old', null), b: 'notthisbuild' });
+      await frames(4);
+      const refused = staleSaid.find((m) => m.t === 'reject');
+      ok('a guest on a different build is refused, and told what to run',
+        !!refused && /update\.sh/.test(refused.reason || ''),
+        refused ? refused.reason : staleSaid.map((m) => m.t).join(',') || 'nothing came back');
+      ok('and the stale guest never became a player in the world',
+        !G.players.some((q) => q.id === 'stale-guest'), G.players.map((q) => q.id).join(','));
+
       // Intent over the wire drives the guest's player through the ordinary sim.
       // Stand them on open ground first: they spawn beside the host, and a
       // fence post a few pixels to their right once turned "walk right" into

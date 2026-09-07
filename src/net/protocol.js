@@ -8,6 +8,76 @@
 // in v1; sizes are measured into G.net.stats rather than guessed.
 
 export const PROTOCOL = 1;
+
+/**
+ * Which build this browser was *loaded* with — the short hash of the last
+ * commit that touched `src/`, stamped in by vite.config.js, plus a digest of
+ * the uncommitted changes when there are any. `scripts/build-id.mjs` is the
+ * one definition of that, imported by the config and run by the shell scripts,
+ * so the number a player reads off update.sh is the number compared here.
+ *
+ * PROTOCOL only moves when someone remembers to move it, and the map expansion
+ * proved that nobody does: it rewrote world generation and left PROTOCOL at 1,
+ * so the handshake would have waved a stale guest straight through. This is
+ * derived rather than declared, so it cannot be forgotten. `dev` means the
+ * build had no git available; two such builds still have to agree with each
+ * other.
+ *
+ * Guarded the same way as VITE_SIGNAL_URL in transport.js so this module stays
+ * importable under plain Node for the tests.
+ *
+ * Prefer `currentBuild()` — see below.
+ */
+export const BUILD = (() => {
+  try {
+    return (import.meta && import.meta.env && import.meta.env.VITE_BUILD_ID) || 'dev';
+  } catch { return 'dev'; }
+})();
+
+/**
+ * What this page is *actually* running, which is not always what it was loaded
+ * with: `define` is frozen when the dev server boots, so editing a `src/`
+ * module and letting HMR serve it leaves `BUILD` claiming the old, clean id.
+ * That browser would then agree with an unmodified peer while running
+ * different code — the exact mismatch this whole check exists to catch.
+ *
+ * The dev server recomputes the id per request at `/__deadline_build`, and
+ * both sides ask it immediately before the handshake. A production bundle has
+ * no such endpoint, so the fetch fails and the stamped value stands, which is
+ * right: a bundle cannot change underneath you.
+ */
+let live = BUILD;
+export const currentBuild = () => live;
+
+export async function refreshBuild() {
+  try {
+    const res = await fetch('/__deadline_build', { cache: 'no-store' });
+    if (res.ok) {
+      const text = (await res.text()).trim();
+      if (text) live = text;
+    }
+  } catch { /* no dev server: the stamped value is the truth */ }
+  return live;
+}
+
+/** What a guest is told to do about it. One sentence, and it names the fix. */
+export const OUT_OF_DATE = 'your game is a different version — run ./scripts/update.sh, then reload';
+
+/**
+ * Why this guest may not join, or null if they may. Pure, so the tests can
+ * drive every branch without a socket.
+ *
+ * A hello carrying no build at all is a client older than this check existed,
+ * which is exactly the case we want caught — so a missing build is a refusal,
+ * not a pass.
+ */
+export function joinRefusal(theirProtocol, theirBuild, ourBuild = currentBuild()) {
+  if (theirProtocol !== PROTOCOL) return OUT_OF_DATE;
+  if (typeof theirBuild !== 'string' || !theirBuild) return OUT_OF_DATE;
+  if (theirBuild !== ourBuild) return OUT_OF_DATE;
+  return null;
+}
+
 export const SNAP_HZ = 20;
 export const SNAP_EVERY = 3;            // fixed steps between snapshots at 60Hz
 export const INTEREST_RADIUS = 1600;    // px around a guest that a snapshot describes
@@ -73,7 +143,7 @@ export const normaliseCode = (s) => String(s || '').toUpperCase().replace(/[^A-Z
 // one place; the host and client read them by the same names.
 
 export const msg = {
-  hello: (identityId, name, passwordHash) => ({ t: 'hello', p: PROTOCOL, id: identityId, name, pw: passwordHash }),
+  hello: (identityId, name, passwordHash) => ({ t: 'hello', p: PROTOCOL, b: currentBuild(), id: identityId, name, pw: passwordHash }),
   welcome: (netId, world, roster, hostName) => ({ t: 'welcome', n: netId, world, roster, host: hostName }),
   reject: (reason) => ({ t: 'reject', reason }),
   intent: (seq, intent) => ({ t: 'in', q: seq, i: packIntent(intent) }),

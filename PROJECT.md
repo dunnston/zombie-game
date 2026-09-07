@@ -74,7 +74,7 @@ farms, a forest, a river and a city — and nobody has played the new ground yet
 | --- | --- |
 | Source | 42 modules, ~15,400 lines. Browser bundle depends on Vite only; the broker on `ws`. |
 | Assets | Zero. Every sprite is drawn in code at boot; every sound is WebAudio. |
-| Tests | 96 Node assertions; browser suite 384 (`npm test`, `npm run smoke`) |
+| Tests | 98 Node assertions; browser suite 384 (`npm test`, `npm run smoke`) |
 | Save format | **v11** payload (the litter cut moved the generator's rng stream), in **slots** (index v1) |
 | Performance | ~60fps with 90 active enemies; ~66 KB/s per guest on the wire |
 
@@ -400,6 +400,7 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | Vanilla JS + Canvas2D, no engine | One dependency, instant startup, total control of the render loop. Nothing here needs a framework. |
 | All art generated in code | No asset pipeline, no binary files in git, and the whole look stays consistent because one file draws everything. |
 | Fixed 60Hz sim with an accumulator | A stalled tab must not fast-forward the world. |
+| Co-op version check is a git-derived build id, not a hand-bumped constant | `PROTOCOL` stayed at 1 while the map expansion rewrote world generation, so the check that exists to catch exactly that never fired. A value derived from `git log -1 -- src/` cannot be forgotten. Keyed on `src/` so a docs-only commit does not refuse an otherwise identical pair, and a digest of the uncommitted changes when the tree is dirty, so two people editing the same commit differently do not land on the same id. |
 | Threat meter instead of a day-N raid timer | Ties danger to player behaviour, which is pillar 6. A calendar would make power free. |
 | Bullets ignore player structures | Pillar 3. Tested the alternative; a walled base could not defend itself. |
 | Enemy `structMul` split from `dmg` | Lets walkers threaten the player while brutes threaten walls. This is what makes raid 3 feel like a different game. |
@@ -664,7 +665,7 @@ round. Current expected totals:
 
 | Suite | Expected |
 | --- | --- |
-| `npm test` (Node, pure logic) | 96 |
+| `npm test` (Node, pure logic) | 98 |
 | `tests/browser-smoke.js` | 384 · about 220s |
 
 **Run the browser suite with the page visible and focused.** Its waits are
@@ -824,7 +825,16 @@ Newest first. One line per meaningful change.
   **Fire Axe** and **Steel Pickaxe** at the workbench that do it in three, with
   identical yields — the upgrade buys back time, not material. Thickets left
   alone (no metal scythe yet; fiber is what the litter cut hit hardest). Save →
-  v11, because the litter odds moved the generator's rng stream. Node 96.
+  v11, because the litter odds moved the generator's rng stream. Node 98.
+- **2026-09-07** — Launch scripts, and a version check that actually fires.
+  `scripts/play-local.sh`, `scripts/play-online.sh` and `scripts/update.sh`
+  reduce a co-op session to one command each; the online one pins cloudflared's
+  `--metrics` port and reads the tunnel hostname back from `/quicktunnel`, so
+  it prints the finished share link instead of leaving you to scrape it out of
+  the terminal. The join handshake now carries a build id derived from the last
+  commit touching `src/` (stamped in by `vite.config.js`), so a friend on any
+  other commit is refused with a message naming the fix — `PROTOCOL` had sat at
+  1 through the entire map expansion without ever catching it.
 - **2026-09-07** — Save → v10, from the Codex review of the gathering PR.
   Raising the town's woodland floor and adding the litter pass moved the
   generator's rng stream, so a v9 save rebuilt from its seed would replay its

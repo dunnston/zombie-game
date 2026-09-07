@@ -1,0 +1,5 @@
+# Shell scripts must keep LF endings: a CRLF shebang is a "bad interpreter"
+# error on mac and Linux, and the friend joining a game may be on either.
+*.sh text eol=lf
+# Batch files need CRLF, or cmd.exe mis-parses them.
+*.cmd text eol=crlf

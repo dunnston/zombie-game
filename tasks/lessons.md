@@ -671,6 +671,42 @@ been hit because nobody had loaded a stale save.
 (v9, this is v10) — the map changed" costs one line and turns a bug report
 into a shrug.
 
+### A version constant you bump by hand is a version check that does not run
+
+Co-op refuses a guest whose `PROTOCOL` differs. `PROTOCOL` has been `1` since
+multiplayer shipped — including through the map expansion, which rewrote world
+generation, moved the town and bumped the save to v9. The single commit most
+likely to break a cross-version session left the guard untouched, because
+bumping it was something a person had to remember.
+
+What actually caught a stale guest was an accident: the host ships its world in
+the welcome, and `applySaveData` rejects a payload whose `v` differs. That only
+works for changes that happen to bump the save version. A retuned loot table or
+reworked combat passes both gates and desyncs silently, with no warning at all.
+
+**Rule:** derive the identity of a build from something that changes on its own
+(the commit that last touched `src/`), never from a literal someone has to
+remember to edit. And make the refusal name the fix — "your game is a different
+version" tells a player nothing they can act on; "run ./scripts/update.sh, then
+reload" does.
+
+### The installed dependency is not the one in package.json
+
+`package.json` says `vite: ^5.4.11`. The installed version was **5.4.21**, and
+somewhere in that range Vite added a `Host`-header check that answers
+`403 Blocked request` to any hostname it does not recognise. Tunnelling the dev
+server through a `trycloudflare.com` address therefore fails — and the failure
+has nothing to do with the `--host` flag, which is what I guessed at first and
+told the owner before checking.
+
+Found it by curling the running server with a forged `Host` header rather than
+by reading the config. IP literals pass, so LAN play is unaffected; foreign
+domains do not.
+
+**Rule:** when a caret range is in play, check what is actually installed
+(`npm ls <pkg>`) before reasoning about behaviour, and probe a running server
+with the request you are worried about instead of predicting its answer.
+
 ## 2026-09-07 — mining balance and the metal tools
 
 ### Measure the thing the owner is complaining about, before changing it

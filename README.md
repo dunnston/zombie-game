@@ -39,7 +39,7 @@ npm test
 npm run build
 ```
 
-`npm test` runs 79 Node assertions over the pure logic (world generation, loot
+`npm test` runs 98 Node assertions over the pure logic (world generation, loot
 tables, balance invariants, progression curves, perk trees, the day curve, save
 slots and key bindings).
 `npm run build` produces a static bundle in `dist/` that can be opened from any
@@ -461,6 +461,48 @@ LocalStorage. A save from before slots existed is picked up as "Game 1".
 Up to four people in one town. One of you **hosts** — the game runs in their
 browser — and the others **join** with a six-character room code.
 
+### The short version: double-click PLAY.cmd
+
+On Windows, open the project folder and double-click **PLAY.cmd**. It offers
+hosting an online game, joining one, playing over the same wifi, and updating —
+and hands off to the scripts below. Nothing else to install beyond Git and
+Node.
+
+### Or run the scripts directly
+
+Everything below can be done by hand, but there is a script for each case. Run
+them from Git Bash on Windows, or any shell on mac and Linux.
+
+```bash
+./scripts/update.sh
+```
+
+Pulls the latest code, installs, and prints a **build id**. Both players run
+this and check they get the same id — if you don't match, the join is refused.
+
+```bash
+./scripts/play-local.sh
+```
+
+Same wifi. Starts the broker and the game, works out your network address, and
+prints a link to send the other person. They need nothing installed.
+
+```bash
+./scripts/play-online.sh
+```
+
+Over the internet. Starts the broker, the game and a Cloudflare tunnel, then
+asks cloudflared for its own address and prints the finished link — no hunting
+through terminal output for it. Your friend runs
+`./scripts/play-online.sh wss://…` with the address you send them.
+
+Needs `cloudflared` once: `winget install --id Cloudflare.cloudflared` on
+Windows, `brew install cloudflared` on mac.
+
+`Ctrl+C` in the script's window stops everything it started.
+
+### Or by hand
+
 On the host's machine, run the signalling broker alongside the game:
 
 ```bash
@@ -499,9 +541,18 @@ second rather than left doing whatever they were last doing.
 The two of you are on different networks and each has the repo checked out.
 Nothing is deployed. This is the cheapest way to play a branch together.
 
-1. **Be on the same commit.** The join handshake carries a protocol version;
-   a mismatch is refused with "your game is a different version". Both of you
-   `git checkout` the same branch and `git pull` before you start.
+1. **Be on the same commit.** The join handshake carries a **build id** — the
+   short hash of the last commit that touched `src/`, plus a digest of your
+   uncommitted changes if there are any (the digest is of the changes
+   themselves, so two people editing the same commit differently do not look
+   identical). The dev server recomputes it per request, so editing a file and
+   letting HMR serve it does not leave you claiming a version you're not on. Any difference is refused with *"your game is a
+   different version — run ./scripts/update.sh, then reload"*. Run
+   `./scripts/update.sh` on both machines and check the printed ids match.
+
+   This is derived rather than declared on purpose: the older check was a
+   hand-bumped `PROTOCOL` constant, and it sat at `1` right through the map
+   expansion — the one change most likely to break a cross-version session.
 2. **The host starts the broker** in one terminal:
 
    ```bash
@@ -638,14 +689,14 @@ nearest-neighbour filtering.
 npm test
 ```
 
-69 Node assertions covering world generation determinism, spawn-point safety,
+98 Node assertions covering world generation determinism, spawn-point safety,
 danger tiers, loot-table integrity and theming, weapon/enemy/wall tier ordering,
 recipe gating, the XP curve, raid escalation, threat thresholds, every attribute
 and perk actually changing a stat, perk gating by rank and cost, recompute
 idempotency, the day/night curve and clock, and survivor scaling.
 
 `tests/browser-smoke.js` is injected into the running dev server and drives the
-live game through 384 assertions using synthetic input events — the title
+live game through 386 assertions using synthetic input events — the title
 screen, save slots and key rebinding driven by real clicks, movement, aiming,
 melee, gunfire, ammo, reloading, enemy pursuit, taking damage, searching
 containers, carry-capacity overflow, structure placement and cost, walls

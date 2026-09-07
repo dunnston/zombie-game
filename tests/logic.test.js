@@ -1403,6 +1403,62 @@ test('room codes use an unambiguous alphabet and normalise what a person types',
   assert.equal(isRoomCode('ABC0D3'), false, 'zero is not in the alphabet');
 });
 
+test('a guest on a different build is refused, and told what to run', async () => {
+  const { joinRefusal, msg, PROTOCOL, BUILD, OUT_OF_DATE } = await import('../src/net/protocol.js');
+
+  // What a current client actually sends is what the host actually accepts.
+  const hello = msg.hello('someone', 'Ryan', null);
+  assert.equal(hello.p, PROTOCOL);
+  assert.equal(hello.b, BUILD);
+  assert.equal(joinRefusal(hello.p, hello.b), null, 'the same build joins');
+
+  // A different checkout of the game.
+  assert.equal(joinRefusal(PROTOCOL, 'deadbee'), OUT_OF_DATE);
+
+  // A client old enough to predate the build stamp sends no `b` at all. This
+  // is the case that slipped through before: PROTOCOL stayed at 1 across the
+  // map expansion, so the wire looked compatible when the world was not.
+  assert.equal(joinRefusal(PROTOCOL, undefined), OUT_OF_DATE, 'a missing build is stale, not a pass');
+  assert.equal(joinRefusal(PROTOCOL, ''), OUT_OF_DATE);
+  assert.equal(joinRefusal(PROTOCOL, 7), OUT_OF_DATE, 'and neither is a non-string');
+
+  // The original gate still fires.
+  assert.equal(joinRefusal(PROTOCOL + 1, BUILD), OUT_OF_DATE);
+
+  // 'dev' means "built without git", not "matches anything".
+  assert.equal(joinRefusal(PROTOCOL, 'dev', 'dev'), null, 'two tarballs agree with each other');
+  assert.equal(joinRefusal(PROTOCOL, 'dev', 'abc1234'), OUT_OF_DATE, 'unknown is not a wildcard');
+
+  // The whole point of the message: it names the fix.
+  assert.match(OUT_OF_DATE, /update\.sh/);
+});
+
+test('two dirty checkouts of the same commit do not share a build id', async () => {
+  const { execSync } = await import('node:child_process');
+  const { writeFileSync, unlinkSync } = await import('node:fs');
+  const { buildId } = await import('../scripts/build-id.mjs');
+
+  const clean = execSync('git status --porcelain src/').toString().trim() === '';
+  const before = buildId();
+
+  // A bare `-dirty` suffix would collide here: same commit, different edits,
+  // identical id — and joinRefusal would wave through exactly the mismatch it
+  // exists to catch.
+  const probe = 'src/__buildid_probe__.js';
+  writeFileSync(probe, '// scratch\n');
+  try {
+    const withProbe = buildId();
+    assert.notEqual(withProbe, before, 'an untracked source file changes the id');
+    writeFileSync(probe, '// scratch, but different\n');
+    assert.notEqual(buildId(), withProbe, 'different contents give a different id');
+  } finally {
+    unlinkSync(probe);
+  }
+
+  assert.equal(buildId(), before, 'and removing it puts the id back');
+  if (clean) assert.ok(!/-dirty/.test(before), 'a clean tree has no dirty suffix');
+});
+
 test('an intent survives the wire: packed, unpacked, and merged without losing an edge', async () => {
   const { packIntent, unpackIntent, mergeIntent } = await import('../src/net/protocol.js');
   const { makeIntent } = await import('../src/game/intent.js');
