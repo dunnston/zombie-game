@@ -572,3 +572,24 @@ just on a smaller window. Reproduced at 900px: thirteen of sixteen drawn.
 **Rule:** when you clamp a layout, decide what happens *past* the clamp — wrap,
 scroll, or paginate — and screenshot it there. A floor that silently reverts
 to the old behaviour is not a fix.
+
+### The suite was never the slow part; the harness around it was
+
+A session lost well over half an hour to the browser suite and concluded it was
+"taking 30 minutes". Measured, it takes **214-226 seconds**. The lost time was
+three harness failures and the re-runs they caused:
+
+- the dev server had quietly died, so three checks hung on page load with no
+  output at all — indistinguishable from a slow test
+- one run forgot `page.bringToFront()`, so `requestAnimationFrame` throttled to
+  ~1fps; the suite counts its waits in frames, so it does not fail, it just
+  never finishes
+- the full suite was run four times in a session where once, at the end, was
+  the job
+
+**Rules:** measure before believing a runtime complaint — "it is slow" and "it
+hung" need opposite fixes. Put the harness in the repo (`npm run smoke`) rather
+than rewriting a Playwright script per session, and make it assert its own
+preconditions: server reachable, page booted, frames actually running. And
+match the check to the change — the four-minute suite belongs once per branch,
+not once per edit.

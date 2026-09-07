@@ -57,11 +57,38 @@ Both suites must report **zero failures**. The assertion counts grow with every
 round, so treat the numbers as informational and the failure count as the gate —
 `PROJECT.md` §9 records what the current branch should produce.
 
-- `npm test` — pure logic, under Node.
-- `tests/browser-smoke.js` — run the dev server, fetch and eval it, then call
-  `window.runDeadlineSmoke()`. Also check `window.DEADLINE.errors` is empty.
+- `npm test` — pure logic, under Node. **Under a second.**
+- `npm run smoke` — the browser suite. **About four minutes.** Starts a dev
+  server if one is not up, and fails fast and loudly rather than hanging.
 - `tests/raid-harness.js` — raid balance reference figures. If they move, that
   needs a reason.
+
+### How much is enough
+
+Match the check to the change. Running the four-minute suite after every edit
+is what slows a session down, and it was doing that far more than it was
+catching anything.
+
+| When | What to run |
+| --- | --- |
+| While working | `npm test`, plus a **targeted** browser check of the one thing you changed (20–40s) |
+| Before you commit | `npm test` |
+| Before you push for review | `npm run smoke` **once**, plus the raid harness if you touched combat, raids, structures or enemies |
+| After a review fix | `npm test`, and `npm run smoke` only if the fix touched the UI, the render loop, or shared helpers the suite uses |
+
+**Run the full suite once per branch, not once per change.** If it passed and
+you then changed one number in `config.js`, the Node suite covers you.
+
+**A targeted browser check beats the full suite** for "does my thing work":
+drive the specific mechanic through the real input path and assert the
+outcome. That is seconds, not minutes, and it is what actually found the bugs
+this project has hit.
+
+**Never hand-roll a Playwright script.** Use `npm run smoke`, or copy its
+preflight. The half-hours lost to this were all the same three harness
+failures — a dev server that had quietly died, a backgrounded page whose
+`requestAnimationFrame` had throttled to 1fps, and a wait with no deadline.
+`tests/run-smoke.cjs` fails on all three within seconds.
 
 ## Working agreements
 
