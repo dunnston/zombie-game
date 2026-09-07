@@ -283,7 +283,12 @@ export function updatePlayer(p, dt) {
           if ((p.mag[w.id] || 0) > 0) {
             p.attackCd = w.cd * p.fireRateMul;
             fireGun(p, w);
-          } else if (it.firePressed) {
+          } else if (it.firePressed || w.bow) {
+            // Holding the trigger on an empty gun deliberately does NOT keep
+            // asking to reload — one click, one magazine. A bow is the other
+            // thing: its "magazine" of one is the nock, so holding the button
+            // has to keep drawing or you get one arrow per click and half of
+            // those are eaten by the cooldown. Found by shooting one.
             startReload(p, w);
           }
         }
