@@ -23,6 +23,9 @@ import {
 } from '../src/game/survivors.js';
 import { G } from '../src/game/state.js';
 import {
+  makeStructure, repairCost, planRepairAll, isDamaged, costLabel, REPAIR_COST_SHARE, REPAIR_ALL_RANGE,
+} from '../src/game/building.js';
+import {
   ITEMS, makeSlots, slotsAdd, slotsTake, slotsCount, slotsWeight, stackLimit,
 } from '../src/game/items.js';
 import { makeRng, weightedPick, clamp, angleDelta, hash2, pruneInPlace, circleRectOverlap } from '../src/core/util.js';
@@ -469,6 +472,81 @@ test('the four survivor jobs are distinct and described', () => {
   assert.ok(SCAVENGE.giveUpAfter > 0 && SCAVENGE.radius > 0);
   assert.ok(BUILDER.giveUpAfter > 0 && BUILDER.repairPerSec > 0);
   assert.ok(Object.keys(BUILDER.costPer100).length > 0, 'repairs must cost materials');
+});
+
+// ------------------------------------------------------------------ repair ---
+
+/** A builder with no perks, standing at a point, carrying nothing. */
+const repairer = (x = 0, y = 0) => ({ x, y, bag: {}, buildCostMul: 1 });
+
+test('a repair bill scales with the damage and never comes free', () => {
+  G.structures.length = 0;
+  G.structGrid.clear();
+  const p = repairer();
+  const wall = makeStructure('woodWall', 10, 10);
+  assert.equal(repairCost(wall, p), null, 'an intact piece has no bill');
+  assert.equal(isDamaged(wall), false);
+
+  wall.hp = wall.maxHp * 0.5;
+  const half = repairCost(wall, p);
+  assert.deepEqual(half, { wood: Math.round(STRUCTURES.woodWall.cost.wood * 0.5 * REPAIR_COST_SHARE) });
+  wall.hp = 1;
+  const wrecked = repairCost(wall, p);
+  assert.ok(wrecked.wood > half.wood, `a wreck (${wrecked.wood}) costs more than a dent (${half.wood})`);
+  assert.ok(wrecked.wood < STRUCTURES.woodWall.cost.wood, 'repairing is cheaper than rebuilding');
+
+  // A scratch still costs one of the main material — never zero.
+  wall.hp = wall.maxHp * 0.99;
+  assert.deepEqual(repairCost(wall, p), { wood: 1 });
+
+  // Perks that cut build cost cut the repair bill too.
+  wall.hp = wall.maxHp * 0.5;
+  const cheap = repairCost(wall, { ...p, buildCostMul: 0.5 });
+  assert.ok(cheap.wood < half.wood, `${cheap.wood} should be under ${half.wood}`);
+});
+
+test('a scratched steel wall does not cost a weapon part', () => {
+  G.structures.length = 0;
+  G.structGrid.clear();
+  const p = repairer();
+  const steel = makeStructure('metalWall', 12, 10);
+  steel.hp = steel.maxHp * 0.6;
+  const bill = repairCost(steel, p);
+  assert.ok(bill.scrap > 0, 'scrap is the main material');
+  assert.equal(bill.parts, undefined, `parts should not be on the bill: ${JSON.stringify(bill)}`);
+  assert.equal(costLabel(bill), `SCRP ${bill.scrap}`);
+});
+
+test('REPAIR ALL fixes the worst first and skips what you cannot pay for', () => {
+  G.structures.length = 0;
+  G.structGrid.clear();
+  G.stash = {};
+  const p = repairer(11 * TILE, 11 * TILE);
+  const a = makeStructure('woodWall', 10, 10);
+  const b = makeStructure('woodWall', 12, 10);
+  const c = makeStructure('woodWall', 10, 12);
+  const steel = makeStructure('metalWall', 12, 12);
+  const far = makeStructure('woodWall', 10 + Math.ceil(REPAIR_ALL_RANGE / TILE) + 2, 10);
+  a.hp = a.maxHp * 0.2;      // worst
+  b.hp = b.maxHp * 0.6;
+  c.hp = c.maxHp * 0.9;      // mildest
+  steel.hp = steel.maxHp * 0.1;
+  far.hp = 1;
+
+  const empty = planRepairAll(p);
+  assert.equal(empty.pieces.length, 4, 'the far wall is out of reach');
+  assert.equal(empty.repairable, 0);
+  assert.equal(empty.skipped, 4);
+
+  // Enough wood for the two worst wood walls and not the third; no scrap at all.
+  const costA = repairCost(a, p).wood, costB = repairCost(b, p).wood;
+  G.stash.wood = costA + costB;
+  const plan = planRepairAll(p);
+  assert.deepEqual(plan.pieces.map((x) => x.s), [steel, a, b, c], 'most damaged first');
+  assert.deepEqual(plan.pieces.map((x) => x.ok), [false, true, true, false]);
+  assert.equal(plan.repairable, 2);
+  assert.equal(plan.skipped, 2);
+  assert.deepEqual(plan.cost, { wood: costA + costB }, 'the bill counts only what will be repaired');
 });
 
 test('a scavenger can see containers it stands beside', () => {

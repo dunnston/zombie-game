@@ -6,7 +6,7 @@ import {
   G, notify, addRes, shake, screenFlash, solidPx, nearestPlayer, presentPlayers,
 } from './state.js';
 import { spawnEnemy, MAX_ENEMIES } from './enemies.js';
-import { baseCenter, raidTarget } from './building.js';
+import { baseCenter, raidTarget, isDamaged } from './building.js';
 import { resetThreatAfterRaid } from './threat.js';
 import { addXp } from './progression.js';
 import { sfx } from '../core/audio.js';
@@ -263,6 +263,11 @@ function finishRaid(repelled = true) {
   const tint = repelled ? '#b7e08a' : '#d9c46a';
   notify(repelled ? `${spec.name} REPELLED` : `${spec.name} OVER`, tint, true, 'all');
   notify(rewardText ? `Salvage delivered to stash — ${rewardText}` : 'No salvage worth taking', tint, true);
+  // The bill for the fight, so nobody discovers a wall at 12% when the next
+  // horde is already on it. Everyone present hears it; the key hints live on
+  // the pieces themselves, because a guest's bindings are not the host's.
+  const hurt = G.structures.reduce((n, s) => n + (isDamaged(s) ? 1 : 0), 0);
+  if (hurt > 0) notify(`${hurt} structure${hurt === 1 ? '' : 's'} damaged — repair before the next one`, '#d9c46a', true, 'all');
   for (const q of presentPlayers()) FX.ring(q.x, q.y, 10, 200, 0.9, tint, 4);
 }
 

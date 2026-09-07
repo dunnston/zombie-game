@@ -493,3 +493,44 @@ guest sends "holding nothing" every step rather than nothing). And every
 role-transition on the client — join, leave, host gone, pause — needs a hook
 the suite can call in one browser; `client.hostGone()` is exposed for exactly
 that.
+
+## Round 8 — structure repair
+
+### A feature nobody can reach is not shipped
+
+The request was "add the ability to repair structures". Repair had existed
+since PR #1: `repairCost()`, `repairStructure()`, a REPAIR card on the build
+bar, a Builder survivor job, README and PROJECT.md entries. The card was the
+fifteenth of sixteen on a bar drawn at 92px a card — and a 1400px window drew
+fourteen of them. The two that fell off the end were REPAIR and DEMOLISH.
+
+No test could have caught it: the suite reaches features through `api.*`.
+A screenshot of the build bar found it in seconds.
+
+**Rule:** when a request asks for something that already exists, the bug is
+discoverability. Screenshot the path a player would take *before* touching the
+logic, and put the feature where the player already is — a damaged wall now
+asks for `E` with its bill on the prompt, and the raid summary counts the
+damage.
+
+### The camera leads toward the cursor, so a one-shot aimAt() drifts
+
+`DEADLINE.aimAt(wx, wy)` places the cursor from where the camera *is*. The
+camera then moves 22% of the way toward the cursor, and the world point under a
+fixed screen position slides — enough to miss a 32px tile. Every earlier use
+aimed at an enemy for combat, where a 20px miss is still a hit. The repair
+tool's first smoke run reported `target null` for a wall the cursor was
+"over".
+
+**Rule:** anything in a test that must land on a tile re-aims every frame
+until the camera settles (`aimSettled()` in the suite).
+
+### The plan and the action must be the same list
+
+REPAIR ALL prints a count and a bill on its button. If the button computed
+that with one loop and the click ran another, the two would drift the first
+time somebody tuned either. `planRepairAll()` walks a ledger and returns the
+list; `repairAll()` executes that list and nothing else.
+
+**Rule:** a preview that promises an outcome should be produced by the same
+function that delivers it.

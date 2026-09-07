@@ -1,6 +1,31 @@
 # tasks/todo.md
 
-## Current round — online co-op multiplayer
+## Current round — structure repair  (branch `claude/structure-repair-mechanic-lprca4`)
+
+Owner, 2026-09-07: "I want to add the ability to repair structures that the
+zombies damaged." Repair already existed as a build-mode card — one that a
+1400px window cut off the end of the bar. The round makes it findable and
+finishes it. Verified: npm test 78/78, smoke 384/384, `DEADLINE.errors` empty,
+screenshots of the tool and the prompt checked by eye. Raid harness untouched
+(it never repairs).
+
+- [x] `E` beside a damaged wall/trap/turret/tower repairs it; the prompt quotes
+      the bill. Stash/bench/gate/generator/bedroll prompts say how hurt they are.
+- [x] REPAIR tool: bill and health on the card and over the piece, every damaged
+      piece in reach outlined, hold LMB to sweep, "Intact"/"Too far" reasons.
+- [x] REPAIR ALL button on the build bar: `planRepairAll()` is the label and
+      `repairAll()` runs it — worst first, skip what you cannot pay for, 520px.
+- [x] Bills drop materials the damage would not have used; main material ≥ 1.
+- [x] Raid summary counts pieces left damaged (broadcast to guests, no key names).
+- [x] Tutorial step that only speaks once a structure has been hit.
+- [x] `act.repairAll` + `repairAll` command for guests; `G.stats.repaired`.
+- [x] Build bar cards shrink to fit the window so the tools are always on it.
+- [x] Tests: Node (bill scaling, parts-free scratch, plan order/budget); smoke
+      (E through the real loop, tool ghost + held sweep, REPAIR ALL plan and
+      run, raid notice, guest `repair`/`repairAll` commands).
+- [x] Docs: PROJECT.md §3 §4 §6 §7 §8 §9 §11, README, lessons.
+
+## Previous round — online co-op multiplayer
 
 Owner asked for multiplayer on 2026-09-06. Agreed shape after two rounds of
 questions: online co-op for up to four, one player hosts and the host's browser

@@ -4,7 +4,7 @@
 at the start of a session and updated at the end of one. If something here
 contradicts the code, the code is right and this file needs fixing — say so.
 
-- **Last updated:** 2026-09-06, online co-op merged (PR #11)
+- **Last updated:** 2026-09-07, structure repair made a first-class mechanic
 - **Repo:** https://github.com/dunnston/zombie-game
 - **Owner:** dunnston
 
@@ -72,7 +72,7 @@ Nine rounds merged, online co-op among them. Not yet played between two houses.
 | --- | --- |
 | Source | 42 modules, ~15,400 lines. Browser bundle depends on Vite only; the broker on `ws`. |
 | Assets | Zero. Every sprite is drawn in code at boot; every sound is WebAudio. |
-| Tests | 75 Node assertions; browser suite 361 |
+| Tests | 78 Node assertions; browser suite 384 |
 | Save format | **v8** payload (players by identity), in **slots** (index v1) |
 | Performance | ~60fps with 90 active enemies; ~66 KB/s per guest on the wire |
 
@@ -166,6 +166,15 @@ weight bar counts the pack and the hotbar together.
 **Building.** Walls in four tiers, gate, spike trap, workbench (2 tiers), stash,
 bedroll, bunk, watchtower, generator, turret, floodlight, plus repair and
 salvage. Anywhere on the map.
+
+**Repair.** Three ways to fix what a raid chewed on, each quoting the bill
+first: `E` beside a damaged wall, trap, turret or tower; the REPAIR tool in
+build mode (click, or hold to sweep along a wall, with every damaged piece in
+reach outlined); and REPAIR ALL on the build bar, which fixes everything within
+520px worst-first and whose label *is* the plan it will run. A repair is 45% of
+the build price scaled by the damage, from the pack then the stash; a material
+the damage would not have consumed is left off the bill. The raid summary says
+how many pieces were left damaged. Builder survivors still do it unprompted.
 
 **Threat and raids.** A meter driven by player activity, not a calendar. Five
 authored raid tiers then endless scaling, in waves, targeting the perimeter. A
@@ -383,6 +392,9 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | No TURN server in v1 | Public STUN gets most pairs through. Strict NATs will fail with a readable message. Relaying through the broker is the follow-up, not a reason to hold the PR. |
 | A guest's held intent expires after 400ms of silence, and a paused guest sends "holding nothing" every step | The host keeps the last intent it heard, so silence used to mean "carry on": a paused guest kept running, a hidden tab kept firing. Codex review of PR B. The timeout covers the cases the guest cannot announce (tab hidden, line dying); the explicit idle packet makes pausing stop you instantly. A late packet on the unordered channel now contributes only its edges — its held state is stale by definition. |
 | `client.js` reaches `toTitle()` through `netHooks`, not an import | Importing game.js from the guest session closed a cycle (game → inventory → actions → client → game) that evaluated game.js before inventory.js and broke boot with a temporal-dead-zone error. game.js fills `netHooks.toTitle` at load. Same rule as `damage.js` (invariant 3): break cycles with a hook, not a re-export. |
+| Repair is offered on `E`, not only as a build-mode tool | Repair existed since the MVP and nobody found it: it was the fifteenth card on a bar that, at 1400px wide, drew fourteen. The owner never found crafting on `C` either. A damaged wall now asks for `E` with the bill on the prompt, the raid summary counts the damage, and the tutorial says so once something is hit. The build bar shrinks its cards to fit the screen for the same reason. |
+| REPAIR ALL skips what it cannot pay for, worst first, and its label is its plan | "Repair until the money runs out" let one steel wall block the wood walls behind it; "repair everything or nothing" made the button useless the moment you were short. `planRepairAll()` walks a ledger and `repairAll()` runs exactly that list, so the bar can print the count and the bill and what happens on click never differs from it. Range is 520px — about a compound — rather than base-wide, because with build-anywhere a second outpost is not "here". |
+| A repair bill leaves off materials the damage would not have consumed | The old bill was `max(1, ceil(...))` per material, so a scratched steel wall cost a weapon part — the same part a pistol needs. Now each material rounds and drops out at zero; only the piece's main material is pinned to at least one, so no repair is free. |
 
 ---
 
@@ -420,7 +432,8 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 - Survivors assignable to a specific post (this wall, not the base centre)
 - Survivors equipping weapons from the stash instead of a fixed rifle
 - Enemies preferring weak walls, so base *design* matters as much as base cost
-- Deeper base identity: ammo benches, wall skins that show tier, repair-all
+- Deeper base identity: ammo benches, wall skins that show tier (repair-all
+  is built — 2026-09-07)
 - Timed world events (supply drop, wandering horde) so exploration is pulled by
   opportunity rather than only pushed by shopping lists
 
@@ -514,6 +527,20 @@ foundation touched 19 files and every system. Landing it first, gated on "solo
 plays byte-identically and every suite is green", means the networking PR can
 be reviewed for networking rather than for whether the game still works.
 
+**A feature nobody can reach is not shipped.** Repair was implemented in PR #1
+and documented in three places, and the request that produced this round was
+"add the ability to repair structures". The card was the fifteenth on a bar
+that fit fourteen at 1400px. The screenshot found it in seconds; no test could
+have, because the tests reach features through the API. When a request asks
+for something that exists, the bug is discoverability — screenshot the path a
+player would take before touching the logic.
+
+**The camera leads toward the cursor, so a one-shot `aimAt()` drifts.** The
+debug cursor is placed from where the camera *is*; the camera then moves 22%
+of the way toward the cursor, and the world point under a fixed screen
+position slides off a 32px tile. Aim at enemies never noticed. Anything that
+must land on a tile re-aims every frame until it settles.
+
 **Silence is not neutral, and the guest's side has no test unless you build
 one.** Both P1s on the co-op review were about a guest *stopping*: a paused
 guest sent nothing, so the host kept acting on its last intent (a silent "walk
@@ -533,8 +560,8 @@ round. Current expected totals:
 
 | Suite | Expected |
 | --- | --- |
-| `npm test` (Node, pure logic) | 75 |
-| `tests/browser-smoke.js` | 361 |
+| `npm test` (Node, pure logic) | 78 |
+| `tests/browser-smoke.js` | 384 |
 
 **Run the browser suite with the page visible and focused.** Its waits are
 counted in animation frames. A backgrounded tab throttles
@@ -671,6 +698,17 @@ input (`key`, `tap`, `mouseDown`, `aimAt`) and the whole `api` surface.
 ## 11. Changelog
 
 Newest first. One line per meaningful change.
+
+- **2026-09-07** — Structure repair made findable and finished. Repair had
+  existed since the MVP as a build-bar card that most screens cut off. Now:
+  `E` beside a damaged wall/trap/turret/tower repairs it with the bill on the
+  prompt; the REPAIR tool shows health and cost on the card and over the piece,
+  outlines every damaged piece in reach, and sweeps on a held button; REPAIR
+  ALL on the bar fixes everything within 520px worst-first, skipping what you
+  cannot pay for, with its label as the plan; the raid summary counts the
+  damage; a tutorial step appears once something is hit. Bills drop materials
+  the damage would not have used. The build bar shrinks its cards to fit the
+  window. Both routed through `act.*` for guests. Node 78, smoke 384.
 
 - **2026-09-06** — PR B review round. A paused guest now tells the host it is
   holding nothing, the host expires a silent guest's intent after 400ms, a late

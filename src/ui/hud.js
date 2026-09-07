@@ -8,7 +8,9 @@ import {
 import { G, countRes, totalRes, canAfford } from '../game/state.js';
 import { Input } from '../core/input.js';
 import { currentWeapon, bagLoad } from '../game/player.js';
-import { buildMenu, structureCost, isUnlocked, nearWorkbench, upgradeBench } from '../game/building.js';
+import {
+  buildMenu, structureCost, isUnlocked, nearWorkbench, upgradeBench, costLabel,
+} from '../game/building.js';
 import { visibleRecipes, craftStatus, craft } from '../game/crafting.js';
 import { raiseAttribute, buyPerk } from '../game/progression.js';
 import {
@@ -664,10 +666,17 @@ function drawOffscreenMarkers(ctx, W, H) {
 
 function drawBuildBar(ctx, W, H) {
   const menu = buildMenu();
-  const cw = 92, ch = 62, gap = 5;
+  // Cards shrink so the whole menu fits the screen: at 92px a 1400px window
+  // showed fourteen of sixteen, and the two that fell off the end were the
+  // REPAIR and DEMOLISH tools — the owner could never have found them.
+  const ch = 70, gap = 5;
+  const cw = Math.max(60, Math.min(92, Math.floor((W - 20 - (menu.length - 1) * gap) / menu.length)));
+  // On a narrow card the HP figure gets a line of its own under the costs
+  // instead of colliding with them; the extra card height is for that line.
+  const wide = cw >= 84;
   const total = menu.length * (cw + gap) - gap;
   const x0 = Math.max(10, W / 2 - total / 2);
-  const y = H - 152;
+  const y = H - 160;
 
   const barW = Math.min(total + 20, W - 20);
   // Clicks on the bar select a piece; they must not also be read as a placement
@@ -680,9 +689,17 @@ function drawBuildBar(ctx, W, H) {
   ctx.lineWidth = 2;
   ctx.strokeRect(x0 - 9.5, y - 25.5, barW - 1, ch + 39);
 
+  const repairing = menu[G.ui.buildIndex] === 'repair';
   ctx.font = 'bold 11px "Courier New", monospace';
   ctx.fillStyle = C.borderHi;
-  ctx.fillText('BUILD MODE  ·  wheel / 1-9 to select  ·  LMB place  ·  RMB or B to exit', x0 - 4, y - 10);
+  ctx.fillText(repairing
+    ? 'REPAIR  ·  click a piece  ·  hold LMB to sweep along a wall  ·  RMB or B to exit'
+    : 'BUILD MODE  ·  wheel / 1-9 to select  ·  LMB place  ·  RMB or B to exit', x0 - 4, y - 10);
+
+  // With the repair tool up, one button fixes everything in reach. Its label
+  // is the plan the sweep would run — count and bill — so what it says is
+  // what a click does.
+  if (repairing) drawRepairAllButton(ctx, x0 - 10 + barW - 8, y - 24);
 
   for (let i = 0; i < menu.length; i++) {
     const id = menu[i];
@@ -706,10 +723,30 @@ function drawBuildBar(ctx, W, H) {
     ctx.font = 'bold 10px "Courier New", monospace';
     ctx.fillStyle = !unlocked ? '#5c6650' : isTool ? C.blue : afford ? C.text : '#8a6a5a';
     const name = isTool ? id.toUpperCase() : def.name.toUpperCase();
-    ctx.fillText(name.slice(0, 13), x + 6, y + 15);
+    // Bold 10px Courier runs six pixels a glyph; leave room for the number.
+    ctx.fillText(name.slice(0, Math.floor((cw - 18) / 6)), x + 6, y + 15);
 
     ctx.font = '9px "Courier New", monospace';
-    if (isTool) {
+    if (id === 'repair' && sel && G.ui.ghost && G.ui.ghost.target) {
+      // The card reads as a price tag for whatever the cursor is over.
+      const g = G.ui.ghost;
+      const t = g.target;
+      if (g.cost) {
+        ctx.fillStyle = costAffordable(g.cost) ? C.dim : '#a06a5a';
+        let yy = y + 30;
+        for (const [rid, n] of Object.entries(g.cost)) {
+          ctx.fillText(`${RES[rid].short} ${n}`, x + 6, yy);
+          yy += 11;
+        }
+        ctx.fillStyle = C.dim;
+        ctx.textAlign = 'right';
+        ctx.fillText(`${Math.round((t.hp / t.maxHp) * 100)}%`, x + cw - 6, wide ? y + 30 : yy);
+        ctx.textAlign = 'left';
+      } else {
+        ctx.fillStyle = C.dim;
+        ctx.fillText(g.reason || 'intact', x + 6, y + 30);
+      }
+    } else if (isTool) {
       ctx.fillStyle = C.dim;
       ctx.fillText(id === 'repair' ? 'click a piece' : 'salvage 50%', x + 6, y + 30);
     } else if (!unlocked) {
@@ -723,11 +760,31 @@ function drawBuildBar(ctx, W, H) {
         yy += 11;
       }
       ctx.fillStyle = C.dim;
-      ctx.fillText(`HP ${Math.round(def.hp * G.player.structHpMul)}`, x + 50, y + 30);
+      ctx.textAlign = 'right';
+      ctx.fillText(`HP ${Math.round(def.hp * G.player.structHpMul)}`, x + cw - 6, wide ? y + 30 : yy);
+      ctx.textAlign = 'left';
     }
     ctx.font = 'bold 9px "Courier New", monospace';
     ctx.fillStyle = C.dim;
     ctx.fillText(`${i + 1}`, x + cw - 12, y + 14);
+  }
+}
+
+/** REPAIR ALL, right-aligned to `right` on the build bar's header row. */
+function drawRepairAllButton(ctx, right, y) {
+  const plan = G.ui.ghost && G.ui.ghost.plan;
+  const total = plan ? plan.pieces.length : 0;
+  let label, enabled = true;
+  if (!plan || total === 0) { label = 'NOTHING TO REPAIR IN RANGE'; enabled = false; }
+  else if (plan.repairable === 0) { label = `REPAIR ALL — ${total} damaged, not enough materials`; enabled = false; }
+  else if (plan.skipped > 0) label = `REPAIR ${plan.repairable} OF ${total}  —  ${costLabel(plan.cost)}`;
+  else label = `REPAIR ALL ×${total}  —  ${costLabel(plan.cost)}`;
+
+  ctx.font = 'bold 11px "Courier New", monospace';
+  const w = Math.ceil(ctx.measureText(label).width) + 18;
+  const x = right - w;
+  if (button(ctx, x, y, w, 20, label, { enabled, small: true, color: C.blue })) {
+    act.repairAll();
   }
 }
 

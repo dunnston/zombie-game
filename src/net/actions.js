@@ -6,7 +6,9 @@
 // HUD, the inventory screen and build mode call `act.*` and never care which.
 
 import { G } from '../game/state.js';
-import { placeStructure, repairStructure, demolishStructure, upgradeBench, structAtTile } from '../game/building.js';
+import {
+  placeStructure, repairStructure, repairAll, demolishStructure, upgradeBench, structAtTile,
+} from '../game/building.js';
 import { craft } from '../game/crafting.js';
 import { raiseAttribute, buyPerk } from '../game/progression.js';
 import {
@@ -26,6 +28,10 @@ export const act = {
   repair(s) {
     if (isClient()) return sendCommand('repair', { tx: s.tx, ty: s.ty }), false;
     return repairStructure(s, G.player);
+  },
+  repairAll() {
+    if (isClient()) return sendCommand('repairAll', {}), 0;
+    return repairAll(G.player);
   },
   demolish(s) {
     if (isClient()) return sendCommand('demolish', { tx: s.tx, ty: s.ty }), false;
@@ -101,6 +107,7 @@ export function executeCommand(p, name, a) {
   switch (name) {
     case 'place': return !!placeStructure(String(a.type), a.tx | 0, a.ty | 0, p);
     case 'repair': { const s = struct(); return !!s && repairStructure(s, p); }
+    case 'repairAll': return repairAll(p) > 0;
     case 'demolish': { const s = struct(); return !!s && demolishStructure(s, p); }
     case 'upgradeBench': { const s = struct(); return !!s && s.type === 'workbench' && upgradeBench(s, p); }
     case 'craft': { const r = RECIPES.find((x) => x.id === a.id); return !!r && craft(r, Math.min(a.tier | 0, G.benchTier), p); }
