@@ -308,6 +308,33 @@ function carSprite(color, dark, wrecked) {
   });
 }
 
+/** Dry stone: irregular blocks, mortarless, a lighter cap where the light lands. */
+function stoneWallSprite() {
+  return mk(32, 32, (g, w, h) => {
+    g.fillStyle = '#4e4a44';
+    g.fillRect(0, 0, 32, 32);
+    // Courses of blocks, offset row to row.
+    let y = 0, row = 0;
+    while (y < 32) {
+      const bh = 7 + (row % 2);
+      let x = row % 2 ? -4 : 0;
+      while (x < 32) {
+        const bw = 9 + ((hash2(row * 7, x) * 5) | 0);
+        const t = hash2(x, row * 3);
+        g.fillStyle = t > 0.66 ? '#6d675e' : t > 0.33 ? '#635d55' : '#59544c';
+        g.fillRect(x + 1, y + 1, bw - 2, bh - 2);
+        x += bw;
+      }
+      y += bh; row++;
+    }
+    g.fillStyle = '#7d766b';
+    g.fillRect(0, 0, 32, 3);
+    g.fillStyle = '#00000044';
+    g.fillRect(0, 29, 32, 3);
+    speckle(g, w, h, 40, ['#00000033', '#ffffff14'], 11, 0.6);
+  });
+}
+
 // --------------------------------------------------------------- containers -
 
 function containerSprite(kind) {
@@ -934,6 +961,7 @@ export function buildSprites() {
   }
 
   Sprites.s_woodWall = plankWall('#7a5c35', '#6b512f', '#33261a');
+  Sprites.s_stoneWall = stoneWallSprite();
   Sprites.s_reinforcedWall = reinforcedWallSprite();
   Sprites.s_metalWall = metalWallSprite();
   Sprites.s_barricade = barricadeSprite();

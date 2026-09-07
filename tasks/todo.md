@@ -20,6 +20,10 @@ a more rural area, a city area, a forest area, maybe a river and a pond."
 - [x] Both suites green; raid harness indices 1–3 in range
 - [x] Gathering: sticks, stone, fiber from bushes and rocks; the hand-crafted
       Hatchet gates trees (owner, same day)
+- [x] Hand tools: Stone Knife, Stone Pickaxe and Stone Hammer beside the
+      Hatchet, all bench-0; knife and pickaxe double their material's yield;
+      knife unlocks Cordage (fiber -> cloth); hammer is a bench for simple
+      work; stone builds a Stone Wall (owner, same day)
 - [ ] The owner walks it
 
 ## Previous round — online co-op multiplayer

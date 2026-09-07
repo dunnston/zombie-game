@@ -143,10 +143,21 @@ districts, each with its own danger tier and its own loot personality:
 | Checkpoint Delta | ▲▲▲▲ | **Military parts, rifle ammo, the carbine** |
 | Downtown | ▲▲▲▲ | Office towers, city hall and **the bank vault**; the army's last stand on the highway |
 
-**Gathering.** Swing at a bush for fiber and sticks, at a rock for stone. Those
-three make a **Hatchet** by hand (press the craft key anywhere), and only a
-hatchet fells a tree — trees give wood and sticks. Hatchets also turn up in
-toolboxes and on tool racks.
+**Gathering and tools.** Swing at a bush for fiber and sticks, at a rock for
+stone — bare hands are enough for both. Those three materials make four tools,
+none of which needs a workbench (press the craft key anywhere):
+
+| Tool | What it does |
+| --- | --- |
+| **Hatchet** | Fells trees. Nothing else will — trees give wood and sticks |
+| **Stone Knife** | Bushes give about twice the fiber, and you can cut Cloth from it |
+| **Stone Pickaxe** | Rocks give about twice the stone — enough to raise a **Stone Wall** |
+| **Stone Hammer** | Counts as a workbench for simple work: a pipe, lockpicks, ration packs |
+
+They are tools, not weapons — every one of them hits softer than a machete.
+So the first few minutes are: break bushes and rocks by hand, craft a knife
+and a pickaxe, then a hatchet, and only then does wood open up. Hatchets also
+turn up in toolboxes and on tool racks if you would rather loot one.
 
 The river is solid to feet and transparent to bullets: you can shoot across it,
 and so can your turrets, but the only ways over are the two bridges. Farm

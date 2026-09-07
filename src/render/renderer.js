@@ -776,8 +776,19 @@ function drawWeapon(ctx, w, p) {
     ctx.fillStyle = w.color;
     if (w.id === 'sledge') { ctx.fillRect(6, -1.6, 13, 3.2); ctx.fillRect(17, -5, 6, 10); }
     else if (w.id === 'machete') { ctx.fillRect(5, -1.4, 20, 3); ctx.fillRect(22, -2.4, 4, 5); }
+    // The tools read by their heads: an axe's is off to one side, a pickaxe's
+    // lies across the haft, a hammer's is a block, a knife has no haft at all.
     else if (w.id === 'axe') { ctx.fillStyle = '#6b4e2e'; ctx.fillRect(5, -1.4, 16, 2.8); ctx.fillStyle = '#b9b3a6'; ctx.fillRect(17, -5, 6, 9); }
-    else ctx.fillRect(5, -1.6, 17, 3.2);
+    else if (w.id === 'pick') {
+      ctx.fillStyle = '#6b4e2e'; ctx.fillRect(5, -1.4, 14, 2.8);
+      ctx.fillStyle = w.color; ctx.fillRect(16, -7, 3, 14); ctx.fillRect(19, -1.3, 4, 2.6);
+    } else if (w.id === 'hammer') {
+      ctx.fillStyle = '#6b4e2e'; ctx.fillRect(5, -1.4, 12, 2.8);
+      ctx.fillStyle = w.color; ctx.fillRect(15, -5, 7, 10);
+    } else if (w.id === 'knife') {
+      ctx.fillStyle = '#4a3a2a'; ctx.fillRect(4, -1.6, 5, 3.2);
+      ctx.fillStyle = w.color; ctx.fillRect(9, -1.2, 10, 2.4); ctx.fillRect(17, -0.8, 3, 1.6);
+    } else ctx.fillRect(5, -1.6, 17, 3.2);
   } else {
     ctx.fillStyle = '#22262a';
     ctx.fillRect(-2, -2.6, 8, 5.2);

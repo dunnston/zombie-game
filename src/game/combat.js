@@ -142,9 +142,14 @@ export function meleeAttack(p, w) {
  * smaller drop — the sticks that fall with a bush or a felled tree.
  */
 export const HARVEST = {
-  wood:  { min: 6, max: 11, bonus: 'sticks', bonusMin: 1, bonusMax: 3, needsAxe: true, debris: '#3f5226', label: 'WOOD' },
-  fiber: { min: 2, max: 4, bonus: 'sticks', bonusMin: 1, bonusMax: 2, debris: '#4a6a2a', label: 'FIBER' },
-  stone: { min: 2, max: 4, debris: '#6a6660', label: 'STONE' },
+  wood:  { min: 6, max: 11, bonus: 'sticks', bonusMin: 1, bonusMax: 3, needs: 'axe', debris: '#3f5226', label: 'WOOD' },
+  fiber: { min: 2, max: 4, bonus: 'sticks', bonusMin: 1, bonusMax: 2, boost: 'knife', debris: '#4a6a2a', label: 'FIBER' },
+  stone: { min: 2, max: 4, boost: 'pick', debris: '#6a6660', label: 'STONE' },
+};
+
+/** What to tell someone swinging the wrong thing at a tree. */
+const NEEDS_HINT = {
+  axe: 'You need a HATCHET to fell trees — bushes give fiber and sticks, rocks give stone',
 };
 
 /** Drops `n` of a resource at a spot in a few piles, so it is readable on the ground. */
@@ -167,11 +172,11 @@ function chopProp(p, w, dmg) {
   if (!prop) return false;
   const rule = HARVEST[prop.harvest] || HARVEST.wood;
 
-  if (rule.needsAxe && !w.axe) {
+  if (rule.needs && !w[rule.needs]) {
     // Bounce off. Say so once, and then only now and again.
     if (!p.axeHintAt || G.time - p.axeHintAt > 6) {
       p.axeHintAt = G.time;
-      if (isLocal(p)) notify('You need a HATCHET to fell trees — bushes give fiber and sticks, rocks give stone', '#d9c46a', true);
+      if (isLocal(p)) notify(NEEDS_HINT[rule.needs], '#d9c46a', true);
     }
     FX.debris(prop.x, prop.y, 2, '#4a3a22');
     sfx('hitWall');
@@ -182,8 +187,11 @@ function chopProp(p, w, dmg) {
     notify('Keep swinging — scenery breaks into materials. A hatchet is craftable by hand', '#a3763f', true);
   }
 
-  // Heavy blunt weapons are better at breaking things; an axe is built for it.
-  const chopMul = (w.chopMul || (w.id === 'sledge' ? 1.6 : w.id === 'machete' ? 1.3 : 1)) * p.chopMul;
+  // Heavy blunt weapons are better at breaking things; a tool is built for it,
+  // and the tool made for *this* material is better again.
+  const boosted = !!(rule.boost && w[rule.boost]);
+  const chopMul = (w.chopMul || (w.id === 'sledge' ? 1.6 : w.id === 'machete' ? 1.3 : 1))
+    * (boosted ? 1.6 : 1) * p.chopMul;
   prop.hp -= dmg * chopMul;
   prop.hitAt = G.time;          // renderer reads this; avoids a per-frame prop loop
   FX.debris(prop.x, prop.y, 5, rule.debris);
@@ -191,7 +199,8 @@ function chopProp(p, w, dmg) {
   if (isLocal(p)) shake(1.2);
 
   if (prop.hp <= 0) {
-    const n = rule.min + Math.round(Math.random() * (rule.max - rule.min) * p.lootMul);
+    let n = rule.min + Math.round(Math.random() * (rule.max - rule.min) * p.lootMul);
+    if (boosted) n = Math.round(n * (w.toolMul || 2));
     emit('prop', { key: `${prop.tx},${prop.ty}` });
     removeProp(G.world, prop);
     FX.debris(prop.x, prop.y, 18, rule.debris);

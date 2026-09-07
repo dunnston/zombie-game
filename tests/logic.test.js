@@ -10,6 +10,7 @@ import {
   bagWeight, xpForLevel, raidSpec, GEAR, GEAR_SLOTS, MAX_GEAR_DR,
 } from '../src/game/config.js';
 import { createWorld, isBlockedTile, dangerAtPx, locationAtPx, propAtTile, removeProp } from '../src/game/world.js';
+import { HARVEST } from '../src/game/combat.js';
 import {
   ATTRS, ATTR_IDS, ATTR_MAX, ATTR_START, PERKS, perksFor, perkStatus,
   canRaiseAttr, recomputeStats, startingAttrs,
@@ -832,6 +833,62 @@ test('the hatchet is made by hand from what the scenery gives up', () => {
   }
   assert.ok(WEAPONS.axe.axe, 'the hatchet is the thing that fells trees');
   assert.ok(WEAPONS.axe.dmg < WEAPONS.machete.dmg, 'a tool, not the best weapon');
+});
+
+test('every hand tool is craftable from gathered materials alone', () => {
+  const GATHERED = ['sticks', 'stone', 'fiber'];
+  const byId = Object.fromEntries(RECIPES.map((r) => [r.id, r]));
+  for (const id of ['axe', 'pick', 'knife', 'hammer']) {
+    const r = byId[id];
+    assert.ok(r, `${id} has no recipe`);
+    assert.equal(r.bench, 0, `${id} must be craftable without a workbench`);
+    for (const c of Object.keys(r.cost)) {
+      assert.ok(GATHERED.includes(c), `${id} costs ${c}, which cannot be gathered by hand`);
+    }
+    assert.ok(WEAPONS[r.give.weapon].tool, `${id} should be marked a tool`);
+  }
+  // Each tool is the best way to get one material and a poor weapon.
+  assert.ok(WEAPONS.axe.axe && WEAPONS.pick.pick && WEAPONS.knife.knife && WEAPONS.hammer.hammer);
+  for (const id of ['axe', 'pick', 'knife', 'hammer']) {
+    assert.ok(WEAPONS[id].dmg < WEAPONS.machete.dmg, `${id} should not outfight a machete`);
+  }
+});
+
+test('the tool gates and boosts line up with what the scenery gives', () => {
+  // Only wood is gated; stone and fiber must stay reachable with bare hands,
+  // because the tools themselves are made of them.
+  assert.equal(HARVEST.wood.needs, 'axe');
+  assert.ok(!HARVEST.stone.needs && !HARVEST.fiber.needs, 'stone and fiber must be hand-gatherable');
+  assert.equal(HARVEST.stone.boost, 'pick');
+  assert.equal(HARVEST.fiber.boost, 'knife');
+  for (const k of ['stone', 'fiber']) {
+    assert.ok(WEAPONS[HARVEST[k].boost].toolMul > 1, `${k}'s tool should actually yield more`);
+  }
+});
+
+test('a stone wall can be raised from gathered material only', () => {
+  const wall = STRUCTURES.stoneWall;
+  assert.ok(wall && wall.wall && wall.solid);
+  for (const c of Object.keys(wall.cost)) {
+    assert.ok(['stone', 'sticks', 'fiber'].includes(c), `stone wall costs ${c}`);
+  }
+  assert.ok(wall.hp > STRUCTURES.woodWall.hp, 'stone should be tougher than wood');
+  assert.ok(wall.hp < STRUCTURES.reinforcedWall.hp, 'but not tougher than reinforced');
+  assert.ok(BUILD_ORDER.includes('stoneWall'));
+});
+
+test('the hammer stands in for a bench only on simple work', () => {
+  const hammered = RECIPES.filter((r) => r.hammer);
+  assert.ok(hammered.length > 0, 'the hammer should unlock something');
+  for (const r of hammered) {
+    assert.equal(r.bench, 1, `${r.id} — the hammer must never reach Workbench II`);
+    assert.ok(!r.give.weapon || WEAPONS[r.give.weapon].kind !== 'gun',
+      `${r.id} — a hammer must not make a gun`);
+  }
+  // Cordage turns fiber into cloth, but needs a blade.
+  const cord = RECIPES.find((r) => r.id === 'cordage');
+  assert.equal(cord.tool, 'knife');
+  assert.deepEqual(Object.keys(cord.cost), ['fiber']);
 });
 
 test('world generation is deterministic for a seed', () => {

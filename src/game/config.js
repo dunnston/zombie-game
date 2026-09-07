@@ -89,10 +89,29 @@ export const WEAPONS = {
     id: 'machete', name: 'Machete', kind: 'melee', dmg: 40, cd: 0.34,
     range: 54, arc: 1.0, knock: 110, bleed: true, color: '#cfd6dd',
   },
-  // The first tool. Only an axe fells a tree; it fights, badly, in a pinch.
+  // ------------------------------------------------------------- tools --
+  // All four are made by hand from sticks, stone and fiber. Each is the best
+  // way to get one material and a poor weapon; `tool` marks them so the UI can
+  // say so, `axe`/`pick`/`knife`/`hammer` are what the game actually asks for.
   axe: {
     id: 'axe', name: 'Hatchet', kind: 'melee', dmg: 30, cd: 0.52,
-    range: 48, arc: 0.9, knock: 130, axe: true, chopMul: 2.4, color: '#b08a5a',
+    range: 48, arc: 0.9, knock: 130, tool: true, axe: true, chopMul: 2.4,
+    color: '#b08a5a',
+  },
+  pick: {
+    id: 'pick', name: 'Stone Pickaxe', kind: 'melee', dmg: 26, cd: 0.62,
+    range: 50, arc: 0.9, knock: 150, tool: true, pick: true, chopMul: 2.2,
+    toolMul: 2.4, color: '#9a9088',
+  },
+  knife: {
+    id: 'knife', name: 'Stone Knife', kind: 'melee', dmg: 19, cd: 0.28,
+    range: 40, arc: 0.8, knock: 60, bleed: true, tool: true, knife: true,
+    chopMul: 1.5, toolMul: 2.2, color: '#c2b8a6',
+  },
+  hammer: {
+    id: 'hammer', name: 'Stone Hammer', kind: 'melee', dmg: 36, cd: 0.72,
+    range: 46, arc: 1.2, knock: 240, tool: true, hammer: true, chopMul: 1.8,
+    structureMul: 0.8, color: '#8a8078',
   },
   sledge: {
     id: 'sledge', name: 'Sledgehammer', kind: 'melee', dmg: 78, cd: 0.86,
@@ -240,6 +259,14 @@ export const STRUCTURES = {
     solid: true, tier: 1, threat: 1, wall: true,
     desc: 'The bread-and-butter wall.',
   },
+  // Built from nothing but what the ground gives up. Tougher than wood and
+  // slower to gather — the wall you can raise before you own a single tool
+  // that needs metal.
+  stoneWall: {
+    id: 'stoneWall', name: 'Stone Wall', cost: { stone: 18, sticks: 4 }, hp: 430,
+    solid: true, tier: 1, threat: 1, wall: true,
+    desc: 'Dry stone. No wood, no scrap — just what you carried up the hill.',
+  },
   reinforcedWall: {
     id: 'reinforcedWall', name: 'Reinforced Wall', cost: { wood: 12, scrap: 22 }, hp: 920,
     solid: true, tier: 1, threat: 1.5, wall: true,
@@ -280,7 +307,7 @@ export const STRUCTURES = {
 };
 
 export const BUILD_ORDER = [
-  'woodWall', 'barricade', 'reinforcedWall', 'metalWall', 'gate', 'spike',
+  'woodWall', 'stoneWall', 'barricade', 'reinforcedWall', 'metalWall', 'gate', 'spike',
   'workbench', 'stash', 'bedroll', 'bunk', 'watchtower',
   'generator', 'turret', 'floodlight',
 ];
@@ -290,8 +317,15 @@ export const BUILD_ORDER = [
 
 export const RECIPES = [
   { id: 'bandage', name: 'Bandage x2', bench: 0, cost: { cloth: 4 }, give: { item: 'bandage', n: 2 }, xp: 3 },
+  // Hand tools. Nothing here needs a bench, because the bench needs wood and
+  // wood needs the hatchet.
   { id: 'axe', name: 'Hatchet', bench: 0, cost: { sticks: 3, stone: 3, fiber: 4 }, give: { weapon: 'axe' }, xp: 10 },
-  { id: 'pipe', name: 'Steel Pipe', bench: 1, cost: { wood: 6, scrap: 10 }, give: { weapon: 'pipe' }, xp: 12 },
+  { id: 'knife', name: 'Stone Knife', bench: 0, cost: { sticks: 2, stone: 3, fiber: 2 }, give: { weapon: 'knife' }, xp: 8 },
+  { id: 'pick', name: 'Stone Pickaxe', bench: 0, cost: { sticks: 4, stone: 4, fiber: 3 }, give: { weapon: 'pick' }, xp: 12 },
+  { id: 'hammer', name: 'Stone Hammer', bench: 0, cost: { sticks: 3, stone: 6, fiber: 2 }, give: { weapon: 'hammer' }, xp: 12 },
+  // Cordage: fiber becomes cloth, but only with a blade to cut it.
+  { id: 'cordage', name: 'Cloth x4', bench: 0, tool: 'knife', cost: { fiber: 10 }, give: { res: { cloth: 4 } }, xp: 4 },
+  { id: 'pipe', name: 'Steel Pipe', bench: 1, hammer: true, cost: { wood: 6, scrap: 10 }, give: { weapon: 'pipe' }, xp: 12 },
   { id: 'ammoP', name: '9mm x24', bench: 1, cost: { scrap: 9, parts: 1 }, give: { res: { ammoP: 24 } }, xp: 6 },
   { id: 'medkit', name: 'Medkit', bench: 1, cost: { med: 5, cloth: 5 }, give: { item: 'medkit', n: 1 }, xp: 8 },
   { id: 'machete', name: 'Machete', bench: 1, cost: { scrap: 24, parts: 1 }, give: { weapon: 'machete' }, xp: 25 },
@@ -303,8 +337,8 @@ export const RECIPES = [
   { id: 'hardHat', name: 'Hard Hat', bench: 1, cost: { scrap: 14 }, give: { armor: 'hardHat' }, xp: 14 },
   { id: 'paddedLegs', name: 'Padded Leggings', bench: 1, cost: { cloth: 24, scrap: 10 }, give: { armor: 'paddedLegs' }, xp: 26 },
   { id: 'ammoS', name: 'Shells x14', bench: 1, cost: { scrap: 12, parts: 1 }, give: { res: { ammoS: 14 } }, xp: 7 },
-  { id: 'lockpick', name: 'Lockpicks x3', bench: 1, cost: { scrap: 8, parts: 1 }, give: { item: 'lockpick', n: 3 }, xp: 6 },
-  { id: 'rationPack', name: 'Ration Pack x8', bench: 1, cost: { med: 2, cloth: 3 }, give: { res: { rations: 8 } }, xp: 5 },
+  { id: 'lockpick', name: 'Lockpicks x3', bench: 1, hammer: true, cost: { scrap: 8, parts: 1 }, give: { item: 'lockpick', n: 3 }, xp: 6 },
+  { id: 'rationPack', name: 'Ration Pack x8', bench: 1, hammer: true, cost: { med: 2, cloth: 3 }, give: { res: { rations: 8 } }, xp: 5 },
   { id: 'fuel', name: 'Fuel x25', bench: 1, cost: { scrap: 10, elec: 4 }, give: { res: { fuel: 25 } }, xp: 6 },
 
   { id: 'sledge', name: 'Sledgehammer', bench: 2, cost: { wood: 18, scrap: 38, parts: 2 }, give: { weapon: 'sledge' }, xp: 45 },
