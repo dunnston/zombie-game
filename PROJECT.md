@@ -171,8 +171,14 @@ Walkers and runners threaten *you*; brutes are what breach a wall.
 stone — both with bare hands, because the tools are made of them. Those three
 materials make four tools, none of which needs a workbench:
 
-Every material has a small source you can work with bare hands and a big
-source that needs the right tool — that pairing is the shape of the whole
+The bottom rung is **ground litter**: loose sticks, stones and dry grass lying
+everywhere you can walk, taken with the **interact key**, not a weapon swing.
+About 15,000 pieces across the map, thickest on grass and dirt and still
+present on tarmac. Bushes and rocks answer the interact key too. That is the
+whole first minute: walk, press E, have enough for a Hatchet.
+
+Above that, every material has a small source you can work with bare hands and
+a big source that needs the right tool — that pairing is the shape of the
 tier:
 
 | Material | By hand | With the tool | The tool |
@@ -447,6 +453,8 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | Every hand tool is bench-0, and a poor weapon | The tools are made of gathered material and unlock more gathering, so gating any of them behind the workbench (which costs wood, which needs the hatchet) would deadlock the opening. They are weak on purpose: a tool tier that also won fights would make the machete and the pipe pointless. A Node test asserts both — bench 0, cost only from `sticks`/`stone`/`fiber`, damage under a machete's. |
 | Small scenery is never gated; big scenery always is | If a pickaxe were needed for *all* stone, the pickaxe could not be made. So each material has a hand source (rock, bush) and a gated source worth three times as much (boulder, thicket). `needs` is the gate, `boost` is the bonus, and `HARVEST` is keyed by rule rather than by resource precisely so a boulder and a rock can both give stone on different terms. |
 | The Stone Hammer is a bench for simple work only | "Craft anywhere" would make the workbench pointless and put a pistol in the first two minutes. The hammer lifts exactly the recipes marked `hammer` (a pipe, lockpicks, ration packs) to bench 1, never to II, and a test asserts it can never produce a gun. |
+| Raw material is picked up with the interact key, not swung at | The first playtest of the tool tier could not start the game: the player ran around, found no sticks, stone or fiber, and had no reason to guess that a bush is *hit* rather than *taken*. Anything you could pick up with your hands now answers `E` with a named prompt, and the ground is littered with material that needs no tool at all. Swinging still works and a matching tool still yields more, so the tier above is untouched. |
+| The town centre is the thinnest ground, and the player starts in it | Woodland density was a function of distance from the town's *edge*, so the middle of town — where the spawn is — had a floor of 0.05, and there were literally zero bushes or rocks within ten tiles of the starting crossroads. The floor is 0.18 now, and litter is scattered independently of it. Measured, not guessed: a Node test fails if there is not enough within fifteen tiles of the camp to build the first tool. |
 | Trees need an axe, and the axe needs no bench | Wood is gated behind a tool, the tool behind gathering — a real first ten minutes (break bushes and rocks, craft the hatchet, fell a tree, build the bench) instead of hitting a tree with a pipe. The hatchet is bench-0 and costs only hand-gathered things, because the workbench itself costs wood. Asked for by the owner. |
 | Fences are terrain, not structures | A paddock rail is scenery you cannot walk through, like a tree. Making it a destructible structure would put it in the raid target list and the salvage economy for no gain. |
 | Repair is offered on `E`, not only as a build-mode tool | Repair existed since the MVP and nobody found it: it was the fifteenth card on a bar that, at 1400px wide, drew fourteen. The owner never found crafting on `C` either. A damaged wall now asks for `E` with the bill on the prompt, the raid summary counts the damage, and the tutorial says so once something is hit. The build bar shrinks its cards to fit the screen and wraps onto more rows below 60px a card for the same reason — a 900px window had still been cutting three cards off (Codex review of PR #12). |
@@ -786,6 +794,13 @@ input (`key`, `tap`, `mouseDown`, `aimAt`) and the whole `api` surface.
 
 Newest first. One line per meaningful change.
 
+- **2026-09-07** — Gathering you can actually find. The owner played the tool
+  tier and could not locate sticks, stone or fiber at all. Two causes, both
+  mine: raw material had to be *swung* at rather than picked up, and the town
+  centre — where the player spawns — was the thinnest ground on the map, with
+  zero bushes or rocks within ten tiles. Now: ~15,000 pieces of ground litter
+  taken with `E`, bushes and rocks answer `E` too, and the town's density floor
+  went 0.05 → 0.18. Six presses at the spawn point yield enough for a Hatchet.
 - **2026-09-06** — Boulders and thickets, and the Scythe. Each gathered
   material now has a hand source and a tool-gated source worth about three
   times as much: rock/boulder for stone (Stone Pickaxe), bush/thicket for

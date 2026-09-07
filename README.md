@@ -147,6 +147,11 @@ districts, each with its own danger tier and its own loot personality:
 stone — bare hands are enough for both. Those three materials make four tools,
 none of which needs a workbench (press the craft key anywhere):
 
+**Sticks, stone and fiber are lying on the ground.** Walk up to them and press
+`E` — no tool, no swinging. Bushes and rocks work the same way. Six or seven
+pickups is enough for your first Hatchet, and there is litter within a few
+paces of where you wake up.
+
 Everything you can gather comes in two sizes. The small version you can work
 with your hands; the big one needs the right tool and is worth about three
 times as much:

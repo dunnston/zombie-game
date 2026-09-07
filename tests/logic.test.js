@@ -982,6 +982,70 @@ test('the small scenery is never gated, and the big scenery always is', () => {
   }
 });
 
+test('every hand-gatherable prop has a harvest rule behind it', () => {
+  // The first version shipped litter whose `harvest` key had no HARVEST entry,
+  // so the prompt appeared, E did nothing, and nothing errored. A missing rule
+  // is a silent no-op, which is the worst failure mode this project has.
+  const w = createWorld(20240917);
+  const kinds = new Map();
+  for (const prop of w.propGrid.values()) {
+    if (prop.hand) kinds.set(prop.harvest, (kinds.get(prop.harvest) || 0) + 1);
+  }
+  assert.ok(kinds.size >= 4, `only ${kinds.size} kinds of hand-gatherable thing`);
+  for (const [key, n] of kinds) {
+    const rule = HARVEST[key];
+    assert.ok(rule, `${n} props harvest as '${key}', which has no HARVEST rule — E would do nothing`);
+    assert.ok(RES[rule.res], `${key} yields '${rule.res}', which is not a resource`);
+    assert.ok(rule.min > 0 && rule.max >= rule.min, `${key} has a bad yield range`);
+    assert.ok(!rule.needs, `${key} is hand-gatherable, so it must not need a tool`);
+  }
+});
+
+test('there is something to pick up where the player wakes up', () => {
+  // The tool tier is unplayable if the raw material is not underfoot: the first
+  // playtest found no sticks, stone or fiber at all, because the town centre
+  // was the thinnest ground on the map and the player starts in it.
+  const w = createWorld(20240917);
+  const camp = w.locations.find((l) => l.id === 'camp');
+  const cx = camp.rect[0] + camp.rect[2] / 2, cy = camp.rect[1] + camp.rect[3] / 2;
+  const within = (r) => {
+    let n = 0;
+    for (let y = Math.floor(cy - r); y <= cy + r; y++) {
+      for (let x = Math.floor(cx - r); x <= cx + r; x++) {
+        const prop = propAtTile(w, x, y);
+        if (prop && prop.hand) n++;
+      }
+    }
+    return n;
+  };
+  assert.ok(within(6) >= 5, `only ${within(6)} things to gather within six tiles of the camp`);
+  assert.ok(within(15) >= 40, `only ${within(15)} within fifteen tiles`);
+
+  // Enough of each kind to actually make the first tool (3 sticks, 3 stone, 4 fiber).
+  const got = { sticks: 0, stone: 0, fiber: 0 };
+  for (let y = Math.floor(cy - 15); y <= cy + 15; y++) {
+    for (let x = Math.floor(cx - 15); x <= cx + 15; x++) {
+      const prop = propAtTile(w, x, y);
+      if (!prop || !prop.hand) continue;
+      const rule = HARVEST[prop.harvest];
+      if (rule && got[rule.res] !== undefined) got[rule.res] += rule.min;
+    }
+  }
+  const axe = RECIPES.find((r) => r.id === 'axe');
+  for (const [id, need] of Object.entries(axe.cost)) {
+    assert.ok(got[id] >= need,
+      `only ${got[id]} ${id} within fifteen tiles of the camp, and a Hatchet needs ${need}`);
+  }
+});
+
+test('hand-gathered litter never blocks the ground it lies on', () => {
+  const w = createWorld(20240917);
+  const litter = [...w.propGrid.values()].filter((p) => p.kind === 'litter');
+  assert.ok(litter.length > 2000, `only ${litter.length} pieces of litter on a 320-tile map`);
+  assert.ok(litter.every((p) => !p.solid), 'litter must not be solid');
+  assert.ok(litter.every((p) => !isBlockedTile(w, p.tx, p.ty)), 'litter must not block its tile');
+});
+
 test('harvesting never leaves an invisible wall behind', () => {
   const w = createWorld(20240917);
   const byKind = (k) => [...w.propGrid.values()].find((p) => p.kind === k);

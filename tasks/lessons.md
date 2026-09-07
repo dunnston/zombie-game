@@ -593,3 +593,30 @@ than rewriting a Playwright script per session, and make it assert its own
 preconditions: server reachable, page booted, frames actually running. And
 match the check to the change — the four-minute suite belongs once per branch,
 not once per edit.
+
+### A prompt that appears is not a mechanic that works
+
+Ground litter shipped with a `harvest` key (`litter_sticks`) that had no
+matching `HARVEST` rule. The interact prompt read "Pick up sticks" correctly,
+because the label came from a different map — and pressing E did nothing at
+all. No error, no message, no resource. The label and the rule were two
+sources of truth for one thing, and only one of them existed.
+
+Caught by playing it: six presses, `got: {}` every time. A Node test now walks
+every hand-gatherable prop the generator makes and fails if its harvest key has
+no rule behind it.
+
+**Rule:** when a label and a behaviour come from different tables, a test has
+to tie them together — otherwise the UI cheerfully advertises a no-op.
+
+### The player starts where the map is thinnest
+
+Woodland density was a function of distance from the town's *edge*, which made
+the town centre the barest ground on the map. The spawn point is the town
+centre. Measured after the first playtest complaint: **zero** bushes and
+**zero** rocks within ten tiles of where the player wakes up, when the whole
+opening depends on gathering.
+
+**Rule:** whatever the opening loop needs, assert it is present *at the spawn*,
+not on average across the map. Averages hide a hole exactly where the player
+is standing.

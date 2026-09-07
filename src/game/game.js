@@ -5,10 +5,10 @@ import {
   TILE, PLAYER, THREAT, STRUCTURES, CAMERA, WEAPONS, RECIPES, GEAR, GEAR_SLOTS,
 } from './config.js';
 import {
-  G, notify, structAtPx, solidPx, shake, addRes, countRes, pointerOverHud,
+  G, notify, structAtPx, solidPx, shake, addRes, addResCapped, countRes, pointerOverHud,
   addPlayer, removePlayer, isLocal, presentPlayers, nearestPlayer, baseOwner,
 } from './state.js';
-import { createWorld, dangerAtPx, locationAtPx } from './world.js';
+import { createWorld, dangerAtPx, locationAtPx, propAtTile, removeProp } from './world.js';
 import {
   createPlayer, updatePlayer, movePlayer, pickRandomSpawn, currentWeapon, selectSlot,
   heldId, carriedWeight, revivePlayer,
@@ -18,12 +18,12 @@ import {
   equipFromBag, unequip, equipBest, moveStack, dropStack, dropEquipped,
 } from './equipment.js';
 import {
-  ITEMS, slotsCount, slotsAdd, slotsTake, slotsEntries, slotsClear,
+  ITEMS, slotsCount, slotsAdd, slotsTake, slotsEntries, slotsClear, packAllowance,
 } from './items.js';
 import {
   updateEnemies, updateSpawning, rebuildSpatial, seedArea, spawnEnemy,
 } from './enemies.js';
-import { updateBullets, updateTurrets, updateTraps } from './combat.js';
+import { updateBullets, updateTurrets, updateTraps, HARVEST } from './combat.js';
 import {
   updatePickups, rollContainer, grantLoot, collectBackpack, seedLoot, spawnPickup,
   spawnEntryPickup,
@@ -329,6 +329,7 @@ export function findInteractable(p = G.player) {
     if (d < bestD) { bestD = d; best = { kind: 'container', ref: c, label: `Search ${c.label}` }; }
   }
 
+
   for (const v of G.vehicles) {
     const d = dist2(p.x, p.y, v.x, v.y);
     if (d >= bestD) continue;
@@ -366,7 +367,79 @@ export function findInteractable(p = G.player) {
       best.label += `  ·  ${Math.round((s.hp / s.maxHp) * 100)}% — ${k('build')} to repair`;
     }
   }
+
+  // Gathering is the *last* thing E offers, and only when nothing else wants
+  // it. Litter is everywhere by design, so ranking it by distance like the
+  // rest would let a twig at your feet outrank the car you are standing
+  // beside, the stash you came to fill, or the wall you meant to repair.
+  if (!best) {
+    let g = null, gd = R * R;
+    for (const prop of nearbyHandProps(p, R)) {
+      const d = dist2(p.x, p.y, prop.x, prop.y);
+      if (d < gd) { gd = d; g = prop; }
+    }
+    if (g) best = { kind: 'gather', ref: g, label: gatherLabel(g) };
+  }
   return best;
+}
+
+/** The hand-gatherable props whose tile is within reach. */
+function nearbyHandProps(p, R) {
+  const out = [];
+  const tx = Math.floor(p.x / TILE), ty = Math.floor(p.y / TILE);
+  const span = Math.ceil(R / TILE);
+  for (let j = -span; j <= span; j++) {
+    for (let i = -span; i <= span; i++) {
+      const prop = propAtTile(G.world, tx + i, ty + j);
+      if (prop && prop.hand) out.push(prop);
+    }
+  }
+  return out;
+}
+
+const GATHER_NAME = {
+  litter_sticks: 'Pick up sticks',
+  litter_fiber: 'Gather fiber',
+  litter_stone: 'Pick up stones',
+  fiber: 'Strip the bush for fiber',
+  stone: 'Take the loose rock',
+};
+
+const gatherLabel = (g) => GATHER_NAME[g.harvest] || 'Gather';
+
+/**
+ * Take a hand-gatherable prop. This is the base yield with no tool bonus —
+ * the tools earn their keep on the big sources (trees, boulders, thickets)
+ * and by paying more for a swung harvest.
+ */
+export function gatherProp(prop, p = G.player) {
+  const rule = HARVEST[prop.harvest];
+  if (!rule) return false;
+  const n = Math.max(1, rule.min + Math.round(Math.random() * (rule.max - rule.min) * p.lootMul));
+  emit('prop', { key: `${prop.tx},${prop.ty}` });
+  removeProp(G.world, prop);
+
+  give(p, rule.res, n);
+  FX.debris(prop.x, prop.y, 6, rule.debris);
+  FX.text(prop.x, prop.y - 16, `${rule.label} +${n}`, RES[rule.res] ? RES[rule.res].color : '#a3763f', 12, -34, 0.9);
+  if (rule.bonus && Math.random() < 0.5) {
+    const b = rule.bonusMin + Math.round(Math.random() * (rule.bonusMax - rule.bonusMin));
+    give(p, rule.bonus, b);
+  }
+  sfx('pickup');
+  addXp(p, rule.xp || 1);
+
+  if (!G.tutorial.done.gather) {
+    G.tutorial.done.gather = true;
+    notify('Sticks, stone and fiber make tools — press ' + k('craft') + ' to make a Hatchet, no workbench needed', '#b7e08a', true);
+  }
+  return true;
+}
+
+/** Into the pack if it fits, onto the ground if it does not. Never destroyed. */
+function give(p, id, n) {
+  const took = addResCapped(p.bag, id, n, packAllowance(p));
+  if (took < n) spawnPickup(p.x, p.y, 'res', id, n - took);
 }
 
 function repairLabel(s, p) {
@@ -385,6 +458,9 @@ export function beginInteract(p, target) {
       sfx('ui');
       break;
     }
+    case 'gather':
+      gatherProp(target.ref, p);
+      break;
     case 'backpack':
       collectBackpack(p, target.ref);
       break;
