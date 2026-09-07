@@ -386,7 +386,7 @@ export function createWorld(seed = 20240917) {
     const tree = {
       kind: pine ? 'pine' : 'tree', si: rng.int(0, 3), rot: 0, tx: x, ty: y,
       x: (x + 0.5) * TILE, y: (y + 0.5) * TILE,
-      hp: 70, maxHp: 70, harvest: 'wood', flash: 0,
+      hp: 70, maxHp: 70, harvest: 'wood', solid: true, flash: 0,
     };
     world.props.push(tree);
     world.propGrid.set(`${x},${y}`, tree);
@@ -829,7 +829,7 @@ export function createWorld(seed = 20240917) {
       kind, si: rng.int(0, 2), rot: boulder ? 0 : rng.range(0, 6.28), tx: x, ty: y,
       x: (x + 0.5) * TILE, y: (y + 0.5) * TILE,
       hp: boulder ? 150 : 90, maxHp: boulder ? 150 : 90,
-      harvest: boulder ? 'boulder' : 'thicket', flash: 0,
+      harvest: boulder ? 'boulder' : 'thicket', solid: boulder, flash: 0,
     };
     if (boulder) block(x, y, 1);
     world.props.push(prop);
@@ -954,14 +954,21 @@ export function locationAtPx(world, px, py) {
 /** The harvestable prop occupying a tile, if any. */
 export const propAtTile = (world, tx, ty) => world.propGrid.get(`${tx},${ty}`) || null;
 
-/** Removes a harvested prop and frees the tile, if it was the thing blocking it. */
+/**
+ * Removes a harvested prop and frees the tile, if this prop was the thing
+ * blocking it.
+ *
+ * `prop.solid` is set by whatever planted it, at the moment it claimed the
+ * tile — never inferred from `kind` here. Listing kinds meant that adding a
+ * solid prop (the boulder) silently left an invisible permanent wall behind
+ * every one that was mined, and the save file replayed it on load.
+ */
 export function removeProp(world, prop) {
   const i = world.props.indexOf(prop);
   if (i >= 0) world.props.splice(i, 1);
   world.propGrid.delete(`${prop.tx},${prop.ty}`);
   world.chopped.push(`${prop.tx},${prop.ty}`);
-  const solid = prop.kind === 'tree' || prop.kind === 'pine';
-  if (solid && prop.tx >= 0 && prop.ty >= 0 && prop.tx < world.w && prop.ty < world.h) {
+  if (prop.solid && prop.tx >= 0 && prop.ty >= 0 && prop.tx < world.w && prop.ty < world.h) {
     world.blocked[prop.ty * world.w + prop.tx] = 0;
   }
 }

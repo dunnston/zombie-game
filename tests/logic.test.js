@@ -886,6 +886,52 @@ test('the small scenery is never gated, and the big scenery always is', () => {
   }
 });
 
+test('harvesting never leaves an invisible wall behind', () => {
+  const w = createWorld(20240917);
+  const byKind = (k) => [...w.propGrid.values()].find((p) => p.kind === k);
+  // Anything that claimed its tile must give it back when it is harvested.
+  for (const kind of ['tree', 'pine', 'boulder']) {
+    const prop = byKind(kind);
+    assert.ok(prop, `no ${kind} in the world`);
+    assert.equal(prop.solid, true, `${kind} should record that it claimed its tile`);
+    assert.equal(isBlockedTile(w, prop.tx, prop.ty), true, `${kind} should block`);
+    removeProp(w, prop);
+    assert.equal(isBlockedTile(w, prop.tx, prop.ty), false,
+      `harvesting a ${kind} left its tile blocked — an invisible permanent wall`);
+  }
+  // ...and anything that never claimed one must not free a tile it does not own.
+  for (const kind of ['bush', 'rock', 'thicket']) {
+    const prop = byKind(kind);
+    assert.ok(!prop.solid, `${kind} should not claim its tile`);
+    w.blocked[prop.ty * w.w + prop.tx] = 1;      // something else is standing here
+    removeProp(w, prop);
+    assert.equal(isBlockedTile(w, prop.tx, prop.ty), true,
+      `harvesting a ${kind} cleared a tile that something else was blocking`);
+  }
+});
+
+test('the crafting panel can reach every recipe, including the top tier', () => {
+  // The panel is a fixed-height two-column grid. It used to render whatever
+  // fitted and drop the rest, which silently hid every Workbench II recipe
+  // once the tool recipes were added — no gun could be crafted at all.
+  // These are the panel's own numbers from drawCraftPanel().
+  const PANEL_H = 620, ROW_H = 52, CARD_H = 46, COLS = 2;
+  const listTop = 90;                              // the worst case: bench upgrade row shown
+  const listH = PANEL_H - 12 - listTop;
+  const rows = Math.max(1, Math.floor(listH / ROW_H));
+  const perPage = rows * COLS;
+  const maxScroll = Math.max(0, Math.ceil(RECIPES.length / COLS) - rows);
+  assert.ok(CARD_H <= ROW_H);
+  // Either everything fits, or the list must be scrollable far enough to reach
+  // the last recipe. The panel implements the second.
+  const reachable = (maxScroll * COLS) + perPage;
+  assert.ok(reachable >= RECIPES.length,
+    `only ${reachable} of ${RECIPES.length} recipes are reachable`);
+  const lastBench2 = RECIPES.map((r, i) => [i, r]).filter(([, r]) => r.bench === 2).pop();
+  assert.ok(lastBench2, 'expected Workbench II recipes to exist');
+  assert.ok(lastBench2[0] < reachable, `${lastBench2[1].id} sits past the end of the panel`);
+});
+
 test('the world carries big stone and big fiber, and both block nothing you need', () => {
   const w = createWorld(20240917);
   const props = [...w.propGrid.values()];

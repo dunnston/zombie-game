@@ -1225,15 +1225,44 @@ function drawCraftPanel(ctx, W, H) {
     listTop = by + bh + 10;
   }
 
+  // There are more recipes than the panel can show, and the ones that fell off
+  // the end were every Workbench II item — so the list scrolls, exactly as the
+  // survivor roster does. Without this a full recipe book silently hides its
+  // own top tier and no gun can be crafted at all.
   const list = RECIPES;
   const cols = 2;
   const cw = (w - 50) / cols;
   const chh = 46;
+  const rowH = chh + 6;
+  const listH = y + h - 12 - listTop;
+  const rows = Math.max(1, Math.floor(listH / rowH));
+  const perPage = rows * cols;
+  const maxScroll = Math.max(0, Math.ceil(list.length / cols) - rows);
+
+  if (inside(x + 20, listTop, w - 40, listH) && Input.wheel !== 0) {
+    G.ui.craftScroll = clamp((G.ui.craftScroll || 0) + Input.wheel, 0, maxScroll);
+  }
+  const scrollRow = clamp(G.ui.craftScroll || 0, 0, maxScroll);
+  G.ui.craftScroll = scrollRow;
+
+  const first = scrollRow * cols;
+  const shown = list.slice(first, first + perPage);
+
+  if (maxScroll > 0) {
+    ctx.font = '10px "Courier New", monospace';
+    ctx.fillStyle = C.dim;
+    ctx.textAlign = 'right';
+    ctx.fillText(
+      `showing ${first + 1}-${Math.min(list.length, first + shown.length)} of ${list.length}  ·  scroll for more`,
+      x + w - 20, listTop - 6,
+    );
+    ctx.textAlign = 'left';
+  }
+
   let i = 0;
-  for (const r of list) {
+  for (const r of shown) {
     const cx = x + 20 + (i % cols) * (cw + 10);
-    const cy = listTop + Math.floor(i / cols) * (chh + 6);
-    if (cy + chh > y + h - 12) break;
+    const cy = listTop + Math.floor(i / cols) * rowH;
     i++;
 
     const st = craftStatus(r, tier);
