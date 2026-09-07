@@ -200,8 +200,13 @@ export function serialiseGame() {
       // gear, loot that overflowed your pack, an enemy drop. Their source
       // containers are already recorded as looted, so dropping them from the
       // save would destroy them.
+      // `q` carries a deliberately dropped pile's hold-off: the id of the
+      // player who put it down, or '' when they have none (solo). Without it a
+      // save taken while standing over your own drop hands the pile straight
+      // back on load. Absent on older saves, which just means "not held off".
       pickups: G.pickups.map((it) => ({
         x: Math.round(it.x), y: Math.round(it.y), k: it.kind, i: it.id, n: it.n,
+        ...(it.inertFor ? { q: it.inertFor.id || '' } : {}),
       })),
       // Every player, keyed by identity. The host's own record is under hostId.
       players: Object.fromEntries(G.players.map((p, i) => [p.id || `seat${i}`, playerRecord(p)])),
@@ -318,7 +323,11 @@ export function applySaveData(raw) {
 
     G.pickups.length = 0;
     for (const it of data.pickups || []) {
-      spawnPickup(it.x, it.y, it.k, it.i, it.n);
+      // An idless `q` is a solo drop, which belongs to the only player there is.
+      const owner = it.q === undefined
+        ? null
+        : (it.q && G.players.find((pl) => pl.id === it.q)) || G.player;
+      spawnPickup(it.x, it.y, it.k, it.i, it.n, owner);
     }
 
     // Cars, with whatever state they were left in.

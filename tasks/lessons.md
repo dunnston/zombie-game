@@ -756,3 +756,27 @@ to trust the ordering.
 
 **Rule:** `Object.values(...).find(...)` over a content table is an ordering
 dependency. Say what you mean: `.some(...)`, or filter and check.
+
+## 2026-09-07 — A hover-armed control cannot have its own button
+
+The inventory `DROP HOVERED` button computed its target from the *live* cursor
+position each frame, then sat somewhere the cursor had to travel to. Moving to
+the button cleared the target, so `enabled` was false at the instant of every
+click. It had never worked, and I confidently told the owner to use it before
+checking. **Rule: if a control acts on "the thing you are hovering", latch the
+target on hover and revalidate it; never read live hover at click time. And
+drive any UI affordance through the real input path before describing it as
+working.**
+
+Second lesson from the same bug: `dropStack` returned `true` while the drop was
+undone a frame later by the pickup magnet, because the pile spawns at the
+player’s feet. **A function returning `true` proves it ran, not that the effect
+survived. Assert the outcome a few frames later, not the return value.** The
+per-frame trace (`frame+1 ground=1`, `frame+2 ground=0`) is what exposed it;
+a before/after snapshot either side of `await frames(4)` showed nothing at all.
+
+Resolved by deleting the button rather than latching it: the owner wanted
+ctrl+click and drag-out-of-the-window instead. Neither has any travel between
+aiming and acting, so neither can have this class of bug at all. **The cheapest
+fix for "the cursor has to be in two places at once" is usually a different
+gesture, not more state to bridge the gap.**
