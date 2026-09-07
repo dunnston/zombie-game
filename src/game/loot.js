@@ -191,7 +191,16 @@ export function grantLoot(p, entries, x, y) {
 
 // ------------------------------------------------------------------ pickups --
 
-export function spawnPickup(x, y, kind, id, n = 1) {
+/**
+ * Puts a pile on the ground.
+ *
+ * `inert` is for piles the player put down deliberately: they spawn at their
+ * feet, which is inside collection range, so without it the pile is swallowed
+ * again on the very next frame and dropping does nothing at all. An inert pile
+ * ignores the magnet until someone has stepped clear of it once — a state, not
+ * a timer, so a pile you drop stays put for as long as you stand over it.
+ */
+export function spawnPickup(x, y, kind, id, n = 1, inert = false) {
   // Nudge out of walls so a drop is never unreachable.
   let px = x, py = y, guard = 0;
   while (solidPx(px, py) && guard++ < 24) {
@@ -204,7 +213,7 @@ export function spawnPickup(x, y, kind, id, n = 1) {
     uid: ++G.pickupSeq,
     x: px, y: py, kind, id, n,
     vx: lootRng.range(-40, 40), vy: lootRng.range(-40, 40),
-    t: 0, bob: lootRng.range(0, TAU), life: 600,
+    t: 0, bob: lootRng.range(0, TAU), life: 600, inert,
   };
   G.pickups.push(it);
   return it;
@@ -226,6 +235,16 @@ export function updatePickups(dt) {
 
     const d2 = dist2(it.x, it.y, p.x, p.y);
     const range = p.pickupRange;
+
+    // A pile you put down yourself waits until you have stepped clear of it,
+    // otherwise the magnet hands it straight back and the drop never happened.
+    // Re-arms well outside the collection radius so standing on the edge does
+    // not flicker between dropping and collecting.
+    if (it.inert) {
+      if (d2 > (range * 1.2) * (range * 1.2)) it.inert = false;
+      continue;
+    }
+
     // Magnet pull, then collect.
     if (d2 < range * range * 5.5) {
       const d = Math.sqrt(d2) || 1;

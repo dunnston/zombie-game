@@ -401,6 +401,8 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | All art generated in code | No asset pipeline, no binary files in git, and the whole look stays consistent because one file draws everything. |
 | Fixed 60Hz sim with an accumulator | A stalled tab must not fast-forward the world. |
 | Co-op version check is a git-derived build id, not a hand-bumped constant | `PROTOCOL` stayed at 1 while the map expansion rewrote world generation, so the check that exists to catch exactly that never fired. A value derived from `git log -1 -- src/` cannot be forgotten. Keyed on `src/` so a docs-only commit does not refuse an otherwise identical pair, and a digest of the uncommitted changes when the tree is dirty, so two people editing the same commit differently do not land on the same id. |
+| Dropping is ctrl+click or drag-out-of-the-window, not a button | The button this replaced could never fire — it acted on the live hover, which the cursor destroyed on its way to the button. The original note in `inventory.js` argued open-space release should snap back so a slip cannot scatter your ammunition; the owner’s call is that dragging clean out of the panel is deliberate enough to tell apart from a slip, and a release inside the panel still snaps back. Both gestures also drop worn gear. |
+| A dropped pile is inert until you step away from it, rather than on a timer | Dropping spawns the pile at your feet, inside the pickup radius, so the magnet reclaimed it the next frame and dropping was a no-op. A timer would still snatch it back if you stood still a moment too long; "you have to leave it" is what a player means by dropping. Re-arms at `range * 1.2`, wider than the `range * 0.45` collect radius, so standing on the edge cannot flicker. |
 | Threat meter instead of a day-N raid timer | Ties danger to player behaviour, which is pillar 6. A calendar would make power free. |
 | Bullets ignore player structures | Pillar 3. Tested the alternative; a walled base could not defend itself. |
 | Enemy `structMul` split from `dmg` | Lets walkers threaten the player while brutes threaten walls. This is what makes raid 3 feel like a different game. |
@@ -547,6 +549,13 @@ Distilled. The running log is in `tasks/lessons.md`.
 project was invisible in review and obvious within seconds of running the game.
 Assertions about *outcomes* (`killed > 0`, `raid completes`) catch classes of bug
 that assertions about *calls* never will.
+
+**A control that acts on what you are hovering cannot be a separate button.**
+The inventory's drop button was dead from the day it shipped: hovering armed
+it, and travelling to the button un-armed it, so `enabled` was false at the
+instant of every click. Nothing in review looks wrong — the bug is that a mouse
+is in exactly one place at a time. Any "act on the hovered thing" affordance
+has to latch its target.
 
 **Silent no-ops are the worst failure mode.** The scavenger's "prefer reachable
 containers" check passed 0 of 281 containers because every container blocks its
@@ -815,6 +824,22 @@ input (`key`, `tap`, `mouseDown`, `aimAt`) and the whole `api` surface.
 ## 11. Changelog
 
 Newest first. One line per meaningful change.
+
+- **2026-09-07** — You can put things on the ground. The owner asked how, and
+  the honest answer was: you cannot. Two bugs, stacked. The `DROP HOVERED`
+  button read the *live* hover, so moving the cursor onto the button cleared
+  the very stack it acted on and `enabled` was false at the instant of every
+  click — dead since it shipped. Behind it, `dropStack` spawned the pile at
+  `p.x, p.y`, inside the collection radius, so the magnet handed it straight
+  back the next frame (`frame+1 ground=1` → `frame+2 ground=0`). The button is
+  now gone entirely, at the owner’s call, in favour of two direct gestures:
+  **ctrl+click a slot**, or **drag it out of the window** and release over the
+  world. Both work on worn gear too, which finally gives `dropEquipped` a
+  caller. Releasing over open space *inside* the panel still snaps back. And a
+  pile you put down yourself is `inert` until you step clear of it once — a
+  state, not a timer, so it stays where you dropped it for as long as you stand
+  there. No save bump: `inert` is not serialised, and a reloaded pile is just
+  world loot. Node 98.
 
 - **2026-09-07** — Mining balance, and the metal tool tier. The owner: "there
   are WAY too many sticks, stones and fiber on the map... it is way too easy to
