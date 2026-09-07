@@ -351,6 +351,8 @@ function drawProp(ctx, p) {
   else if (p.kind === 'reed') spr = Sprites.reeds[p.si % Sprites.reeds.length];
   else if (p.kind === 'silo') spr = Sprites.silo;
   else if (p.kind === 'rock') spr = Sprites.rocks[p.si % Sprites.rocks.length];
+  else if (p.kind === 'boulder') spr = Sprites.boulders[p.si % Sprites.boulders.length];
+  else if (p.kind === 'thicket') spr = Sprites.thickets[p.si % Sprites.thickets.length];
   else if (p.kind === 'car') spr = Sprites.cars[p.si % Sprites.cars.length];
   else if (p.kind === 'wreck') spr = Sprites.wrecks[p.si % Sprites.wrecks.length];
   if (!spr) return;
@@ -785,6 +787,12 @@ function drawWeapon(ctx, w, p) {
     } else if (w.id === 'hammer') {
       ctx.fillStyle = '#6b4e2e'; ctx.fillRect(5, -1.4, 12, 2.8);
       ctx.fillStyle = w.color; ctx.fillRect(15, -5, 7, 10);
+    } else if (w.id === 'scythe') {
+      // A long snath with the blade swept back along it.
+      ctx.fillStyle = '#6b4e2e'; ctx.fillRect(5, -1.4, 20, 2.8);
+      ctx.fillStyle = w.color;
+      ctx.beginPath(); ctx.moveTo(24, -1); ctx.quadraticCurveTo(20, -11, 8, -13);
+      ctx.quadraticCurveTo(19, -8, 22, 0); ctx.closePath(); ctx.fill();
     } else if (w.id === 'knife') {
       ctx.fillStyle = '#4a3a2a'; ctx.fillRect(4, -1.6, 5, 3.2);
       ctx.fillStyle = w.color; ctx.fillRect(9, -1.2, 10, 2.4); ctx.fillRect(17, -0.8, 3, 1.6);

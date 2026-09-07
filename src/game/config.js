@@ -106,7 +106,12 @@ export const WEAPONS = {
   knife: {
     id: 'knife', name: 'Stone Knife', kind: 'melee', dmg: 19, cd: 0.28,
     range: 40, arc: 0.8, knock: 60, bleed: true, tool: true, knife: true,
-    chopMul: 1.5, toolMul: 2.2, color: '#c2b8a6',
+    chopMul: 1.5, color: '#c2b8a6',
+  },
+  scythe: {
+    id: 'scythe', name: 'Scythe', kind: 'melee', dmg: 24, cd: 0.46,
+    range: 62, arc: 1.6, knock: 80, bleed: true, tool: true, scythe: true,
+    chopMul: 2.0, toolMul: 2.2, color: '#b9b3a2',
   },
   hammer: {
     id: 'hammer', name: 'Stone Hammer', kind: 'melee', dmg: 36, cd: 0.72,
@@ -322,6 +327,7 @@ export const RECIPES = [
   { id: 'axe', name: 'Hatchet', bench: 0, cost: { sticks: 3, stone: 3, fiber: 4 }, give: { weapon: 'axe' }, xp: 10 },
   { id: 'knife', name: 'Stone Knife', bench: 0, cost: { sticks: 2, stone: 3, fiber: 2 }, give: { weapon: 'knife' }, xp: 8 },
   { id: 'pick', name: 'Stone Pickaxe', bench: 0, cost: { sticks: 4, stone: 4, fiber: 3 }, give: { weapon: 'pick' }, xp: 12 },
+  { id: 'scythe', name: 'Scythe', bench: 0, cost: { sticks: 5, stone: 3, fiber: 4 }, give: { weapon: 'scythe' }, xp: 12 },
   { id: 'hammer', name: 'Stone Hammer', bench: 0, cost: { sticks: 3, stone: 6, fiber: 2 }, give: { weapon: 'hammer' }, xp: 12 },
   // Cordage: fiber becomes cloth, but only with a blade to cut it.
   { id: 'cordage', name: 'Cloth x4', bench: 0, tool: 'knife', cost: { fiber: 10 }, give: { res: { cloth: 4 } }, xp: 4 },

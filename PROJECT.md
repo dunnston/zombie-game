@@ -171,16 +171,27 @@ Walkers and runners threaten *you*; brutes are what breach a wall.
 stone — both with bare hands, because the tools are made of them. Those three
 materials make four tools, none of which needs a workbench:
 
+Every material has a small source you can work with bare hands and a big
+source that needs the right tool — that pairing is the shape of the whole
+tier:
+
+| Material | By hand | With the tool | The tool |
+| --- | --- | --- | --- |
+| Wood | — | **Tree** → 6–11 wood + sticks | **Hatchet** (3 sticks, 3 stone, 4 fiber) |
+| Stone | Rock → 2–4 | **Boulder** → 9–16 | **Stone Pickaxe** (4, 4, 3) — also ~2.4× on rocks |
+| Fiber | Bush → 2–4 + sticks | **Thicket** → 9–15 + sticks | **Scythe** (5, 3, 4) — also ~2.2× on bushes |
+
+Two more tools do no harvesting at all:
+
 | Tool | Made from | What it is for |
 | --- | --- | --- |
-| Hatchet | 3 sticks, 3 stone, 4 fiber | The only thing that fells a tree (wood + sticks) |
-| Stone Knife | 2 sticks, 3 stone, 2 fiber | Bushes yield ~2.2×; unlocks Cordage (10 fiber → 4 cloth) |
-| Stone Pickaxe | 4 sticks, 4 stone, 3 fiber | Rocks yield ~2.4×, and stone builds a **Stone Wall** |
+| Stone Knife | 2 sticks, 3 stone, 2 fiber | Cordage: 10 fiber → 4 cloth. Fast, light, weak |
 | Stone Hammer | 3 sticks, 6 stone, 2 fiber | Stands in for a workbench on simple work (pipe, lockpicks, ration packs) |
 
-Each is deliberately a poor weapon — every one does less damage than a
-machete. The gate is only ever on wood (`HARVEST.wood.needs = 'axe'`); stone
-and fiber must stay hand-gatherable or the tool tree cannot start. Stone Wall
+Boulders block line of sight and movement; thickets do not, so a thicket is
+cover you can stand in. Both live in the wild — the gravel patches, the
+riverbanks, the forest floor — not in the middle of town. Every tool is
+deliberately a poor weapon: each does less damage than a machete. Stone Wall
 (430hp) sits between wood (340) and reinforced (920) and costs nothing but
 stone and sticks, so a base can go up before you own anything metal.
 
@@ -425,7 +436,7 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | The new game starts by the camp | Spawn tiles are any open tier-1 ground, and on a 320-tile map that includes a field on the far side of the river. The first morning is the crossroads; respawns without a bedroll still use the whole tier-1 set. |
 | A wardrobe never goes in a doorway | The old furnishing pass could drop a container on a partition gap or two either side of a door, and three rooms in the old town were sealed for good. Buildings now hand the furnisher only tiles off every wall line and not beside an opening; a Node test proves every container reachable from the camp. |
 | Every hand tool is bench-0, and a poor weapon | The tools are made of gathered material and unlock more gathering, so gating any of them behind the workbench (which costs wood, which needs the hatchet) would deadlock the opening. They are weak on purpose: a tool tier that also won fights would make the machete and the pipe pointless. A Node test asserts both — bench 0, cost only from `sticks`/`stone`/`fiber`, damage under a machete's. |
-| Only wood is gated; stone and fiber never are | If a pickaxe were needed for stone, the pickaxe could not be made. The gate (`needs`) and the yield bonus (`boost`) are separate fields for that reason: wood has a gate, stone and fiber only have bonuses. |
+| Small scenery is never gated; big scenery always is | If a pickaxe were needed for *all* stone, the pickaxe could not be made. So each material has a hand source (rock, bush) and a gated source worth three times as much (boulder, thicket). `needs` is the gate, `boost` is the bonus, and `HARVEST` is keyed by rule rather than by resource precisely so a boulder and a rock can both give stone on different terms. |
 | The Stone Hammer is a bench for simple work only | "Craft anywhere" would make the workbench pointless and put a pistol in the first two minutes. The hammer lifts exactly the recipes marked `hammer` (a pipe, lockpicks, ration packs) to bench 1, never to II, and a test asserts it can never produce a gun. |
 | Trees need an axe, and the axe needs no bench | Wood is gated behind a tool, the tool behind gathering — a real first ten minutes (break bushes and rocks, craft the hatchet, fell a tree, build the bench) instead of hitting a tree with a pipe. The hatchet is bench-0 and costs only hand-gathered things, because the workbench itself costs wood. Asked for by the owner. |
 | Fences are terrain, not structures | A paddock rail is scenery you cannot walk through, like a tree. Making it a destructible structure would put it in the raid target list and the salvage economy for no gain. |
@@ -736,6 +747,14 @@ input (`key`, `tap`, `mouseDown`, `aimAt`) and the whole `api` surface.
 
 Newest first. One line per meaningful change.
 
+- **2026-09-06** — Boulders and thickets, and the Scythe. Each gathered
+  material now has a hand source and a tool-gated source worth about three
+  times as much: rock/boulder for stone (Stone Pickaxe), bush/thicket for
+  fiber (the new Scythe), and the tree for wood (Hatchet). Boulders block;
+  thickets are cover you can stand in. `HARVEST` is keyed by rule rather than
+  by resource so two kinds of scenery can give the same material on different
+  terms. The Scythe takes over the fiber bonus from the Knife, which keeps
+  Cordage and its speed.
 - **2026-09-06** — The hand-tool tier. Stone Knife, Stone Pickaxe and Stone
   Hammer join the Hatchet, all bench-0 and all made from gathered material.
   The knife and pickaxe roughly double the yield of bushes and rocks and speed

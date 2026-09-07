@@ -141,15 +141,29 @@ export function meleeAttack(p, w) {
  * rocks come apart under anything; a tree needs an axe. `bonus` is a second,
  * smaller drop — the sticks that fall with a bush or a felled tree.
  */
+/**
+ * Keyed by the rule, not by the resource, because two kinds of scenery can
+ * give the same material on very different terms: a loose rock comes apart
+ * under your hands, a boulder does not move without a pickaxe.
+ *
+ * `needs` is the tool without which nothing happens at all; `boost` is the
+ * tool that merely does it better. Small scenery never has a `needs` — the
+ * tools are made from what small scenery drops, so gating it would deadlock
+ * the opening.
+ */
 export const HARVEST = {
-  wood:  { min: 6, max: 11, bonus: 'sticks', bonusMin: 1, bonusMax: 3, needs: 'axe', debris: '#3f5226', label: 'WOOD' },
-  fiber: { min: 2, max: 4, bonus: 'sticks', bonusMin: 1, bonusMax: 2, boost: 'knife', debris: '#4a6a2a', label: 'FIBER' },
-  stone: { min: 2, max: 4, boost: 'pick', debris: '#6a6660', label: 'STONE' },
+  wood:    { res: 'wood',  min: 6, max: 11, bonus: 'sticks', bonusMin: 1, bonusMax: 3, needs: 'axe', xp: 4, debris: '#3f5226', label: 'WOOD' },
+  fiber:   { res: 'fiber', min: 2, max: 4, bonus: 'sticks', bonusMin: 1, bonusMax: 2, boost: 'scythe', xp: 2, debris: '#4a6a2a', label: 'FIBER' },
+  stone:   { res: 'stone', min: 2, max: 4, boost: 'pick', xp: 2, debris: '#6a6660', label: 'STONE' },
+  boulder: { res: 'stone', min: 9, max: 16, needs: 'pick', xp: 5, debris: '#6a6660', label: 'STONE' },
+  thicket: { res: 'fiber', min: 9, max: 15, bonus: 'sticks', bonusMin: 2, bonusMax: 4, needs: 'scythe', xp: 4, debris: '#4a6a2a', label: 'FIBER' },
 };
 
-/** What to tell someone swinging the wrong thing at a tree. */
+/** What to tell someone swinging the wrong thing at it. Said once in a while. */
 const NEEDS_HINT = {
   axe: 'You need a HATCHET to fell trees — bushes give fiber and sticks, rocks give stone',
+  pick: 'That boulder needs a STONE PICKAXE — loose rocks you can break by hand',
+  scythe: 'That thicket needs a SCYTHE — small bushes you can pull by hand',
 };
 
 /** Drops `n` of a resource at a spot in a few piles, so it is readable on the ground. */
@@ -204,14 +218,14 @@ function chopProp(p, w, dmg) {
     emit('prop', { key: `${prop.tx},${prop.ty}` });
     removeProp(G.world, prop);
     FX.debris(prop.x, prop.y, 18, rule.debris);
-    FX.text(prop.x, prop.y - 20, `${rule.label} +${n}`, RES[prop.harvest] ? RES[prop.harvest].color : '#a3763f', 12, -38, 1.0);
+    FX.text(prop.x, prop.y - 20, `${rule.label} +${n}`, RES[rule.res] ? RES[rule.res].color : '#a3763f', 12, -38, 1.0);
     sfx('structureBreak');
-    dropRes(prop.x, prop.y, prop.harvest, n);
+    dropRes(prop.x, prop.y, rule.res, n);
     if (rule.bonus && Math.random() < 0.8) {
       const b = rule.bonusMin + Math.round(Math.random() * (rule.bonusMax - rule.bonusMin));
       dropRes(prop.x, prop.y, rule.bonus, b);
     }
-    addXp(p, prop.harvest === 'wood' ? 4 : 2);
+    addXp(p, rule.xp || 2);
   }
   return true;
 }

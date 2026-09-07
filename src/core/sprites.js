@@ -273,6 +273,57 @@ function rockSprite(seed) {
   });
 }
 
+/** A boulder: a rock the size of a car, with a lit cap and a long shadow side. */
+function boulderSprite(seed) {
+  return mk(46, 44, (g, w, h) => {
+    const cx = 23, cy = 24;
+    g.beginPath();
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * TAU;
+      const rr = 17 + hash2(seed + i, 5) * 5;
+      const x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr * 0.84;
+      i === 0 ? g.moveTo(x, y) : g.lineTo(x, y);
+    }
+    g.closePath();
+    g.fillStyle = '#4e4a44'; g.fill();
+    // Lit cap, offset up-left, so it reads as a dome from above.
+    g.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * TAU;
+      const rr = 11 + hash2(seed + i, 9) * 3.5;
+      const x = cx - 2 + Math.cos(a) * rr, y = cy - 3 + Math.sin(a) * rr * 0.8;
+      i === 0 ? g.moveTo(x, y) : g.lineTo(x, y);
+    }
+    g.closePath();
+    g.fillStyle = '#66605a'; g.fill();
+    g.fillStyle = '#797168';
+    g.beginPath(); g.ellipse(cx - 5, cy - 7, 6, 4, -0.4, 0, TAU); g.fill();
+    // Fracture lines: where a pickaxe would go.
+    g.strokeStyle = '#2f2c28'; g.lineWidth = 1.4;
+    g.beginPath(); g.moveTo(cx - 9, cy + 8); g.lineTo(cx - 1, cy - 2); g.lineTo(cx + 7, cy + 5); g.stroke();
+    speckle(g, w, h, 60, ['#00000044', '#ffffff18'], seed, 0.7);
+  });
+}
+
+/** A thicket: bramble, taller and denser than a bush, with cane tips. */
+function thicketSprite(seed) {
+  return mk(40, 38, (g, w, h) => {
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * TAU + hash2(seed, i);
+      const r = 6 + hash2(seed + i, 2) * 5;
+      ellipse(g, 20 + Math.cos(a) * 9, 20 + Math.sin(a) * 7, r, r * 0.85,
+        i % 3 === 0 ? '#25331a' : i % 3 === 1 ? '#2f4020' : '#3a4f28');
+    }
+    // Canes standing proud of the mass.
+    g.strokeStyle = '#4d5f30'; g.lineWidth = 1.4;
+    for (let i = 0; i < 7; i++) {
+      const bx = 8 + hash2(seed + i, 11) * 24, by = 26 + hash2(seed + i, 13) * 6;
+      g.beginPath(); g.moveTo(bx, by); g.quadraticCurveTo(bx + 2, by - 10, bx + 5, by - 17); g.stroke();
+    }
+    speckle(g, w, h, 40, ['#16200f88', '#5c7a3a66'], seed, 0.6);
+  });
+}
+
 function carSprite(color, dark, wrecked) {
   return mk(74, 40, (g, w, h) => {
     // Body
@@ -930,6 +981,8 @@ export function buildSprites() {
   Sprites.trees = [0, 1, 2, 3].map((i) => treeSprite(i * 37 + 11));
   Sprites.bushes = [0, 1, 2].map((i) => bushSprite(i * 19 + 5));
   Sprites.rocks = [0, 1].map((i) => rockSprite(i * 23 + 3));
+  Sprites.boulders = [0, 1, 2].map((i) => boulderSprite(i * 29 + 7));
+  Sprites.thickets = [0, 1, 2].map((i) => thicketSprite(i * 31 + 13));
   Sprites.pines = [0, 1, 2, 3].map((i) => pineSprite(i * 41 + 7));
   Sprites.hay = [0, 1, 2].map((i) => hayBaleSprite(i * 17 + 9));
   Sprites.reeds = [0, 1, 2].map((i) => reedSprite(i * 29 + 13));

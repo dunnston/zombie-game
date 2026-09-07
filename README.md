@@ -147,17 +147,30 @@ districts, each with its own danger tier and its own loot personality:
 stone — bare hands are enough for both. Those three materials make four tools,
 none of which needs a workbench (press the craft key anywhere):
 
+Everything you can gather comes in two sizes. The small version you can work
+with your hands; the big one needs the right tool and is worth about three
+times as much:
+
+| Material | Bare hands | With the tool | Tool |
+| --- | --- | --- | --- |
+| **Wood** | — | **Tree** — 6–11 wood and sticks | **Hatchet** |
+| **Stone** | Rock — 2–4 | **Boulder** — 9–16 | **Stone Pickaxe** |
+| **Fiber** | Bush — 2–4 and sticks | **Thicket** — 9–15 and sticks | **Scythe** |
+
+Two more tools don't harvest anything:
+
 | Tool | What it does |
 | --- | --- |
-| **Hatchet** | Fells trees. Nothing else will — trees give wood and sticks |
-| **Stone Knife** | Bushes give about twice the fiber, and you can cut Cloth from it |
-| **Stone Pickaxe** | Rocks give about twice the stone — enough to raise a **Stone Wall** |
+| **Stone Knife** | Cuts Cloth from fiber (10 → 4). Fast and light, but weak |
 | **Stone Hammer** | Counts as a workbench for simple work: a pipe, lockpicks, ration packs |
 
-They are tools, not weapons — every one of them hits softer than a machete.
-So the first few minutes are: break bushes and rocks by hand, craft a knife
-and a pickaxe, then a hatchet, and only then does wood open up. Hatchets also
-turn up in toolboxes and on tool racks if you would rather loot one.
+They are tools, not weapons — every one hits softer than a machete. So the
+opening is: pull bushes and break rocks by hand, craft a pickaxe and a scythe,
+and the boulders and thickets you have been walking past become worth
+stopping for. Stone alone will raise a **Stone Wall**, so a perimeter can go up
+before you own anything metal. Boulders block your line of fire; thickets don't,
+so you can fight from inside one. Hatchets also turn up in toolboxes and on
+tool racks if you would rather loot one.
 
 The river is solid to feet and transparent to bullets: you can shoot across it,
 and so can your turrets, but the only ways over are the two bridges. Farm

@@ -854,16 +854,53 @@ test('every hand tool is craftable from gathered materials alone', () => {
   }
 });
 
-test('the tool gates and boosts line up with what the scenery gives', () => {
-  // Only wood is gated; stone and fiber must stay reachable with bare hands,
-  // because the tools themselves are made of them.
+test('the small scenery is never gated, and the big scenery always is', () => {
+  // The tools are made from what small scenery drops, so gating a loose rock
+  // or a bush behind a tool would deadlock the opening. Every *big* source is
+  // gated, which is the reason to carry the tool at all.
+  for (const k of ['stone', 'fiber']) {
+    assert.ok(!HARVEST[k].needs, `${k} must be gatherable with bare hands`);
+  }
   assert.equal(HARVEST.wood.needs, 'axe');
-  assert.ok(!HARVEST.stone.needs && !HARVEST.fiber.needs, 'stone and fiber must be hand-gatherable');
+  assert.equal(HARVEST.boulder.needs, 'pick');
+  assert.equal(HARVEST.thicket.needs, 'scythe');
+  // The boosted small source and the gated big source share a tool and a
+  // resource, so the tool has one clear job.
   assert.equal(HARVEST.stone.boost, 'pick');
-  assert.equal(HARVEST.fiber.boost, 'knife');
+  assert.equal(HARVEST.fiber.boost, 'scythe');
+  assert.equal(HARVEST.boulder.res, HARVEST.stone.res);
+  assert.equal(HARVEST.thicket.res, HARVEST.fiber.res);
   for (const k of ['stone', 'fiber']) {
     assert.ok(WEAPONS[HARVEST[k].boost].toolMul > 1, `${k}'s tool should actually yield more`);
   }
+  // A boulder must be worth the walk over the loose rock beside it.
+  assert.ok(HARVEST.boulder.min > HARVEST.stone.max * 2, 'a boulder should dwarf a rock');
+  assert.ok(HARVEST.thicket.min > HARVEST.fiber.max * 2, 'a thicket should dwarf a bush');
+  // Every gate names a tool that exists and is craftable by hand.
+  const byId = Object.fromEntries(RECIPES.map((r) => [r.id, r]));
+  for (const rule of Object.values(HARVEST)) {
+    if (!rule.needs) continue;
+    const tool = Object.values(WEAPONS).find((wp) => wp[rule.needs]);
+    assert.ok(tool, `nothing has the '${rule.needs}' flag`);
+    assert.equal(byId[tool.id].bench, 0, `${tool.id} must be craftable by hand`);
+  }
+});
+
+test('the world carries big stone and big fiber, and both block nothing you need', () => {
+  const w = createWorld(20240917);
+  const props = [...w.propGrid.values()];
+  const boulders = props.filter((p) => p.kind === 'boulder');
+  const thickets = props.filter((p) => p.kind === 'thicket');
+  assert.ok(boulders.length > 80, `only ${boulders.length} boulders`);
+  assert.ok(thickets.length > 80, `only ${thickets.length} thickets`);
+  assert.equal(boulders[0].harvest, 'boulder');
+  assert.equal(thickets[0].harvest, 'thicket');
+  // A boulder is an obstacle; a thicket is cover you can stand in.
+  assert.ok(boulders.every((p) => isBlockedTile(w, p.tx, p.ty)), 'boulders should block');
+  assert.ok(thickets.every((p) => !isBlockedTile(w, p.tx, p.ty)), 'thickets should not block');
+  // They belong to the wild, not to the middle of town.
+  const inTown = (p) => p.tx >= 86 && p.ty >= 86 && p.tx < 234 && p.ty < 234;
+  assert.ok(boulders.filter(inTown).length < boulders.length * 0.5, 'boulders belong outside town');
 });
 
 test('a stone wall can be raised from gathered material only', () => {

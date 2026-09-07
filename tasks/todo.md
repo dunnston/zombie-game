@@ -24,6 +24,8 @@ a more rural area, a city area, a forest area, maybe a river and a pond."
       Hatchet, all bench-0; knife and pickaxe double their material's yield;
       knife unlocks Cordage (fiber -> cloth); hammer is a bench for simple
       work; stone builds a Stone Wall (owner, same day)
+- [x] Boulders (pickaxe-gated) and thickets (scythe-gated): every material has
+      a hand source and a big gated source worth ~3x (owner, same day)
 - [ ] The owner walks it
 
 ## Previous round — online co-op multiplayer

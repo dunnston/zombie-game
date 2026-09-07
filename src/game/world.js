@@ -812,6 +812,31 @@ export function createWorld(seed = 20240917) {
     return prop;
   }
 
+  /**
+   * The big stuff: a boulder needs a pickaxe, a thicket needs a scythe. Both
+   * are worth several times what the loose scenery beside them gives, which is
+   * the whole point of carrying the tool.
+   *
+   * A boulder blocks — it is a rock the size of a car, and it should break a
+   * sight line. A thicket does not; standing in one is how you use it.
+   */
+  function plantBig(x, y, kind) {
+    if (!inBounds(x, y) || world.blocked[idx(x, y)] || world.propGrid.has(`${x},${y}`)) return null;
+    const t = world.tiles[idx(x, y)];
+    if (t !== T.GRASS && t !== T.DIRT && t !== T.GRAVEL && t !== T.SAND) return null;
+    const boulder = kind === 'boulder';
+    const prop = {
+      kind, si: rng.int(0, 2), rot: boulder ? 0 : rng.range(0, 6.28), tx: x, ty: y,
+      x: (x + 0.5) * TILE, y: (y + 0.5) * TILE,
+      hp: boulder ? 150 : 90, maxHp: boulder ? 150 : 90,
+      harvest: boulder ? 'boulder' : 'thicket', flash: 0,
+    };
+    if (boulder) block(x, y, 1);
+    world.props.push(prop);
+    world.propGrid.set(`${x},${y}`, prop);
+    return prop;
+  }
+
   function grow(x, y) {
     const t = world.tiles[idx(x, y)];
     if (t !== T.GRASS && t !== T.DIRT) return;
@@ -824,6 +849,29 @@ export function createWorld(seed = 20240917) {
   for (let i = 0; i < 26000; i++) grow(rng.int(1, W - 2), rng.int(1, W - 2));
   // A second pass over the forest so it is thicker than any town edge.
   for (let i = 0; i < 2600; i++) grow(rng.int(1, W - 2), rng.int(1, 60));
+
+  // Boulders: rocky ground first — the gravel patches, the riverbanks and the
+  // forest floor — so "where do I mine?" has a readable answer from the map.
+  for (let i = 0; i < 5200; i++) {
+    const x = rng.int(2, W - 3), y = rng.int(2, W - 3);
+    if (noTree[idx(x, y)]) continue;
+    const t = world.tiles[idx(x, y)];
+    const rocky = t === T.GRAVEL || t === T.SAND;
+    const wild = y < 62 || x < 56 || (x > 236 && y > 272) || Math.min(x, y, W - 1 - x, W - 1 - y) < 20;
+    const p = rocky ? 0.34 : wild ? 0.07 : 0.02;
+    if (rng.chance(p)) plantBig(x, y, 'boulder');
+  }
+  // Thickets: the wet and the wild — riverbanks, the forest, hedgerows out on
+  // the farm edges. Not in the town, where someone used to mow.
+  for (let i = 0; i < 5200; i++) {
+    const x = rng.int(2, W - 3), y = rng.int(2, W - 3);
+    if (noTree[idx(x, y)]) continue;
+    const t = world.tiles[idx(x, y)];
+    const damp = t === T.SAND || Math.abs(x - riverCentre(y)) < 12;
+    const wild = y < 62 || x < 56 || Math.min(x, y, W - 1 - x, W - 1 - y) < 20;
+    const p = damp ? 0.26 : wild ? 0.09 : 0.015;
+    if (rng.chance(p)) plantBig(x, y, 'thicket');
+  }
   // Reeds along every shore: scenery, not an obstacle.
   for (let y = 1; y < W - 1; y++) for (let x = 1; x < W - 1; x++) {
     if (world.tiles[idx(x, y)] !== T.SAND || world.blocked[idx(x, y)]) continue;
