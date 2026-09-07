@@ -57,7 +57,7 @@ export const G = {
     levelChoices: null, tab: 0,
     hudRects: [],   // screen-space regions that swallow clicks from the world
   },
-  stats: { kills: 0, looted: 0, built: 0, crafted: 0, deaths: 0, damageDealt: 0 },
+  stats: { kills: 0, looted: 0, built: 0, crafted: 0, deaths: 0, damageDealt: 0, repaired: 0 },
   paused: false,
   gameOverCredits: false,
   flash: { t: 0, color: '#ff0000' },

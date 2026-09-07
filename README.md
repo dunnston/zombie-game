@@ -39,7 +39,7 @@ npm test
 npm run build
 ```
 
-`npm test` runs 75 Node assertions over the pure logic (world generation, loot
+`npm test` runs 79 Node assertions over the pure logic (world generation, loot
 tables, balance invariants, progression curves, perk trees, the day curve, save
 slots and key bindings).
 `npm run build` produces a static bundle in `dist/` that can be opened from any
@@ -63,7 +63,7 @@ other players directly.
 | `R` | Reload · refuel a car you are in or standing beside |
 | `1`–`6` | Select weapon slot |
 | Mouse wheel | Cycle weapons (or build pieces in build mode) |
-| `E` | Interact — hold to search containers; get in and out of a car |
+| `E` | Interact — hold to search containers; get in and out of a car; repair a damaged wall, trap, turret or tower |
 | `G` | Stow your pack in a car's boot (`Shift`+`G` takes it back out) |
 | Driving | `W`/`S` throttle · `A`/`D` steer · `Space` brake |
 | `F` | At a stash: withdraw ammo and supplies |
@@ -249,8 +249,36 @@ Hold to lay a run of walls. No timers.
 Walls (barricade → wood → reinforced → steel), gates you can open and close,
 spike traps, a workbench, a stash, a bedroll, a fuel-burning generator, an auto
 turret that needs generator power within 260px and feeds on 9mm from your stash,
-a floodlight that holds back the night, Bunks that house your survivors, and a Watchtower to post a sniper on. Plus repair and salvage tools
-(salvage returns 50%).
+a floodlight that holds back the night, Bunks that house your survivors, and a
+Watchtower to post a sniper on. Plus repair and salvage tools (salvage returns
+50%).
+
+### Repairing
+
+Zombies chew on walls; brutes go through them. Anything that survives a raid
+with health missing can be repaired three ways, and every one of them shows
+the bill before you pay it:
+
+- **Stand beside it and press `E`.** A damaged wall, trap, turret or tower
+  offers `Repair Wood Wall (40%) · WOOD 4` on its prompt. Pieces that already
+  answer `E` for something else — the stash, workbench, gate, generator,
+  bedroll — say how hurt they are and point you at build mode.
+- **The REPAIR tool in build mode** (`B`, then the second-to-last card).
+  Hovering a piece shows its health and cost on the card and above the piece;
+  click to fix it, or hold the button and sweep along a wall the way you lay
+  one. Every damaged piece in reach is outlined amber or red.
+- **REPAIR ALL**, the button on the build bar while the REPAIR tool is up.
+  It fixes everything within about a compound's radius, worst first, and its
+  label is the plan: `REPAIR ALL ×9 — WOOD 30`, or `REPAIR 5 OF 7` when the
+  materials run out part way — a steel wall you cannot afford never blocks the
+  wood walls behind it.
+
+A repair costs 45% of the piece's build price, scaled by how much is missing,
+paid from your pack first and then the stash. Materials the damage would not
+have consumed are left off the bill (a dented steel wall costs scrap, not
+weapon parts), but the main material is always at least one. The raid summary
+counts what was left damaged, and a Builder survivor will work through it on
+their own if you would rather not.
 
 Build **anywhere**. There is no designated home plot — your base is simply where
 your structures are, and raids, survivors and respawns all follow it. The test
@@ -604,12 +632,13 @@ and perk actually changing a stat, perk gating by rank and cost, recompute
 idempotency, the day/night curve and clock, and survivor scaling.
 
 `tests/browser-smoke.js` is injected into the running dev server and drives the
-live game through 361 assertions using synthetic input events — the title
+live game through 384 assertions using synthetic input events — the title
 screen, save slots and key rebinding driven by real clicks, movement, aiming,
 melee, gunfire, ammo, reloading, enemy pursuit, taking damage, searching
 containers, carry-capacity overflow, structure placement and cost, walls
 blocking, enemies attacking structures, workbench upgrades, tier-gated crafting,
-bedroll respawn, turret power, dying, dropping and recovering a pack, threat
+bedroll respawn, turret power, repairing by `E`, by the build-mode tool and by
+REPAIR ALL (and the same as guest commands), dying, dropping and recovering a pack, threat
 accumulation, raid trigger and completion, raid rewards, levelling and the
 upgrade draft, save/load round trips, a second player driven by intent (enemy targeting,
 no friendly fire, downed and revive), and a 90-enemy performance check.
@@ -676,8 +705,8 @@ punching a wall behind you instead of attacking you.
 4. **A vehicle.** One repairable car would make the far districts a real
    expedition — carry capacity and a fast route home in exchange for noise.
 5. **Deeper base identity.** Ammo benches that convert scrap into ammo over
-   time, wall skins that show tier at a glance, and a repair-all sweep so
-   post-raid recovery is one decision instead of twenty clicks.
+   time and wall skins that show tier at a glance. (The repair-all sweep that
+   used to be on this list is built.)
 6. **More reasons to leave.** Timed events — a supply drop, a wandering horde,
    a burning building with good loot — so exploration is pulled by opportunity
    and not only pushed by shopping lists.

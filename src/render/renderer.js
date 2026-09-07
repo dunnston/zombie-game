@@ -9,7 +9,7 @@ import { Sprites, structureSprite } from '../core/sprites.js';
 import { FX } from '../core/particles.js';
 import { hash2, clamp, TAU } from '../core/util.js';
 import { currentWeapon } from '../game/player.js';
-import { buildMenu } from '../game/building.js';
+import { buildMenu, damagedStructures, costLabel, REPAIR_ALL_RANGE } from '../game/building.js';
 import { darkness } from '../game/daynight.js';
 import { JOBS } from '../game/survivors.js';
 
@@ -1155,12 +1155,16 @@ function drawBuildGhost(ctx) {
   ctx.stroke();
   ctx.restore();
 
-  if (g.sel === 'repair' || g.sel === 'demolish') {
+  if (g.sel === 'repair') {
+    drawRepairOverlay(ctx, g, p);
+    return;
+  }
+  if (g.sel === 'demolish') {
     const s = g.target;
     if (!s) return;
     ctx.save();
     ctx.globalAlpha = 0.75;
-    ctx.strokeStyle = g.valid ? (g.sel === 'repair' ? '#7ce08a' : '#e0904a') : '#e05a4a';
+    ctx.strokeStyle = g.valid ? '#e0904a' : '#e05a4a';
     ctx.lineWidth = 2;
     ctx.strokeRect(s.tx * TILE + 1, s.ty * TILE + 1, TILE - 2, TILE - 2);
     ctx.restore();
@@ -1184,6 +1188,55 @@ function drawBuildGhost(ctx) {
     ctx.fillStyle = '#e05a4a';
     ctx.fillText(g.reason, g.tx * TILE + 16, g.ty * TILE - 6);
     ctx.textAlign = 'left';
+  }
+  ctx.restore();
+}
+
+/**
+ * The repair tool's view of the world: the REPAIR ALL reach, every damaged
+ * piece inside it picked out so the player can see what the raid cost them,
+ * and the bill for the piece under the cursor.
+ */
+function drawRepairOverlay(ctx, g, p) {
+  ctx.save();
+  ctx.globalAlpha = 0.09;
+  ctx.strokeStyle = '#7ce08a';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([10, 8]);
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, REPAIR_ALL_RANGE, 0, TAU);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.globalAlpha = 0.55;
+  ctx.lineWidth = 1.5;
+  for (const s of damagedStructures(p.x, p.y)) {
+    if (s === g.target) continue;
+    const frac = s.hp / s.maxHp;
+    ctx.strokeStyle = frac > 0.5 ? '#d9c46a' : '#e05a4a';
+    ctx.strokeRect(s.tx * TILE + 2.5, s.ty * TILE + 2.5, TILE - 5, TILE - 5);
+  }
+
+  const s = g.target;
+  if (s) {
+    ctx.globalAlpha = 0.85;
+    ctx.strokeStyle = g.valid ? '#7ce08a' : '#e05a4a';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(s.tx * TILE + 1, s.ty * TILE + 1, TILE - 2, TILE - 2);
+
+    const text = g.cost
+      ? `${Math.round((s.hp / s.maxHp) * 100)}%  ·  ${costLabel(g.cost)}`
+      : g.reason || '';
+    if (text) {
+      ctx.globalAlpha = 1;
+      ctx.font = 'bold 11px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#000';
+      ctx.fillText(text, s.x + 1, s.ty * TILE - 5);
+      ctx.fillStyle = g.valid ? '#7ce08a' : '#e05a4a';
+      ctx.fillText(text, s.x, s.ty * TILE - 6);
+      ctx.textAlign = 'left';
+    }
   }
   ctx.restore();
 }

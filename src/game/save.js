@@ -241,7 +241,7 @@ export function applySaveData(raw) {
     G.benchTier = data.benchTier || 0;
     G.stash = data.stash || {};
     G.stashItems = data.stashItems || {};
-    G.stats = { kills: 0, looted: 0, built: 0, crafted: 0, deaths: 0, damageDealt: 0, ...(data.stats || {}) };
+    G.stats = { kills: 0, looted: 0, built: 0, crafted: 0, deaths: 0, damageDealt: 0, repaired: 0, ...(data.stats || {}) };
     G.tutorial = { step: data.tutorial?.step || 0, done: data.tutorial?.done || {}, hint: null };
     G.raid = null;
 
