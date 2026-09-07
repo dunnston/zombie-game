@@ -108,8 +108,15 @@ export function updateBullets(dt) {
  */
 export const chopStamCost = (p) => PLAYER.stamChop * (p.chopStamMul ?? 1);
 
-/** Enough left to swing at scenery? Fighting never asks this. */
-export const canChop = (p) => p.stam >= chopStamCost(p);
+/**
+ * Enough left to swing at scenery? Fighting never asks this.
+ *
+ * `p.winded` is the hysteresis: it latches when the bar empties — however it
+ * emptied, sprinting included — and only clears once you are back to half. See
+ * `movePlayer`, which owns both edges so a guest predicting its own movement
+ * arrives at the same answer the host will.
+ */
+export const canChop = (p) => !p.winded && p.stam >= chopStamCost(p);
 
 /**
  * One melee swing. Returns true if the swing happened.
@@ -157,9 +164,17 @@ export function meleeAttack(p, w) {
   // the animation starts, so a winded player sees why nothing is happening
   // instead of swinging uselessly at a tree.
   if (swingRefused(p, w, hits.length > 0)) {
+    // Being turned down for work IS what makes you winded. Latching here
+    // rather than at "stamina hit exactly zero" is the difference between a
+    // pause and a dribble: 110 stamina is 18 swings of 6, so the bar stops at
+    // 2 and never reaches zero, and without this latch the player simply
+    // regenerated one swing's worth and took it, forever. Measured in the
+    // browser — the first version of this fix did nothing for that reason.
+    if (!p.winded) p.windedAt = 0;
+    p.winded = true;
     if (!p.windedAt || G.time - p.windedAt > 3) {
       p.windedAt = G.time;
-      if (isLocal(p)) notify('Too winded to swing — catch your breath', '#d9c46a');
+      if (isLocal(p)) notify('Winded — get your breath back before working again', '#d9c46a');
     }
     sfx('deny');
     return false;
@@ -182,13 +197,12 @@ export function meleeAttack(p, w) {
     // person swinging — slowing the whole world for someone else's hit is not.
     if (w.id === 'sledge' && isLocal(p)) G.slowmo = Math.max(G.slowmo, 0.06);
   } else if (chopProp(p, w, dmg)) {
-    // Only a swing that actually bit into scenery is charged as work. Swinging
-    // at thin air is free, or every miss would be a tax on missing.
     p.stam = Math.max(0, p.stam - chopStamCost(p));
     p.stamLock = PLAYER.stamChopDelay;
-  } else {
-    p.stam = Math.max(0, p.stam - PLAYER.stamSwing);
   }
+  // A swing that connects with nothing — thin air, or a tree you have no axe
+  // for — costs nothing. Charging for it made flailing at the scenery a way to
+  // exhaust yourself, and it is already its own punishment.
   return true;
 }
 

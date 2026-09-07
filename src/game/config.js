@@ -50,6 +50,7 @@ export const RES = {
   scrap:  { name: 'Scrap',       short: 'SCRP', color: '#9aa2ab', wt: 1, stack: 50 },
   cloth:  { name: 'Cloth',       short: 'CLTH', color: '#c2a98a', wt: 1, stack: 50 },
   elec:   { name: 'Electronics', short: 'ELEC', color: '#59b8c4', wt: 1, stack: 30 },
+  battery:{ name: 'Batteries',   short: 'BATT', color: '#8fd08a', wt: 0.5, stack: 20 },
   med:    { name: 'Medical',     short: 'MED',  color: '#d9575f', wt: 1, stack: 30 },
   parts:  { name: 'Weapon Parts',short: 'PART', color: '#c9a227', wt: 1, stack: 20 },
   mil:    { name: 'Military',    short: 'MIL',  color: '#7fa14a', wt: 1, stack: 20 },
@@ -173,11 +174,23 @@ export const WEAPONS = {
 // contributor, so the vest is still the piece worth hunting, but the other
 // four slots are what take you from "survivable" to "armoured".
 
-export const GEAR_SLOTS = ['head', 'body', 'hands', 'legs', 'feet'];
+// Five armour slots and an off-hand. The off-hand is what your other hand is
+// carrying rather than what you are wearing: a torch or a flashlight, so you
+// can see at night without giving up the weapon in your hands.
+export const GEAR_SLOTS = ['head', 'body', 'hands', 'legs', 'feet', 'offhand'];
 
 export const GEAR_SLOT_NAMES = {
   head: 'Head', body: 'Body', hands: 'Hands', legs: 'Legs', feet: 'Feet',
+  offhand: 'Off-hand',
 };
+
+/**
+ * The slots that carry damage reduction. Every armour rule — three tiers per
+ * slot, each a real step up, a full set under the cap, the body slot the
+ * biggest single contributor — is about these five and not about the off-hand,
+ * which holds a light and protects nothing.
+ */
+export const ARMOR_SLOTS = GEAR_SLOTS.filter((s) => s !== 'offhand');
 
 export const GEAR = {
   // head
@@ -200,6 +213,31 @@ export const GEAR = {
   workBoots:  { id: 'workBoots',  name: 'Work Boots',    slot: 'feet',  dr: 0.02, wt: 3, tier: 1, color: '#6b4a2f' },
   combatBoots:{ id: 'combatBoots',name: 'Combat Boots',  slot: 'feet',  dr: 0.05, wt: 4, tier: 2, color: '#3f4a38' },
   milBoots:   { id: 'milBoots',   name: 'Assault Boots', slot: 'feet',  dr: 0.08, wt: 5, tier: 3, color: '#5b6640' },
+
+  // ------------------------------------------------------------- off-hand --
+  // Light, not armour, so `dr` is zero and the total-armour readout is
+  // unaffected. `light` is what the renderer punches out of the darkness;
+  // `burn` is how many seconds of being lit the thing holds.
+  //
+  // The torch is the first-night answer — sticks and fiber, craftable before
+  // you own anything — and it burns itself up. The flashlight is brighter,
+  // reaches much further because it is a cone rather than a puddle, and does
+  // not consume itself: it consumes batteries, which you find before you can
+  // make them.
+  torch: {
+    id: 'torch', name: 'Torch', slot: 'offhand', dr: 0, wt: 2, tier: 1,
+    color: '#e0913a', light: { radius: 200, strength: 0.80, warm: '#ffb45a' },
+    burn: 210, consumed: true,
+  },
+  flashlight: {
+    id: 'flashlight', name: 'Flashlight', slot: 'offhand', dr: 0, wt: 2, tier: 2,
+    color: '#d8d2c0',
+    light: {
+      radius: 140, strength: 0.72, warm: '#fff6cd',
+      cone: { len: 460, spread: 0.34, strength: 0.86 },
+    },
+    burn: 300, battery: 'battery',
+  },
 };
 
 /** No amount of scavenging should make you immune. */
@@ -349,6 +387,10 @@ export const RECIPES = [
   { id: 'hammer', name: 'Stone Hammer', bench: 0, cost: { sticks: 3, stone: 6, fiber: 2 }, give: { weapon: 'hammer' }, xp: 12 },
   // Cordage: fiber becomes cloth, but only with a blade to cut it.
   { id: 'cordage', name: 'Cloth x4', bench: 0, tool: 'knife', cost: { fiber: 10 }, give: { res: { cloth: 4 } }, xp: 4 },
+  // The first night's answer to "I cannot see anything", and deliberately made
+  // of the two things the ground is covered in. It burns itself up, so it is a
+  // consumable you keep remaking rather than a thing you own once.
+  { id: 'torch', name: 'Torch', bench: 0, cost: { sticks: 3, fiber: 3 }, give: { armor: 'torch' }, xp: 6 },
   { id: 'pipe', name: 'Steel Pipe', bench: 1, hammer: true, cost: { wood: 6, scrap: 10 }, give: { weapon: 'pipe' }, xp: 12 },
   { id: 'ammoP', name: '9mm x24', bench: 1, cost: { scrap: 9, parts: 1 }, give: { res: { ammoP: 24 } }, xp: 6 },
   { id: 'medkit', name: 'Medkit', bench: 1, cost: { med: 5, cloth: 5 }, give: { item: 'medkit', n: 1 }, xp: 8 },
@@ -368,6 +410,11 @@ export const RECIPES = [
   { id: 'lockpick', name: 'Lockpicks x3', bench: 1, hammer: true, cost: { scrap: 8, parts: 1 }, give: { item: 'lockpick', n: 3 }, xp: 6 },
   { id: 'rationPack', name: 'Ration Pack x8', bench: 1, hammer: true, cost: { med: 2, cloth: 3 }, give: { res: { rations: 8 } }, xp: 5 },
   { id: 'fuel', name: 'Fuel x25', bench: 1, cost: { scrap: 10, elec: 4 }, give: { res: { fuel: 25 } }, xp: 6 },
+  // A battery is findable long before it is craftable — it is in the parts
+  // bins, the desks and the glove boxes — so the flashlight is a thing you
+  // scavenge your way into rather than a bench unlock.
+  { id: 'battery', name: 'Batteries x2', bench: 1, cost: { scrap: 6, elec: 5 }, give: { res: { battery: 2 } }, xp: 6 },
+  { id: 'flashlight', name: 'Flashlight', bench: 1, cost: { scrap: 10, elec: 6, parts: 1 }, give: { armor: 'flashlight' }, xp: 18 },
 
   { id: 'sledge', name: 'Sledgehammer', bench: 2, cost: { wood: 18, scrap: 38, parts: 2 }, give: { weapon: 'sledge' }, xp: 45 },
   { id: 'smg', name: 'Scrap SMG', bench: 2, cost: { scrap: 48, parts: 8, elec: 10 }, give: { weapon: 'smg' }, xp: 60 },
@@ -400,6 +447,7 @@ export const LOOT = {
   ],
   toolbox: [
     { id: 'scrap', min: 6, max: 14, w: 34 }, { id: 'wood', min: 8, max: 18, w: 30 },
+    { id: 'battery', min: 1, max: 2, w: 12 },
     { id: 'parts', min: 1, max: 2, w: 16 }, { id: 'elec', min: 1, max: 3, w: 12 },
     { id: 'weapon:pipe', min: 1, max: 1, w: 6 }, { id: 'weapon:axe', min: 1, max: 1, w: 5 },
   ],
@@ -414,11 +462,12 @@ export const LOOT = {
     { id: 'item:bandage', min: 2, max: 4, w: 24 }, { id: 'cloth', min: 3, max: 7, w: 12 },
   ],
   electronics: [
-    { id: 'elec', min: 5, max: 12, w: 40 }, { id: 'parts', min: 1, max: 3, w: 24 },
+    { id: 'elec', min: 5, max: 12, w: 40 }, { id: 'battery', min: 1, max: 4, w: 22 }, { id: 'parts', min: 1, max: 3, w: 24 },
     { id: 'scrap', min: 6, max: 14, w: 26 }, { id: 'fuel', min: 5, max: 12, w: 10 },
   ],
   carTrunk: [
     { id: 'scrap', min: 4, max: 10, w: 34 }, { id: 'fuel', min: 4, max: 12, w: 26 },
+    { id: 'battery', min: 1, max: 2, w: 14 },
     { id: 'parts', min: 1, max: 1, w: 14 }, { id: 'cloth', min: 2, max: 5, w: 16 },
     { id: 'elec', min: 1, max: 2, w: 10 },
   ],
@@ -494,6 +543,7 @@ export const LOOT = {
   ],
   desk: [
     { id: 'elec', min: 2, max: 6, w: 34 },
+    { id: 'battery', min: 1, max: 2, w: 14 },
     { id: 'parts', min: 1, max: 2, w: 20 },
     { id: 'cloth', min: 2, max: 5, w: 18 },
     { id: 'scrap', min: 2, max: 6, w: 16 },
@@ -501,6 +551,7 @@ export const LOOT = {
   ],
   filing: [
     { id: 'cloth', min: 4, max: 10, w: 34 },
+    { id: 'battery', min: 1, max: 1, w: 10 },
     { id: 'elec', min: 1, max: 3, w: 18 },
     { id: 'parts', min: 1, max: 2, w: 16 },
     { id: 'ammoP', min: 5, max: 12, w: 18 },
@@ -514,6 +565,7 @@ export const LOOT = {
   ],
   nightstand: [
     { id: 'med', min: 2, max: 5, w: 30 },
+    { id: 'battery', min: 1, max: 2, w: 16 },
     { id: 'item:bandage', min: 1, max: 2, w: 22 },
     { id: 'ammoP', min: 4, max: 10, w: 20 },
     { id: 'cloth', min: 1, max: 4, w: 16 },
@@ -553,6 +605,7 @@ export const LOOT = {
   ],
   displaycase: [
     { id: 'elec', min: 4, max: 10, w: 34 },
+    { id: 'battery', min: 1, max: 3, w: 16 },
     { id: 'parts', min: 2, max: 5, w: 26 },
     { id: 'weapon:pistol', min: 1, max: 1, w: 10 },
     { id: 'ammoP', min: 10, max: 22, w: 18 },
@@ -815,6 +868,15 @@ export const PLAYER = {
   stamChop: 6,
   stamSwing: 2,
   stamChopDelay: 1.1,
+  // Exhaustion has hysteresis: once the bar bottoms out you are winded, and
+  // one swing's worth of recovery is not enough to start working again — you
+  // have to get back to half.
+  //
+  // Measured in the browser before this was added: a player who simply held
+  // the button kept felling trees forever at a sixth of the speed, because
+  // each 1.1s of recovery bought exactly one more swing. There was never a
+  // moment where you had to stop, which is the whole thing that was asked for.
+  stamWindedRecovery: 0.5,
   carryCap: 200,
   // The grid is generous enough that weight is normally what stops you, but
   // finite enough that carrying thirty kinds of thing still has a cost.

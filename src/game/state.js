@@ -2,7 +2,7 @@
 // system shares. Deliberately free of gameplay rules — those live in the
 // system modules so this file stays cycle-free.
 
-import { TILE, RES, SHOOT_OVER, bagWeight } from './config.js';
+import { TILE, RES, GEAR, SHOOT_OVER, bagWeight } from './config.js';
 import {
   ITEMS, isSlots, slotsAdd, slotsTake, slotsCount, slotsWeight, itemWeight,
 } from './items.js';
@@ -169,6 +169,23 @@ export function nearestPlayer(x, y, pred = targetable) {
 // across building, crafting, combat, loot and survivors completely untouched.
 
 /** Weight of either container shape. */
+// ------------------------------------------------------------------ light ---
+//
+// These live here rather than in player.js because three modules that must not
+// import each other all need the answer: the renderer punches the darkness,
+// enemies.js widens their senses against a lit player, and player.js burns the
+// fuel. state.js is the one file all three already depend on.
+
+/** The light in a player's off-hand, or null if they are carrying none. */
+export function equippedLight(p) {
+  const id = p && p.equip ? p.equip.offhand : null;
+  const g = id ? GEAR[id] : null;
+  return g && g.light ? g : null;
+}
+
+/** Is this player actually casting light right now? */
+export const lightActive = (p) => !!(p && p.lightOn && p.lightFuel > 0 && equippedLight(p));
+
 export function containerWeight(bag) {
   return isSlots(bag) ? slotsWeight(bag) : bagWeight(bag);
 }

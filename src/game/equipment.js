@@ -2,7 +2,7 @@
 // makes. Kept out of player.js so the UI has one obvious place to call into,
 // and so every path that changes what is worn goes through recomputeStats().
 
-import { GEAR, GEAR_SLOTS } from './config.js';
+import { GEAR, GEAR_SLOTS, ARMOR_SLOTS } from './config.js';
 import { G, notify } from './state.js';
 import {
   ITEMS, slotsAdd, slotsTake, firstEmpty, gearSlot, slotsMove, slotsSplit,
@@ -11,6 +11,32 @@ import { recomputeStats } from './perks.js';
 import { carriedWeight } from './player.js';
 import { spawnPickup } from './loot.js';
 import { sfx } from '../core/audio.js';
+
+/**
+ * Reconciles the off-hand after anything changes what is worn, then rebuilds
+ * the stats. Every mutator in this file ends with this rather than with
+ * `recomputeStats` alone, so there is still exactly one place a modifier can
+ * come from (invariant 4) and exactly one place the light can fall out of step.
+ *
+ * A light's charge lives on the player, not in the slot, because a slot is
+ * only `{ id, n }` — see items.js. So the charge is remembered per light id:
+ * putting a flashlight down and picking it back up keeps its battery, but
+ * switching to a different light and back does not.
+ */
+function afterEquipChange(p) {
+  const id = p.equip ? p.equip.offhand : null;
+  const g = id ? GEAR[id] : null;
+  if (!g || !g.light) {
+    p.lightOn = false;                     // nothing lit; the charge is kept
+  } else if (p.lightId !== g.id) {
+    p.lightId = g.id;
+    // A torch comes ready to burn. A flashlight arrives flat, so finding one
+    // is not the same as having light — you still need a battery.
+    p.lightFuel = g.battery ? 0 : g.burn;
+    p.lightOn = false;
+  }
+  recomputeStats(p);
+}
 
 /**
  * Wears the item in bag slot `index`. Anything already in that equipment slot
@@ -27,7 +53,7 @@ export function equipFromBag(p, index) {
   // Gear never stacks, so the slot is emptied outright.
   p.bag.slots[index] = previous ? { id: previous, n: 1 } : null;
 
-  recomputeStats(p);
+  afterEquipChange(p);
   sfx('ui');
   notify(`${GEAR[stack.id].name} equipped`, '#b7e08a');
   return true;
@@ -44,7 +70,7 @@ export function unequip(p, slot) {
   }
   p.equip[slot] = null;
   slotsAdd(p.bag, id, 1);
-  recomputeStats(p);
+  afterEquipChange(p);
   sfx('ui');
   return true;
 }
@@ -68,7 +94,7 @@ export function unequipTo(p, slot, contKind, index) {
     p.equip[slot] = null;
   }
   cont.slots[index] = { id, n: 1 };
-  recomputeStats(p);
+  afterEquipChange(p);
   sfx('ui');
   return true;
 }
@@ -86,15 +112,21 @@ export function equipFromSlot(p, contKind, index, slot) {
   const previous = p.equip[slot];
   p.equip[slot] = s.id;
   cont.slots[index] = previous ? { id: previous, n: 1 } : null;
-  recomputeStats(p);
+  afterEquipChange(p);
   sfx('ui');
   return true;
 }
 
-/** Wears the best thing carried for every empty slot — the quick-equip button. */
+/**
+ * Wears the best thing carried for every empty slot — the quick-equip button.
+ *
+ * Armour slots only. The off-hand holds a light, which has no `dr` to be best
+ * at, and picking between a torch and a flashlight is a decision about how
+ * loud and how long you want to be lit, not one this button can make for you.
+ */
 export function equipBest(p) {
   let changed = 0;
-  for (const slot of GEAR_SLOTS) {
+  for (const slot of ARMOR_SLOTS) {
     let bestIndex = -1, bestDr = p.equip[slot] ? GEAR[p.equip[slot]].dr : -1;
     for (let i = 0; i < p.bag.slots.length; i++) {
       const s = p.bag.slots[i];
@@ -151,7 +183,7 @@ export function dropEquipped(p, slot) {
   const id = p.equip[slot];
   if (!id) return false;
   p.equip[slot] = null;
-  recomputeStats(p);
+  afterEquipChange(p);
   spawnPickup(p.x, p.y, 'gear', id, 1);
   sfx('ui');
   return true;

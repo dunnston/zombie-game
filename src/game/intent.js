@@ -32,6 +32,8 @@ export function makeIntent() {
     drive: { forward: false, back: false, left: false, right: false, brake: false },
     // Beside a car or a stash.
     stow: false, unstow: false, withdrawAmmo: false,
+    // T: strike or douse whatever is in the off-hand.
+    light: false,
   };
 }
 
@@ -44,6 +46,7 @@ export function clearIntent(it) {
   const d = it.drive;
   d.forward = false; d.back = false; d.left = false; d.right = false; d.brake = false;
   it.stow = false; it.unstow = false; it.withdrawAmmo = false;
+  it.light = false;
   return it;
 }
 
@@ -65,6 +68,7 @@ export function consumeEdges(it) {
   it.stow = false;
   it.unstow = false;
   it.withdrawAmmo = false;
+  it.light = false;
   return it;
 }
 
@@ -125,6 +129,7 @@ export function gatherLocalIntent(p) {
 
   it.interact = actTap('interact');
   it.withdrawAmmo = actTap('withdraw');
+  it.light = actTap('light');
   if (actTap('stow')) {
     if (act('sprint')) it.unstow = true;
     else it.stow = true;

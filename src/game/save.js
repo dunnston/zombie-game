@@ -6,7 +6,7 @@
 // which key) is saves.js's business, and a guest joining a hosted game will
 // come in through applySaveData too, so the two can never drift.
 
-import { G, structAt, addPlayer } from './state.js';
+import { G, structAt, addPlayer, equippedLight } from './state.js';
 import { createWorld, removeProp } from './world.js';
 import { createPlayer, pickRandomSpawn } from './player.js';
 import { PLAYER } from './config.js';
@@ -80,6 +80,7 @@ export function playerRecord(p) {
     spawn: p.spawnStructure ? { tx: p.spawnStructure.tx, ty: p.spawnStructure.ty } : null,
     carKeys: p.carKeys || [],
     driving: p.drivingId || null,
+    lightOn: !!p.lightOn, lightFuel: p.lightFuel || 0, lightId: p.lightId || null,
     away: !!p.away,
   };
 }
@@ -108,6 +109,10 @@ export function restorePlayerRecord(p, rec, { keepPosition = false } = {}) {
   p.perks = rec.perks || {};
   p.secondWindCd = rec.secondWindCd || 0;
   p.carKeys = rec.carKeys || [];
+  // The light's charge lives on the player, not in the slot it was worn in.
+  p.lightId = rec.lightId || null;
+  p.lightFuel = Math.max(0, rec.lightFuel || 0);
+  p.lightOn = !!rec.lightOn && p.lightFuel > 0 && !!equippedLight(p);
   if (rec.name) p.name = rec.name;
   recomputeStats(p);
   if (!keepPosition) {

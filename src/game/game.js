@@ -66,7 +66,7 @@ import { act } from '../net/actions.js';
 import { hostAfterUpdate } from '../net/host.js';
 import { updateClient, sendIdleIntent } from '../net/client.js';
 import { emit } from '../net/events.js';
-import { structChanged, netHooks } from './state.js';
+import { structChanged, netHooks, equippedLight } from './state.js';
 import { updateFX, clearFX } from '../core/particles.js';
 import * as FX from '../core/particles.js';
 // Only UI keys are read here — panels, build mode, pause. Everything the
@@ -87,6 +87,16 @@ export const TUTORIAL = [
   { id: 'build', text: () => `Press ${k('build')} to build  ·  place a BEDROLL to set your respawn` },
   { id: 'bench', text: () => `Build a WORKBENCH, then press ${k('craft')} beside it to craft  ·  a HATCHET is craftable by hand` },
   { id: 'threat', text: () => 'Watch the THREAT bar — activity draws a horde to your base' },
+  // The owner's note was "without it when it is dark it is very hard to see".
+  // The torch is the answer and it costs two things the ground is covered in,
+  // so the only real problem is knowing it exists. Silent until dusk, and
+  // silent once you are carrying a light.
+  {
+    id: 'light',
+    text: () => (darkness().alpha > 0.3 && !equippedLight(G.player)
+      ? `It is getting dark — craft a TORCH (3 sticks, 3 fiber) and press ${k('light')} to light it`
+      : null),
+  },
   // Only speaks up once something has actually been hit; until then it is silent.
   {
     id: 'repair',

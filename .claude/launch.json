@@ -7,6 +7,13 @@
       "runtimeArgs": ["run", "dev"],
       "port": 5173,
       "url": "http://127.0.0.1:5173"
+    },
+    {
+      "name": "deadline-worktree",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--port", "5222", "--strictPort", "--host", "127.0.0.1"],
+      "port": 5222,
+      "url": "http://127.0.0.1:5222"
     }
   ]
 }

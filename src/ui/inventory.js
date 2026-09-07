@@ -7,7 +7,8 @@
 // picks a stack up, release puts it down on whatever is under the pointer.
 
 import { GEAR, GEAR_SLOTS, GEAR_SLOT_NAMES, WEAPONS } from '../game/config.js';
-import { G, notify } from '../game/state.js';
+import { G, notify, lightActive } from '../game/state.js';
+import { primaryLabel } from '../core/bindings.js';
 import { itemDef, stackLimit } from '../game/items.js';
 import { carriedWeight } from '../game/player.js';
 // Every change to what the player carries goes through the action seam: a
@@ -253,8 +254,15 @@ export function drawInventoryPanel(ctx, W, H, ui) {
     ctx.fillStyle = id ? C.text : C.dim;
     ctx.fillText(id ? GEAR[id].name : 'empty', eqX + CELL + 10, eqY + 19);
     if (id) {
+      const g = GEAR[id];
       ctx.fillStyle = C.accent;
-      ctx.fillText(`+${Math.round(GEAR[id].dr * 100)}% armour`, eqX + CELL + 10, eqY + 33);
+      // A light is not armour: say what it does instead of "+0% armour".
+      ctx.fillText(
+        g.light
+          ? `${lightActive(p) ? 'lit' : 'out'}  ${Math.max(0, Math.round(p.lightFuel))}s  ·  ${primaryLabel('light')}`
+          : `+${Math.round(g.dr * 100)}% armour`,
+        eqX + CELL + 10, eqY + 33,
+      );
     }
     zones.push(r);
     eqY += CELL + GAP;

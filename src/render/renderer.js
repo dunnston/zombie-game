@@ -2,7 +2,7 @@
 // transform; the HUD layer draws afterwards in screen space.
 
 import { TILE, TERRAIN, T, WEAPONS, STRUCTURES, ENEMIES } from '../game/config.js';
-import { G, isLocal } from '../game/state.js';
+import { G, isLocal, lightActive, equippedLight } from '../game/state.js';
 import { driverOf } from '../game/vehicles.js';
 import { primaryLabel } from '../core/bindings.js';
 import { Sprites, structureSprite } from '../core/sprites.js';
@@ -160,7 +160,22 @@ function drawNight(ctx, W, H) {
   // No light source clears the dark completely — even a floodlit yard should
   // still read as night, or the whole cycle stops mattering.
   for (const q of G.players) {
-    if (!q.dead && !q.away) hole(q.x, q.y, q.downed ? 90 : 175, 0.72);
+    if (q.dead || q.away) continue;
+    hole(q.x, q.y, q.downed ? 90 : 175, 0.72);
+    // What is in their off-hand. A teammate's torch lights the world for
+    // everyone, which is why `lightOn` rides the snapshot.
+    const g = lightActive(q) ? equippedLight(q) : null;
+    if (!g || q.downed) continue;
+    hole(q.x, q.y, g.light.radius, g.light.strength);
+    const cone = g.light.cone;
+    if (!cone) continue;
+    // A beam, built the same way the car headlights are: a row of overlapping
+    // holes marching away along the aim, each wider and weaker than the last.
+    for (let i = 1; i <= 5; i++) {
+      const d = (cone.len / 5) * i;
+      hole(q.x + Math.cos(q.angle) * d, q.y + Math.sin(q.angle) * d,
+        cone.len * cone.spread * (0.42 + i * 0.1), cone.strength - i * 0.1);
+    }
   }
 
   for (const s of G.structures) {
@@ -562,9 +577,52 @@ function drawEnemy(ctx, e) {
 
 // ------------------------------------------------------------------ player --
 
+/**
+ * The warm part of a carried light, drawn in the world pass and therefore
+ * *under* the darkness that drawNight lays on top. Same arrangement as the car
+ * headlights: this is what the light looks like, drawNight is what it does.
+ * Without it a torch at dusk — when darkness is real but thin — would cut a
+ * hole in nothing and read as no light at all.
+ */
+function drawCarriedLight(ctx, p) {
+  if (!lightActive(p)) return;
+  const g = equippedLight(p);
+  const dark = darkness().alpha;
+  if (dark <= 0.06) return;
+  const a = Math.min(1, dark * 1.5);
+  ctx.save();
+  const L = g.light;
+  const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, L.radius);
+  glow.addColorStop(0, `rgba(255,196,110,${0.16 * a})`);
+  glow.addColorStop(1, 'rgba(255,196,110,0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, L.radius, 0, TAU);
+  ctx.fill();
+
+  if (L.cone) {
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.angle);
+    const half = L.cone.len * L.cone.spread;
+    const beam = ctx.createLinearGradient(10, 0, L.cone.len, 0);
+    beam.addColorStop(0, `rgba(255,246,205,${0.26 * a})`);
+    beam.addColorStop(1, 'rgba(255,246,205,0)');
+    ctx.fillStyle = beam;
+    ctx.beginPath();
+    ctx.moveTo(8, -7);
+    ctx.lineTo(L.cone.len, -half);
+    ctx.lineTo(L.cone.len, half);
+    ctx.lineTo(8, 7);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 function drawPlayer(ctx, p) {
   if (p.downed) { drawDownedPlayer(ctx, p); return; }
 
+  drawCarriedLight(ctx, p);
   const w = currentWeapon(p);
   const moving = Math.hypot(p.vx, p.vy) > 20;
   const t = G.time;

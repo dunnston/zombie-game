@@ -161,7 +161,8 @@ export function packIntent(it) {
     mx: r2(it.mx), my: r2(it.my), ax: Math.round(it.aimX), ay: Math.round(it.aimY),
     f: flags(it.sprint, it.sneak, it.fire, it.firePressed, it.reload, it.interact, it.interactHeld, it.use,
       it.stow, it.unstow, it.withdrawAmmo,
-      it.drive.forward, it.drive.back, it.drive.left, it.drive.right, it.drive.brake),
+      it.drive.forward, it.drive.back, it.drive.left, it.drive.right, it.drive.brake,
+      it.light),
     s: it.slot, w: it.wheel,
   };
 }
@@ -176,6 +177,7 @@ export function unpackIntent(p, into) {
   it.stow = !!(f & 256); it.unstow = !!(f & 512); it.withdrawAmmo = !!(f & 1024);
   it.drive.forward = !!(f & 2048); it.drive.back = !!(f & 4096);
   it.drive.left = !!(f & 8192); it.drive.right = !!(f & 16384); it.drive.brake = !!(f & 32768);
+  it.light = !!(f & 65536);
   it.slot = typeof p.s === 'number' ? p.s : -1;
   it.wheel = p.w || 0;
   return it;
@@ -189,12 +191,13 @@ export function unpackIntent(p, into) {
 export function mergeIntent(into, fresh) {
   const edges = {
     firePressed: into.firePressed, reload: into.reload, interact: into.interact, use: into.use,
-    stow: into.stow, unstow: into.unstow, withdrawAmmo: into.withdrawAmmo,
+    stow: into.stow, unstow: into.unstow, withdrawAmmo: into.withdrawAmmo, light: into.light,
     slot: into.slot, wheel: into.wheel,
   };
   unpackIntent(fresh, into);
   into.firePressed ||= edges.firePressed; into.reload ||= edges.reload; into.interact ||= edges.interact;
   into.use ||= edges.use; into.stow ||= edges.stow; into.unstow ||= edges.unstow; into.withdrawAmmo ||= edges.withdrawAmmo;
+  into.light ||= edges.light;
   if (into.slot < 0) into.slot = edges.slot;
   if (into.wheel === 0) into.wheel = edges.wheel;
   return into;
@@ -209,6 +212,7 @@ export function mergeLateIntent(into, fresh) {
   const late = unpackIntent(fresh, { drive: {} });
   into.firePressed ||= late.firePressed; into.reload ||= late.reload; into.interact ||= late.interact;
   into.use ||= late.use; into.stow ||= late.stow; into.unstow ||= late.unstow; into.withdrawAmmo ||= late.withdrawAmmo;
+  into.light ||= late.light;
   if (into.slot < 0 && late.slot >= 0) into.slot = late.slot;
   if (into.wheel === 0) into.wheel = late.wheel;
   return into;
@@ -237,6 +241,7 @@ export function packPlayer(p) {
     n: p.netId, x: r1(p.x), y: r1(p.y), a: r2(p.angle), hp: r1(p.hp), mh: p.maxHp, st: r1(p.stam), ms: p.maxStam,
     s: p.slot, d: p.dead ? 1 : 0, dn: p.downed ? 1 : 0, dt: r1(p.downT || 0), dr: p.drivingId || 0,
     sn: p.sneaking ? 1 : 0, sp: p.sprinting ? 1 : 0, sw: p.swing ? 1 : 0, rl: p.reloading ? 1 : 0,
+    li: p.lightOn ? 1 : 0, lf: r1(p.lightFuel || 0),
     lv: p.level, xp: Math.round(p.xp), xn: Math.round(p.xpNext), sk: p.skillPoints, aw: p.away ? 1 : 0,
     ch: p.searching ? r2(p.searching.t / p.searching.dur) : p.using ? r2(p.using.t / p.using.dur) : p.reviving ? r2(p.reviving.t / p.reviving.dur) : -1,
     ck: p.searching ? 's' : p.using ? 'u' : p.reviving ? 'r' : '',

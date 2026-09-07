@@ -2,7 +2,7 @@
 // immediate-mode button helper, so clicks are resolved during the draw pass.
 
 import {
-  RES, WEAPONS, GEAR, GEAR_SLOTS, CONSUMABLES, STRUCTURES, TILE, THREAT, TERRAIN, T,
+  RES, WEAPONS, GEAR, GEAR_SLOTS, ARMOR_SLOTS, CONSUMABLES, STRUCTURES, TILE, THREAT, TERRAIN, T,
   RECIPES, BENCH_UPGRADE_COST,
 } from '../game/config.js';
 import { G, countRes, totalRes, canAfford } from '../game/state.js';
@@ -24,6 +24,7 @@ import { clockString, darkness, phaseAt } from '../game/daynight.js';
 import { drivenCar, trunkLoad, CAR } from '../game/vehicles.js';
 import { threatLabel, threatColor } from '../game/threat.js';
 import { chopStamCost } from '../game/combat.js';
+import { equippedLight, lightActive } from '../game/state.js';
 import { dangerAtPx } from '../game/world.js';
 import { clamp, TAU, clock } from '../core/util.js';
 import { sfx } from '../core/audio.js';
@@ -94,15 +95,26 @@ export function drawHUD(ctx, deviceW, deviceH, interactive = true) {
 
 // ------------------------------------------------------------------ vitals --
 
+// The vitals block grows a row when a light is carried, and the skill-point
+// line and the clock stack under it. One source for the geometry, because the
+// first version hardcoded the clock at y=112 and the extra row drew straight
+// through its border.
+const LIGHT_ROW = 16;
+const vitalsPanelH = (p) => 92 + (equippedLight(p) ? LIGHT_ROW : 0);
+const skillLineY = (p) => 16 + vitalsPanelH(p) + 8;
+const clockTop = (p) => 8 + vitalsPanelH(p) + (p.skillPoints > 0 ? 20 : 4);
+
 function drawVitals(ctx, W, H) {
   const p = G.player;
   const x = 16, y = 16, w = 236;
 
+  const light = equippedLight(p);
+  const panelH = vitalsPanelH(p);
   ctx.fillStyle = C.bgSoft;
-  ctx.fillRect(x - 8, y - 8, w + 16, 92);
+  ctx.fillRect(x - 8, y - 8, w + 16, panelH);
   ctx.strokeStyle = C.border;
   ctx.lineWidth = 1;
-  ctx.strokeRect(x - 7.5, y - 7.5, w + 15, 91);
+  ctx.strokeRect(x - 7.5, y - 7.5, w + 15, panelH - 1);
 
   // Health
   const hf = p.hp / p.maxHp;
@@ -129,7 +141,7 @@ function drawVitals(ctx, W, H) {
   // recomputeStats; the breakdown lives on the inventory screen.
   ctx.font = '11px "Courier New", monospace';
   const dr = p.armorDR || 0;
-  const wornCount = GEAR_SLOTS.reduce((n, s) => n + (p.equip[s] ? 1 : 0), 0);
+  const wornCount = ARMOR_SLOTS.reduce((n, s) => n + (p.equip[s] ? 1 : 0), 0);
   ctx.fillStyle = dr > 0 ? C.accent : C.dim;
   ctx.fillText(
     dr > 0 ? `ARMOUR ${Math.round(dr * 100)}%  (${wornCount}/5)` : 'UNARMOURED  —  I',
@@ -148,12 +160,26 @@ function drawVitals(ctx, W, H) {
   ctx.fillStyle = bandages + kits > 0 ? C.text : C.dim;
   ctx.fillText(`${primaryLabel('useHeal').toUpperCase()}  HEAL   bandage ${bandages}   medkit ${kits}`, x, y + 74);
 
+  // The off-hand light. Burn time is the whole tension of carrying one, so it
+  // is on the HUD rather than buried on the inventory screen.
+  if (light) {
+    const lit = lightActive(p);
+    const secs = Math.max(0, Math.round(p.lightFuel));
+    const clockText = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+    ctx.fillStyle = lit ? (p.lightFuel > 30 ? '#ffb45a' : C.warn) : C.dim;
+    ctx.fillText(
+      lit ? `${light.name.toUpperCase()} LIT  ${clockText}`
+          : `${light.name.toUpperCase()} OUT  ${clockText}  ·  ${primaryLabel('light').toUpperCase()}`,
+      x, y + 90,
+    );
+  }
+
   if (p.skillPoints > 0) {
     ctx.fillStyle = C.gold;
     ctx.font = 'bold 12px "Courier New", monospace';
     ctx.fillText(
       `▲ ${p.skillPoints} SKILL POINT${p.skillPoints === 1 ? '' : 'S'} — TAB`,
-      x, y + 100,
+      x, skillLineY(p),
     );
   }
 }
@@ -162,7 +188,7 @@ function drawVitals(ctx, W, H) {
 function drawClock(ctx, W, H) {
   const p = G.player;
   const x = 16;
-  const y = p.skillPoints > 0 ? 128 : 112;
+  const y = clockTop(p) + 8;
   const dark = darkness().alpha;
   const phase = phaseAt(G.dayTime);
 
@@ -1084,11 +1110,14 @@ function drawStatusTab(ctx, px, py, pw, ph) {
   ry += 6;
   for (const slot of GEAR_SLOTS) {
     const id = p.equip[slot];
+    const g = id ? GEAR[id] : null;
     ctx.fillStyle = id ? C.accent : C.dim;
-    ctx.fillText(
-      `${slot.padEnd(6)} ${id ? `${GEAR[id].name}  +${Math.round(GEAR[id].dr * 100)}%` : '—'}`,
-      col2, ry,
-    );
+    // The off-hand holds a light, which protects nothing — quote its burn time
+    // rather than a "+0% armour" that reads like a broken piece of gear.
+    const detail = !g ? '—'
+      : g.light ? `${g.name}  ${Math.max(0, Math.round(p.lightFuel))}s`
+      : `${g.name}  +${Math.round(g.dr * 100)}%`;
+    ctx.fillText(`${slot.padEnd(8)} ${detail}`, col2, ry);
     ry += 15;
   }
 }

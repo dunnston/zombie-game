@@ -6,9 +6,14 @@
 // that's what turns a base into a tower-defence problem.
 
 import { ENEMIES, TILE } from './config.js';
+
+// How much further a lit player is noticed from. Sized against a walker's 330
+// sense: a torch is worth roughly a quarter of that, so it is a real cost
+// without turning the night into a death sentence for carrying one.
+const LIGHT_SENSE_BONUS = 90;
 import {
   G, moveCircle, solidPx, structAtPx, hasLineOfSight, SpatialHash, unstick,
-  nearestPlayer, presentPlayers, isLocal,
+  nearestPlayer, presentPlayers, isLocal, lightActive,
 } from './state.js';
 import { dangerAtPx } from './world.js';
 import { damagePlayer, damageStructure } from './damage.js';
@@ -220,7 +225,11 @@ export function updateEnemies(dt) {
     // ---------------------------------------------------------- targeting --
     let tx, ty, targetStruct = null, targetIsPlayer = false;
     const dPlayer2 = p ? dist2(e.x, e.y, p.x, p.y) : Infinity;
-    const senseR = e.def.sense * (p && p.sneaking ? 0.55 : 1) * night.sense;
+    // Crouching halves what they notice; carrying a light does the opposite.
+    // A torch is the only reason to be visible at night, so it has to cost
+    // something — pillar 6, the same bargain as a generator or a gunshot.
+    const senseR = e.def.sense * (p && p.sneaking ? 0.55 : 1) * night.sense
+      + (p && lightActive(p) ? LIGHT_SENSE_BONUS : 0);
 
     // Survivors are people too: a zombie that gets close to one goes for it.
     let victim = null, victimD = 999999;

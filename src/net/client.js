@@ -242,6 +242,9 @@ function applySnapshot(s) {
     const p = G.players.find((q) => q.netId === pr.n);
     if (!p) continue;
     p.hp = pr.hp; p.maxHp = pr.mh; p.stam = pr.st; p.maxStam = pr.ms;
+    // The host owns the fuel; the light is drawn for everyone, so a teammate's
+    // torch lights the world on your screen too.
+    p.lightOn = !!pr.li; p.lightFuel = pr.lf ?? 0;
     p.dead = !!pr.d; p.downed = !!pr.dn; p.downT = pr.dt; p.drivingId = pr.dr || null;
     p.level = pr.lv; p.xp = pr.xp; p.xpNext = pr.xn; p.skillPoints = pr.sk; p.away = !!pr.aw;
     const chan = pr.ck ? { t: pr.ch, dur: 1 } : null;

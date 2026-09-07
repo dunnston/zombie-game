@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import {
   RES, WEAPONS, ENEMIES, STRUCTURES, RECIPES, LOOT, CONTAINERS, FURNISHING, CONSUMABLES, T,
   BUILD_ORDER, THREAT, RAIDS, PLAYER, TILE, WORLD_TILES,
-  bagWeight, xpForLevel, raidSpec, GEAR, GEAR_SLOTS, MAX_GEAR_DR,
+  bagWeight, xpForLevel, raidSpec, GEAR, GEAR_SLOTS, ARMOR_SLOTS, MAX_GEAR_DR,
 } from '../src/game/config.js';
 import { createWorld, isBlockedTile, dangerAtPx, locationAtPx, propAtTile, removeProp } from '../src/game/world.js';
 import { HARVEST, chopMultiplier, chopStamCost, canChop } from '../src/game/combat.js';
@@ -22,7 +22,7 @@ import { pointsForLevel } from '../src/game/progression.js';
 import {
   SURVIVOR, JOBS, JOB_IDS, SCAVENGE, BUILDER, POST_RADIUS, canSeeContainer,
 } from '../src/game/survivors.js';
-import { G } from '../src/game/state.js';
+import { G, equippedLight, lightActive } from '../src/game/state.js';
 import {
   makeStructure, repairCost, planRepairAll, isDamaged, costLabel, REPAIR_COST_SHARE, REPAIR_ALL_RANGE,
   buildMenu, buildBarLayout,
@@ -637,8 +637,8 @@ test('every resource stacks and has a weight', () => {
   }
 });
 
-test('gear covers all five slots at three tiers', () => {
-  for (const slot of GEAR_SLOTS) {
+test('gear covers all five armour slots at three tiers', () => {
+  for (const slot of ARMOR_SLOTS) {
     const pieces = Object.values(GEAR).filter((g) => g.slot === slot);
     assert.ok(pieces.length >= 3, `${slot} has only ${pieces.length} pieces`);
     const drs = pieces.map((g) => g.dr).sort((a, b) => a - b);
@@ -651,7 +651,7 @@ test('gear covers all five slots at three tiers', () => {
 
 test('a full set of the best gear stays under the armour cap', () => {
   let total = 0;
-  for (const slot of GEAR_SLOTS) {
+  for (const slot of ARMOR_SLOTS) {
     const best = Object.values(GEAR)
       .filter((g) => g.slot === slot)
       .reduce((a, b) => (b.dr > a.dr ? b : a));
@@ -667,7 +667,7 @@ test('the body slot still carries the most armour', () => {
   const bestOf = (slot) => Object.values(GEAR)
     .filter((g) => g.slot === slot)
     .reduce((a, b) => (b.dr > a.dr ? b : a)).dr;
-  for (const slot of GEAR_SLOTS) {
+  for (const slot of ARMOR_SLOTS) {
     if (slot === 'body') continue;
     assert.ok(bestOf('body') > bestOf(slot), `${slot} rivals the vest`);
   }
@@ -1293,6 +1293,18 @@ test('work is gated by stamina and fighting never is', () => {
   p.stam = chopStamCost(p);
   assert.equal(canChop(p), true, 'exactly one swing left is still a swing');
 
+  // Exhaustion latches. Measured in the browser: without this, a player who
+  // held the button felled trees forever at a sixth of the speed, because
+  // every regen tick bought exactly one more swing and there was never a
+  // moment where you had to stop.
+  p.winded = true;
+  assert.equal(canChop(p), false, 'a winded player cannot dribble one swing per tick');
+  p.stam = p.maxStam * PLAYER.stamWindedRecovery;
+  p.winded = false;                       // movePlayer clears it at this point
+  assert.equal(canChop(p), true, 'and back to half is back to work');
+  assert.ok(PLAYER.stamWindedRecovery > 0.2 && PLAYER.stamWindedRecovery <= 0.75,
+    'the recovery threshold has to be a real pause without being a punishment');
+
   // Fighting must never be refused: being winded may stop you working, but it
   // must not leave you unable to defend yourself.
   assert.ok(PLAYER.stamSwing < PLAYER.stamChop,
@@ -1326,6 +1338,67 @@ test('stamina is a stat you can raise, in ceiling and in recovery', () => {
   // has to survive a rebuild rather than being mutated on purchase.
   const again = chopStamCost(recomputeStats(woody));
   assert.equal(again, chopStamCost(woody), 'recomputing is idempotent for the chop cost');
+});
+
+// ------------------------------------------------------------------ light ---
+
+test('the off-hand is a gear slot and not an armour slot', () => {
+  assert.ok(GEAR_SLOTS.includes('offhand'), 'the off-hand is a real equipment slot');
+  assert.ok(!ARMOR_SLOTS.includes('offhand'), 'it carries no armour');
+  assert.equal(GEAR_SLOTS.length, ARMOR_SLOTS.length + 1);
+  // Only lights fit there, so nothing can quietly occupy the slot.
+  for (const g of Object.values(GEAR)) {
+    if (g.slot !== 'offhand') continue;
+    assert.ok(g.light, `${g.id} is in the off-hand but casts no light`);
+    assert.equal(g.dr, 0, `${g.id} must not be armour`);
+  }
+  assert.ok(Object.values(GEAR).some((g) => g.slot === 'offhand'),
+    'the slot needs something to put in it');
+});
+
+test('a torch is made of what the ground is covered in, and burns itself up', () => {
+  const r = RECIPES.find((x) => x.id === 'torch');
+  assert.ok(r, 'there is a torch recipe');
+  assert.equal(r.bench, 0, 'the first night cannot wait for a workbench');
+  assert.deepEqual(Object.keys(r.cost).sort(), ['fiber', 'sticks'],
+    'a torch costs only hand-gathered material');
+  assert.equal(GEAR.torch.consumed, true, 'a torch is spent, not owned');
+  assert.ok(GEAR.torch.burn > 60, 'and it lasts long enough to be worth making');
+});
+
+test('a flashlight reaches further than a torch, and costs batteries to do it', () => {
+  const t = GEAR.torch.light, f = GEAR.flashlight.light;
+  assert.ok(f.cone && !t.cone, 'the flashlight is a beam and the torch is a puddle');
+  assert.ok(f.cone.len > t.radius * 1.5, 'the beam is the reason to want one');
+  assert.equal(GEAR.flashlight.battery, 'battery');
+  assert.ok(RES.battery, 'batteries are a real resource');
+  assert.ok(!GEAR.flashlight.consumed, 'a flashlight is kept; only its charge runs out');
+
+  // Findable before it is craftable, or the flashlight is a bench unlock
+  // rather than something you scavenge your way into.
+  const tables = Object.entries(LOOT).filter(([, t2]) => t2.some((e) => e.id === 'battery'));
+  assert.ok(tables.length >= 4, `batteries appear in only ${tables.length} loot tables`);
+});
+
+test('a light only counts as lit when it is equipped, switched on and has charge', () => {
+  const p = { equip: { offhand: null }, lightOn: true, lightFuel: 99 };
+  assert.equal(lightActive(p), false, 'an empty off-hand casts nothing');
+  p.equip.offhand = 'torch';
+  assert.equal(lightActive(p), true);
+  p.lightFuel = 0;
+  assert.equal(lightActive(p), false, 'a spent torch casts nothing');
+  p.lightFuel = 99; p.lightOn = false;
+  assert.equal(lightActive(p), false, 'an unlit torch casts nothing');
+  assert.equal(equippedLight(p).id, 'torch', 'but it is still what you are carrying');
+});
+
+test('being lit is being seen', () => {
+  // Pillar 6: the only reason to carry a light at night is to see, so it has
+  // to cost something. A player with no light must be no easier to notice.
+  const dark = { equip: { offhand: 'torch' }, lightOn: false, lightFuel: 99 };
+  const lit = { equip: { offhand: 'torch' }, lightOn: true, lightFuel: 99 };
+  assert.equal(lightActive(dark), false);
+  assert.equal(lightActive(lit), true);
 });
 
 // -------------------------------------------------------------- bindings ---
