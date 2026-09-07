@@ -43,6 +43,10 @@ export const SHOOT_OVER = new Set([T.WATER, T.FENCE]);
 // `stack` is how many fit in one inventory slot.
 export const RES = {
   wood:   { name: 'Wood',        short: 'WOOD', color: '#a3763f', wt: 1, stack: 50 },
+  // Gathered by hand from the scenery: the materials the first tool is made of.
+  sticks: { name: 'Sticks',      short: 'STCK', color: '#8a6a3c', wt: 0.5, stack: 50 },
+  stone:  { name: 'Stone',       short: 'STNE', color: '#8f8a80', wt: 1.5, stack: 50 },
+  fiber:  { name: 'Fiber',       short: 'FIBR', color: '#9aae5a', wt: 0.3, stack: 50 },
   scrap:  { name: 'Scrap',       short: 'SCRP', color: '#9aa2ab', wt: 1, stack: 50 },
   cloth:  { name: 'Cloth',       short: 'CLTH', color: '#c2a98a', wt: 1, stack: 50 },
   elec:   { name: 'Electronics', short: 'ELEC', color: '#59b8c4', wt: 1, stack: 30 },
@@ -84,6 +88,11 @@ export const WEAPONS = {
   machete: {
     id: 'machete', name: 'Machete', kind: 'melee', dmg: 40, cd: 0.34,
     range: 54, arc: 1.0, knock: 110, bleed: true, color: '#cfd6dd',
+  },
+  // The first tool. Only an axe fells a tree; it fights, badly, in a pinch.
+  axe: {
+    id: 'axe', name: 'Hatchet', kind: 'melee', dmg: 30, cd: 0.52,
+    range: 48, arc: 0.9, knock: 130, axe: true, chopMul: 2.4, color: '#b08a5a',
   },
   sledge: {
     id: 'sledge', name: 'Sledgehammer', kind: 'melee', dmg: 78, cd: 0.86,
@@ -281,6 +290,7 @@ export const BUILD_ORDER = [
 
 export const RECIPES = [
   { id: 'bandage', name: 'Bandage x2', bench: 0, cost: { cloth: 4 }, give: { item: 'bandage', n: 2 }, xp: 3 },
+  { id: 'axe', name: 'Hatchet', bench: 0, cost: { sticks: 3, stone: 3, fiber: 4 }, give: { weapon: 'axe' }, xp: 10 },
   { id: 'pipe', name: 'Steel Pipe', bench: 1, cost: { wood: 6, scrap: 10 }, give: { weapon: 'pipe' }, xp: 12 },
   { id: 'ammoP', name: '9mm x24', bench: 1, cost: { scrap: 9, parts: 1 }, give: { res: { ammoP: 24 } }, xp: 6 },
   { id: 'medkit', name: 'Medkit', bench: 1, cost: { med: 5, cloth: 5 }, give: { item: 'medkit', n: 1 }, xp: 8 },
@@ -329,7 +339,7 @@ export const LOOT = {
   toolbox: [
     { id: 'scrap', min: 6, max: 14, w: 34 }, { id: 'wood', min: 8, max: 18, w: 30 },
     { id: 'parts', min: 1, max: 2, w: 16 }, { id: 'elec', min: 1, max: 3, w: 12 },
-    { id: 'weapon:pipe', min: 1, max: 1, w: 6 },
+    { id: 'weapon:pipe', min: 1, max: 1, w: 6 }, { id: 'weapon:axe', min: 1, max: 1, w: 5 },
   ],
   shelf: [
     { id: 'rations', min: 4, max: 10, w: 32 },
@@ -476,6 +486,7 @@ export const LOOT = {
     { id: 'wood', min: 5, max: 12, w: 22 },
     { id: 'weapon:pipe', min: 1, max: 1, w: 6 },
     { id: 'weapon:machete', min: 1, max: 1, w: 4 },
+    { id: 'weapon:axe', min: 1, max: 1, w: 8 },
   ],
   displaycase: [
     { id: 'elec', min: 4, max: 10, w: 34 },

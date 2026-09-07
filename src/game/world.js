@@ -795,17 +795,31 @@ export function createWorld(seed = 20240917) {
     const border = Math.min(x, y, W - 1 - x, W - 1 - y);
     return border < 12 ? 0.7 : 0.4;                           // the outskirts
   }
+  /**
+   * A bush or a rock: walk-through scenery you can break for fiber, sticks or
+   * stone. One per tile, so a swing always has one thing to hit.
+   */
+  function plantScenery(x, y) {
+    if (world.propGrid.has(`${x},${y}`)) return null;
+    const bush = rng.chance(0.7);
+    const prop = {
+      kind: bush ? 'bush' : 'rock', si: rng.int(0, 2), rot: rng.range(0, 6.28), tx: x, ty: y,
+      x: (x + 0.5) * TILE, y: (y + 0.5) * TILE,
+      hp: bush ? 24 : 45, maxHp: bush ? 24 : 45, harvest: bush ? 'fiber' : 'stone', flash: 0,
+    };
+    world.props.push(prop);
+    world.propGrid.set(`${x},${y}`, prop);
+    return prop;
+  }
+
   function grow(x, y) {
     const t = world.tiles[idx(x, y)];
     if (t !== T.GRASS && t !== T.DIRT) return;
-    if (world.blocked[idx(x, y)]) return;
+    if (world.blocked[idx(x, y)] || world.propGrid.has(`${x},${y}`)) return;
     const p = growth(x, y);
     if (p <= 0 || !rng.chance(p)) return;
-    if (rng.chance(0.72)) {
-      plantTree(x, y, rng.chance(y < 62 ? 0.7 : 0.15));
-    } else {
-      world.props.push({ kind: rng.chance(0.7) ? 'bush' : 'rock', si: rng.int(0, 2), rot: rng.range(0, 6.28), x: (x + 0.5) * TILE, y: (y + 0.5) * TILE });
-    }
+    if (rng.chance(0.72)) plantTree(x, y, rng.chance(y < 62 ? 0.7 : 0.15));
+    else plantScenery(x, y);
   }
   for (let i = 0; i < 26000; i++) grow(rng.int(1, W - 2), rng.int(1, W - 2));
   // A second pass over the forest so it is thicker than any town edge.
@@ -892,13 +906,14 @@ export function locationAtPx(world, px, py) {
 /** The harvestable prop occupying a tile, if any. */
 export const propAtTile = (world, tx, ty) => world.propGrid.get(`${tx},${ty}`) || null;
 
-/** Removes a harvested prop and frees the tile it was blocking. */
+/** Removes a harvested prop and frees the tile, if it was the thing blocking it. */
 export function removeProp(world, prop) {
   const i = world.props.indexOf(prop);
   if (i >= 0) world.props.splice(i, 1);
   world.propGrid.delete(`${prop.tx},${prop.ty}`);
   world.chopped.push(`${prop.tx},${prop.ty}`);
-  if (prop.tx >= 0 && prop.ty >= 0 && prop.tx < world.w && prop.ty < world.h) {
+  const solid = prop.kind === 'tree' || prop.kind === 'pine';
+  if (solid && prop.tx >= 0 && prop.ty >= 0 && prop.tx < world.w && prop.ty < world.h) {
     world.blocked[prop.ty * world.w + prop.tx] = 0;
   }
 }

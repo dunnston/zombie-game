@@ -5,7 +5,7 @@
 // and being able to shoot over your own walls is what makes defending a base
 // fun rather than infuriating.
 
-import { WEAPONS, STRUCTURES, THREAT, TILE } from './config.js';
+import { WEAPONS, STRUCTURES, THREAT, TILE, RES } from './config.js';
 import {
   G, bulletBlocksPx, hasTerrainLineOfSight, notify, shake, takeRes, countRes,
   isLocal, baseOwner, presentPlayers,
@@ -137,9 +137,27 @@ export function meleeAttack(p, w) {
 }
 
 /**
- * Melee against harvestable scenery. Trees are the main early wood supply, and
- * clearing them opens firing lines for turrets — so felling one is a real
- * tactical decision, not just a resource tap.
+ * What each kind of scenery gives up, and what it takes to get it. Bushes and
+ * rocks come apart under anything; a tree needs an axe. `bonus` is a second,
+ * smaller drop — the sticks that fall with a bush or a felled tree.
+ */
+export const HARVEST = {
+  wood:  { min: 6, max: 11, bonus: 'sticks', bonusMin: 1, bonusMax: 3, needsAxe: true, debris: '#3f5226', label: 'WOOD' },
+  fiber: { min: 2, max: 4, bonus: 'sticks', bonusMin: 1, bonusMax: 2, debris: '#4a6a2a', label: 'FIBER' },
+  stone: { min: 2, max: 4, debris: '#6a6660', label: 'STONE' },
+};
+
+/** Drops `n` of a resource at a spot in a few piles, so it is readable on the ground. */
+function dropRes(x, y, id, n) {
+  const piles = Math.min(4, Math.ceil(n / 3));
+  for (let i = 0; i < piles; i++) spawnPickup(x, y, 'res', id, Math.ceil(n / piles));
+}
+
+/**
+ * Melee against harvestable scenery. Bushes give fiber and sticks, rocks give
+ * stone, and those three make the hatchet that fells trees — the main early
+ * wood supply, and the thing that opens firing lines for turrets. Felling one
+ * is a real tactical decision, not just a resource tap.
  */
 function chopProp(p, w, dmg) {
   const reach = w.range + p.r;
@@ -147,31 +165,44 @@ function chopProp(p, w, dmg) {
   const ty = Math.floor((p.y + Math.sin(p.angle) * reach * 0.7) / TILE);
   const prop = propAtTile(G.world, tx, ty);
   if (!prop) return false;
+  const rule = HARVEST[prop.harvest] || HARVEST.wood;
 
+  if (rule.needsAxe && !w.axe) {
+    // Bounce off. Say so once, and then only now and again.
+    if (!p.axeHintAt || G.time - p.axeHintAt > 6) {
+      p.axeHintAt = G.time;
+      if (isLocal(p)) notify('You need a HATCHET to fell trees — bushes give fiber and sticks, rocks give stone', '#d9c46a', true);
+    }
+    FX.debris(prop.x, prop.y, 2, '#4a3a22');
+    sfx('hitWall');
+    return true;
+  }
   if (!G.tutorial.done.chop) {
     G.tutorial.done.chop = true;
-    notify('Keep swinging — felled trees give Wood and clear firing lines', '#a3763f', true);
+    notify('Keep swinging — scenery breaks into materials. A hatchet is craftable by hand', '#a3763f', true);
   }
 
-  // Axes are not a thing here; heavy blunt weapons are simply better at it.
-  const chopMul = (w.id === 'sledge' ? 1.6 : w.id === 'machete' ? 1.3 : 1) * p.chopMul;
+  // Heavy blunt weapons are better at breaking things; an axe is built for it.
+  const chopMul = (w.chopMul || (w.id === 'sledge' ? 1.6 : w.id === 'machete' ? 1.3 : 1)) * p.chopMul;
   prop.hp -= dmg * chopMul;
   prop.hitAt = G.time;          // renderer reads this; avoids a per-frame prop loop
-  FX.debris(prop.x, prop.y, 5, '#4a3a22');
+  FX.debris(prop.x, prop.y, 5, rule.debris);
   sfx('meleeHit');
   if (isLocal(p)) shake(1.2);
 
   if (prop.hp <= 0) {
-    const yield_ = 6 + Math.round(Math.random() * 5 * p.lootMul);
+    const n = rule.min + Math.round(Math.random() * (rule.max - rule.min) * p.lootMul);
     emit('prop', { key: `${prop.tx},${prop.ty}` });
     removeProp(G.world, prop);
-    FX.debris(prop.x, prop.y, 18, '#3f5226');
-    FX.text(prop.x, prop.y - 20, `WOOD +${yield_}`, '#a3763f', 12, -38, 1.0);
+    FX.debris(prop.x, prop.y, 18, rule.debris);
+    FX.text(prop.x, prop.y - 20, `${rule.label} +${n}`, RES[prop.harvest] ? RES[prop.harvest].color : '#a3763f', 12, -38, 1.0);
     sfx('structureBreak');
-    for (let i = 0; i < Math.min(4, Math.ceil(yield_ / 3)); i++) {
-      spawnPickup(prop.x, prop.y, 'res', 'wood', Math.ceil(yield_ / Math.min(4, Math.ceil(yield_ / 3))));
+    dropRes(prop.x, prop.y, prop.harvest, n);
+    if (rule.bonus && Math.random() < 0.8) {
+      const b = rule.bonusMin + Math.round(Math.random() * (rule.bonusMax - rule.bonusMin));
+      dropRes(prop.x, prop.y, rule.bonus, b);
     }
-    addXp(p, 4);
+    addXp(p, prop.harvest === 'wood' ? 4 : 2);
   }
   return true;
 }

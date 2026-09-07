@@ -851,6 +851,7 @@
       const turret2 = G.structures.find((s) => s.type === 'turret');
       if (turret2) {
         const tree = [...G.world.propGrid.values()]
+          .filter((q) => q.kind === 'tree' || q.kind === 'pine')
           .sort((a, b) => Math.hypot(a.x - turret2.x, a.y - turret2.y) - Math.hypot(b.x - turret2.x, b.y - turret2.y))[0];
         if (tree && Math.hypot(tree.x - turret2.x, tree.y - turret2.y) < 400) {
           // Put an enemy directly behind that tree, in line with the turret.

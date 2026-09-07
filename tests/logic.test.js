@@ -793,8 +793,8 @@ test('locations are found by world position', () => {
 
 test('chopping a tree frees the tile it was blocking', () => {
   const w = createWorld(20240917);
-  const key = [...w.propGrid.keys()][0];
-  const tree = w.propGrid.get(key);
+  const tree = [...w.propGrid.values()].find((p) => p.kind === 'tree' || p.kind === 'pine');
+  const key = `${tree.tx},${tree.ty}`;
   assert.ok(tree, 'expected at least one harvestable tree');
   assert.equal(isBlockedTile(w, tree.tx, tree.ty), true);
   assert.equal(propAtTile(w, tree.tx, tree.ty), tree);
@@ -803,6 +803,35 @@ test('chopping a tree frees the tile it was blocking', () => {
   assert.equal(isBlockedTile(w, tree.tx, tree.ty), false, 'the tile should be walkable now');
   assert.equal(propAtTile(w, tree.tx, tree.ty), null);
   assert.ok(w.chopped.includes(key), 'the harvest should be recorded for the save file');
+});
+
+test('bushes and rocks are harvestable without blocking the ground', () => {
+  const w = createWorld(20240917);
+  const props = [...w.propGrid.values()];
+  const bush = props.find((p) => p.kind === 'bush');
+  const rock = props.find((p) => p.kind === 'rock');
+  assert.ok(bush && rock, 'expected bushes and rocks in the prop grid');
+  assert.equal(bush.harvest, 'fiber');
+  assert.equal(rock.harvest, 'stone');
+  assert.equal(isBlockedTile(w, bush.tx, bush.ty), false, 'a bush is walk-through');
+  assert.equal(isBlockedTile(w, rock.tx, rock.ty), false, 'a rock is walk-through');
+  // Breaking one must not free a tile something else is blocking.
+  w.blocked[bush.ty * w.w + bush.tx] = 1;
+  removeProp(w, bush);
+  assert.equal(isBlockedTile(w, bush.tx, bush.ty), true, 'removing a bush must not clear an unrelated block');
+  assert.equal(propAtTile(w, bush.tx, bush.ty), null);
+  const trees = props.filter((p) => p.harvest === 'wood');
+  assert.ok(trees.length > 1000 && props.length - trees.length > 500, `${trees.length} trees, ${props.length - trees.length} bushes and rocks`);
+});
+
+test('the hatchet is made by hand from what the scenery gives up', () => {
+  const axe = RECIPES.find((r) => r.id === 'axe');
+  assert.ok(axe && axe.bench === 0, 'the hatchet must be craftable without a workbench');
+  for (const id of Object.keys(axe.cost)) {
+    assert.ok(['sticks', 'stone', 'fiber'].includes(id), `hatchet costs ${id}, which needs an axe or a workbench to get`);
+  }
+  assert.ok(WEAPONS.axe.axe, 'the hatchet is the thing that fells trees');
+  assert.ok(WEAPONS.axe.dmg < WEAPONS.machete.dmg, 'a tool, not the best weapon');
 });
 
 test('world generation is deterministic for a seed', () => {

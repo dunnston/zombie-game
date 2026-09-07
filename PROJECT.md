@@ -167,6 +167,11 @@ firearms (pistol, SMG, shotgun, rifle, carbine), with three ammo types, real
 magazines and reloads. Four enemy tiers: walker, runner, brute, behemoth.
 Walkers and runners threaten *you*; brutes are what breach a wall.
 
+**Gathering.** Bushes break into fiber and sticks, rocks into stone, and
+those three make the **hatchet** by hand — the only thing that fells a tree.
+Trees give wood and sticks. Every piece of scenery has a tile in `propGrid`,
+so a swing at it always has one thing to hit.
+
 **Scavenging.** ~24 kinds of searchable fitting, placed by building type, each
 with loot that reads true to it. Weight-capped pack, shared stash, death drops a
 recoverable backpack.
@@ -404,6 +409,7 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | Danger runs west to east | Farms (▲) — town — city (▲▲▲▲). A player who wants quiet goes west and finds food and fuel; one who wants guns goes east. The forest is ▲▲ all the way across the north so "the woods at night" means something. |
 | The new game starts by the camp | Spawn tiles are any open tier-1 ground, and on a 320-tile map that includes a field on the far side of the river. The first morning is the crossroads; respawns without a bedroll still use the whole tier-1 set. |
 | A wardrobe never goes in a doorway | The old furnishing pass could drop a container on a partition gap or two either side of a door, and three rooms in the old town were sealed for good. Buildings now hand the furnisher only tiles off every wall line and not beside an opening; a Node test proves every container reachable from the camp. |
+| Trees need an axe, and the axe needs no bench | Wood is gated behind a tool, the tool behind gathering — a real first ten minutes (break bushes and rocks, craft the hatchet, fell a tree, build the bench) instead of hitting a tree with a pipe. The hatchet is bench-0 and costs only hand-gathered things, because the workbench itself costs wood. Asked for by the owner. |
 | Fences are terrain, not structures | A paddock rail is scenery you cannot walk through, like a tree. Making it a destructible structure would put it in the raid target list and the salvage economy for no gain. |
 
 ---
@@ -704,6 +710,10 @@ input (`key`, `tap`, `mouseDown`, `aimAt`) and the whole `api` surface.
 
 Newest first. One line per meaningful change.
 
+- **2026-09-06** — Gathering. Sticks, stone and fiber as resources; bushes
+  and rocks are harvestable (walk-through, in the prop grid); trees need the
+  new Hatchet, a bench-0 recipe made from those three; a hatchet also turns up
+  in toolboxes and on tool racks. Asked for by the owner.
 - **2026-09-06** — The map expansion. 160 → 320 tiles: the town moved to the
   middle and gained farms and a ranch across a river to the west, a pine forest
   with a lumber camp, a lake and hunting cabins to the north, a three-district

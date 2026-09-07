@@ -84,7 +84,7 @@ export const TUTORIAL = [
   { id: 'attack', text: () => 'LEFT CLICK to swing your pipe' },
   { id: 'loot', text: () => `Find a container and hold ${k('interact')} to search it` },
   { id: 'build', text: () => `Press ${k('build')} to build  ·  place a BEDROLL to set your respawn` },
-  { id: 'bench', text: () => `Build a WORKBENCH, then press ${k('craft')} beside it to craft` },
+  { id: 'bench', text: () => `Build a WORKBENCH, then press ${k('craft')} beside it to craft  ·  a HATCHET is craftable by hand` },
   { id: 'threat', text: () => 'Watch the THREAT bar — activity draws a horde to your base' },
 ];
 

@@ -18,6 +18,8 @@ a more rural area, a city area, a forest area, maybe a river and a pond."
 - [x] Sealed rooms fixed (the old four-room partition and furniture in doorways)
 - [x] Save → v9; Node tests for biomes, danger tiers and reachability
 - [x] Both suites green; raid harness indices 1–3 in range
+- [x] Gathering: sticks, stone, fiber from bushes and rocks; the hand-crafted
+      Hatchet gates trees (owner, same day)
 - [ ] The owner walks it
 
 ## Previous round — online co-op multiplayer

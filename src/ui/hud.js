@@ -383,7 +383,7 @@ function drawThreat(ctx, W, H) {
 
 // ------------------------------------------------------------- resources -----
 
-const STRIP_IDS = ['wood', 'scrap', 'cloth', 'elec', 'med', 'parts', 'mil', 'fuel'];
+const STRIP_IDS = ['wood', 'sticks', 'stone', 'fiber', 'scrap', 'cloth', 'elec', 'med', 'parts', 'mil', 'fuel'];
 
 function drawResourceStrip(ctx, W, H) {
   const p = G.player;

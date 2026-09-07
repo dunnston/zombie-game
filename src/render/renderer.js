@@ -776,6 +776,7 @@ function drawWeapon(ctx, w, p) {
     ctx.fillStyle = w.color;
     if (w.id === 'sledge') { ctx.fillRect(6, -1.6, 13, 3.2); ctx.fillRect(17, -5, 6, 10); }
     else if (w.id === 'machete') { ctx.fillRect(5, -1.4, 20, 3); ctx.fillRect(22, -2.4, 4, 5); }
+    else if (w.id === 'axe') { ctx.fillStyle = '#6b4e2e'; ctx.fillRect(5, -1.4, 16, 2.8); ctx.fillStyle = '#b9b3a6'; ctx.fillRect(17, -5, 6, 9); }
     else ctx.fillRect(5, -1.6, 17, 3.2);
   } else {
     ctx.fillStyle = '#22262a';
