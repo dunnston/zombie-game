@@ -527,8 +527,11 @@ The two of you are on different networks and each has the repo checked out.
 Nothing is deployed. This is the cheapest way to play a branch together.
 
 1. **Be on the same commit.** The join handshake carries a **build id** — the
-   short hash of the last commit that touched `src/`, plus `-dirty` if you have
-   uncommitted game code. Any difference is refused with *"your game is a
+   short hash of the last commit that touched `src/`, plus a digest of your
+   uncommitted changes if there are any (the digest is of the changes
+   themselves, so two people editing the same commit differently do not look
+   identical). The dev server recomputes it per request, so editing a file and
+   letting HMR serve it does not leave you claiming a version you're not on. Any difference is refused with *"your game is a
    different version — run ./scripts/update.sh, then reload"*. Run
    `./scripts/update.sh` on both machines and check the printed ids match.
 

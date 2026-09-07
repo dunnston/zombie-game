@@ -1,31 +1,38 @@
-import { execSync } from 'node:child_process';
 import { defineConfig } from 'vite';
+import { buildId } from './scripts/build-id.mjs';
 
 /**
- * Which build this is, for the co-op version check (see net/protocol.js).
+ * Stamps the build id in for a production bundle, and — because `define` is
+ * frozen at config load — also serves the *current* id over the dev server.
  *
- * The last commit that touched `src/` rather than HEAD: a docs-only commit on
- * one machine must not refuse a friend whose game code is identical. `-dirty`
- * when there are uncommitted changes under `src/`, because "same commit" and
- * "same code" are not the same claim while someone is mid-edit.
- *
- * No git (a downloaded tarball) gives `dev`, and two `dev` builds still have to
- * agree with each other — an unknown version is not a wildcard.
+ * Without that second half the check has a hole big enough to drive the whole
+ * bug through: start the server on a clean checkout, edit a `src/` module, and
+ * HMR happily serves the changed game while the stamped id still says clean.
+ * That browser would then agree with an unmodified peer while running
+ * different code. `net/protocol.js` asks this endpoint right before the
+ * handshake, and falls back to the stamped value when there is no dev server.
  */
-function buildId() {
-  const git = (cmd) => execSync(cmd, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
-  try {
-    const sha = git('git log -1 --format=%h -- src/');
-    if (!sha) return 'dev';
-    return git('git status --porcelain src/') ? `${sha}-dirty` : sha;
-  } catch { return 'dev'; }
+function buildIdPlugin() {
+  return {
+    name: 'deadline-build-id',
+    config: () => ({
+      // Read through the guard in net/protocol.js, so plain Node (the tests)
+      // sees `dev` instead of a ReferenceError.
+      define: { 'import.meta.env.VITE_BUILD_ID': JSON.stringify(process.env.VITE_BUILD_ID || buildId()) },
+    }),
+    configureServer(server) {
+      server.middlewares.use('/__deadline_build', (_req, res) => {
+        res.setHeader('content-type', 'text/plain');
+        res.setHeader('cache-control', 'no-store');
+        res.end(process.env.VITE_BUILD_ID || buildId());   // recomputed per request
+      });
+    },
+  };
 }
 
 export default defineConfig({
   base: './',
-  // Read through the guard in net/protocol.js, so plain Node (the tests) sees
-  // `dev` instead of a ReferenceError.
-  define: { 'import.meta.env.VITE_BUILD_ID': JSON.stringify(process.env.VITE_BUILD_ID || buildId()) },
+  plugins: [buildIdPlugin()],
   server: {
     port: 5173,
     host: '127.0.0.1',

@@ -393,7 +393,7 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | Vanilla JS + Canvas2D, no engine | One dependency, instant startup, total control of the render loop. Nothing here needs a framework. |
 | All art generated in code | No asset pipeline, no binary files in git, and the whole look stays consistent because one file draws everything. |
 | Fixed 60Hz sim with an accumulator | A stalled tab must not fast-forward the world. |
-| Co-op version check is a git-derived build id, not a hand-bumped constant | `PROTOCOL` stayed at 1 while the map expansion rewrote world generation, so the check that exists to catch exactly that never fired. A value derived from `git log -1 -- src/` cannot be forgotten. Keyed on `src/` so a docs-only commit does not refuse an otherwise identical pair, and `-dirty` when the tree has uncommitted game code. |
+| Co-op version check is a git-derived build id, not a hand-bumped constant | `PROTOCOL` stayed at 1 while the map expansion rewrote world generation, so the check that exists to catch exactly that never fired. A value derived from `git log -1 -- src/` cannot be forgotten. Keyed on `src/` so a docs-only commit does not refuse an otherwise identical pair, and a digest of the uncommitted changes when the tree is dirty, so two people editing the same commit differently do not land on the same id. |
 | Threat meter instead of a day-N raid timer | Ties danger to player behaviour, which is pillar 6. A calendar would make power free. |
 | Bullets ignore player structures | Pillar 3. Tested the alternative; a walled base could not defend itself. |
 | Enemy `structMul` split from `dmg` | Lets walkers threaten the player while brutes threaten walls. This is what makes raid 3 feel like a different game. |

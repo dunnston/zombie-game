@@ -63,9 +63,22 @@ trap cleanup EXIT INT TERM
 
 # ------------------------------------------------------------------ ports --
 
-# Windows prints LISTENING, mac/linux print LISTEN — -i catches both.
+# Is something listening on this port?
+#
+# Deliberately not netstat: a minimal Linux install (Debian/Ubuntu slim, Alpine,
+# most containers) ships no net-tools, and `ss`/`lsof` are absent on plenty of
+# Windows and mac setups — this machine has netstat but neither of the others.
+# A tool-detection chain is fragile in both directions. Node is the one thing
+# guaranteed present, because it is what runs the game, so just try to connect.
 port_busy() {
-  netstat -an 2>/dev/null | grep -E "[:.]$1[[:space:]]" | grep -qi listen
+  node -e '
+    const net = require("net");
+    const s = net.connect({ host: "127.0.0.1", port: Number(process.argv[1]) });
+    const no = () => { s.destroy(); process.exit(1); };
+    s.on("connect", () => { s.destroy(); process.exit(0); });
+    s.on("error", no);
+    s.setTimeout(1500, no);
+  ' "$1" 2>/dev/null
 }
 
 require_free_port() {
@@ -115,12 +128,9 @@ open_url() {
   fi
 }
 
-# Which build this checkout is — must match the exact rule in vite.config.js,
-# because this is the number the two players read to each other.
+# Which build this checkout is. Delegated to the one definition that
+# vite.config.js also imports, so the number a player reads here is by
+# construction the number the handshake compares.
 build_id() {
-  local sha dirty
-  sha="$(git log -1 --format=%h -- src/ 2>/dev/null || true)"
-  [ -z "$sha" ] && { echo "dev"; return; }
-  dirty="$(git status --porcelain src/ 2>/dev/null || true)"
-  if [ -n "$dirty" ]; then echo "${sha}-dirty"; else echo "$sha"; fi
+  node scripts/build-id.mjs 2>/dev/null || echo dev
 }

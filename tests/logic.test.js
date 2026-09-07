@@ -1368,6 +1368,32 @@ test('a guest on a different build is refused, and told what to run', async () =
   assert.match(OUT_OF_DATE, /update\.sh/);
 });
 
+test('two dirty checkouts of the same commit do not share a build id', async () => {
+  const { execSync } = await import('node:child_process');
+  const { writeFileSync, unlinkSync } = await import('node:fs');
+  const { buildId } = await import('../scripts/build-id.mjs');
+
+  const clean = execSync('git status --porcelain src/').toString().trim() === '';
+  const before = buildId();
+
+  // A bare `-dirty` suffix would collide here: same commit, different edits,
+  // identical id — and joinRefusal would wave through exactly the mismatch it
+  // exists to catch.
+  const probe = 'src/__buildid_probe__.js';
+  writeFileSync(probe, '// scratch\n');
+  try {
+    const withProbe = buildId();
+    assert.notEqual(withProbe, before, 'an untracked source file changes the id');
+    writeFileSync(probe, '// scratch, but different\n');
+    assert.notEqual(buildId(), withProbe, 'different contents give a different id');
+  } finally {
+    unlinkSync(probe);
+  }
+
+  assert.equal(buildId(), before, 'and removing it puts the id back');
+  if (clean) assert.ok(!/-dirty/.test(before), 'a clean tree has no dirty suffix');
+});
+
 test('an intent survives the wire: packed, unpacked, and merged without losing an edge', async () => {
   const { packIntent, unpackIntent, mergeIntent } = await import('../src/net/protocol.js');
   const { makeIntent } = await import('../src/game/intent.js');

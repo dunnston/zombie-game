@@ -39,11 +39,12 @@ else
 fi
 
 case "$after" in
-  *-dirty)
+  *-dirty.*)
     warn "
-Your build id ends in -dirty: you have uncommitted changes under src/.
-Your friend cannot match that, so co-op will refuse the join. Commit or
-stash them before playing together."
+Your build id carries a -dirty digest: you have uncommitted changes under src/.
+The digest is of the changes themselves, so another machine only matches if it
+has byte-for-byte the same edits. Commit and push them, and have the other
+player run this script, before expecting co-op to let you in together."
     ;;
 esac
 

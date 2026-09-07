@@ -19,7 +19,7 @@ import { removeProp } from '../game/world.js';
 import { addPlayer } from '../game/state.js';
 import { seedLoot } from '../game/loot.js';
 import { joinRoom, signalUrl } from './transport.js';
-import { PROTOCOL, OUT_OF_DATE, msg, unpackIntent, tickStats, makeStats } from './protocol.js';
+import { PROTOCOL, OUT_OF_DATE, msg, refreshBuild, unpackIntent, tickStats, makeStats } from './protocol.js';
 import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
 import { makeRng, TAU, clamp } from '../core/util.js';
@@ -69,7 +69,9 @@ export async function joinGame({ code, passwordHash, identity }) {
       else if (m.t === 'reject') { clearTimeout(timer); reject(new Error(m.reason || 'refused')); }
     });
     peer.onClose(() => { clearTimeout(timer); reject(new Error('the host closed the connection')); });
-    peer.send('reliable', msg.hello(identity.id, identity.name, passwordHash));
+    // Under HMR this page may have been edited since the server booted, so
+    // resolve what we are really running before claiming a version.
+    refreshBuild().then(() => peer.send('reliable', msg.hello(identity.id, identity.name, passwordHash)));
   }).catch((err) => {
     leaveGame(false);
     G.net.error = String(err && err.message || err);
