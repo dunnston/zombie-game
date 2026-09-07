@@ -393,6 +393,7 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | Vanilla JS + Canvas2D, no engine | One dependency, instant startup, total control of the render loop. Nothing here needs a framework. |
 | All art generated in code | No asset pipeline, no binary files in git, and the whole look stays consistent because one file draws everything. |
 | Fixed 60Hz sim with an accumulator | A stalled tab must not fast-forward the world. |
+| Co-op version check is a git-derived build id, not a hand-bumped constant | `PROTOCOL` stayed at 1 while the map expansion rewrote world generation, so the check that exists to catch exactly that never fired. A value derived from `git log -1 -- src/` cannot be forgotten. Keyed on `src/` so a docs-only commit does not refuse an otherwise identical pair, and `-dirty` when the tree has uncommitted game code. |
 | Threat meter instead of a day-N raid timer | Ties danger to player behaviour, which is pillar 6. A calendar would make power free. |
 | Bullets ignore player structures | Pillar 3. Tested the alternative; a walled base could not defend itself. |
 | Enemy `structMul` split from `dmg` | Lets walkers threaten the player while brutes threaten walls. This is what makes raid 3 feel like a different game. |
@@ -797,6 +798,15 @@ input (`key`, `tap`, `mouseDown`, `aimAt`) and the whole `api` surface.
 
 Newest first. One line per meaningful change.
 
+- **2026-09-07** — Launch scripts, and a version check that actually fires.
+  `scripts/play-local.sh`, `scripts/play-online.sh` and `scripts/update.sh`
+  reduce a co-op session to one command each; the online one pins cloudflared's
+  `--metrics` port and reads the tunnel hostname back from `/quicktunnel`, so
+  it prints the finished share link instead of leaving you to scrape it out of
+  the terminal. The join handshake now carries a build id derived from the last
+  commit touching `src/` (stamped in by `vite.config.js`), so a friend on any
+  other commit is refused with a message naming the fix — `PROTOCOL` had sat at
+  1 through the entire map expansion without ever catching it.
 - **2026-09-07** — Save → v10, from the Codex review of the gathering PR.
   Raising the town's woodland floor and adding the litter pass moved the
   generator's rng stream, so a v9 save rebuilt from its seed would replay its

@@ -19,7 +19,7 @@ import { removeProp } from '../game/world.js';
 import { addPlayer } from '../game/state.js';
 import { seedLoot } from '../game/loot.js';
 import { joinRoom, signalUrl } from './transport.js';
-import { PROTOCOL, msg, unpackIntent, tickStats, makeStats } from './protocol.js';
+import { PROTOCOL, OUT_OF_DATE, msg, unpackIntent, tickStats, makeStats } from './protocol.js';
 import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
 import { makeRng, TAU, clamp } from '../core/util.js';
@@ -116,7 +116,7 @@ export function leaveGame(sayBye = true) {
 
 function applyWelcome(m, identity) {
   const ok = applySaveData(m.world);
-  if (!ok) throw new Error('the host sent a world this version cannot read');
+  if (!ok) throw new Error(OUT_OF_DATE);
   seedLoot((G.world.seed ^ 0x9E3779B9) >>> 0);
   G.slotId = null;               // guests do not save; the host remembers them
   G.mode = 'coop';

@@ -11,7 +11,7 @@ import { serialiseGame, playerRecord } from '../game/save.js';
 import { saveGame } from '../game/saves.js';
 import { hostRoom, signalUrl } from './transport.js';
 import {
-  PROTOCOL, MAX_PLAYERS, SNAP_EVERY, SYNC_INTERVAL, INTENT_TIMEOUT_MS, msg, mergeIntent, mergeLateIntent,
+  joinRefusal, MAX_PLAYERS, SNAP_EVERY, SYNC_INTERVAL, INTENT_TIMEOUT_MS, msg, mergeIntent, mergeLateIntent,
   packSnapshot, packRoster, packStructure, makeStats, tickStats,
 } from './protocol.js';
 import { clearIntent } from '../game/intent.js';
@@ -139,7 +139,8 @@ function expireSilentIntents() {
 
 function admit(guest, m) {
   const reject = (reason) => { guest.peer.send('reliable', msg.reject(reason)); setTimeout(() => guest.peer.close(), 200); };
-  if (m.p !== PROTOCOL) return reject('your game is a different version');
+  const stale = joinRefusal(m.p, m.b);
+  if (stale) return reject(stale);
   if (H.pwHash && m.pw !== H.pwHash) return reject('wrong password');
   if (!G.world || !G.player) return reject('the host has not started a game yet');
 
