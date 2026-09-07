@@ -640,3 +640,33 @@ once as "does the other side see it?" and once as "does the *actor* see it?"
 The second is the one the tests miss, because the loopback suite drives the
 host. It now has a section that makes the page a guest and runs
 `updateClient()` for real.
+
+### Changing the generator is changing the save format
+
+Raising a probability in world generation looks like a content tweak. It is
+not: saves store a seed, and everything else — which props were felled, where
+structures stand — is replayed against a world rebuilt from it. Move the rng
+stream and the replay lands on different props. Measured on one such change:
+containers and vehicles were identical (generated before the woodland pass),
+but 308 props had left their tile and 141 had changed kind, and a tree could
+regrow inside a wall the player had built.
+
+The fix is a version bump, which the project has always done for content
+changes — but nothing enforced it, so it was missed. A Node test now
+fingerprints the generated world (tiles, container ordinals, prop grid,
+vehicle count) and fails unless the fingerprint and `G.version` move together.
+
+**Rule:** if the world is rebuilt from a seed at load time, the generator *is*
+part of the save format. Pin it with a test, not with discipline.
+
+### Refusing to load is not enough; say why
+
+Bumping the version made two silent paths visible. CONTINUE, on a save it
+could not read, quietly started a *brand new world* — which to a player is
+"the game deleted my run". LOAD did nothing at all: a dead button. Both had
+been that way for as long as save versions have existed, and neither had ever
+been hit because nobody had loaded a stale save.
+
+**Rule:** every refusal needs a sentence. "That save is from an older build
+(v9, this is v10) — the map changed" costs one line and turns a bug report
+into a shrug.

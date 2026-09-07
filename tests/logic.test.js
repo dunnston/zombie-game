@@ -1134,6 +1134,37 @@ test('the hammer stands in for a bench only on simple work', () => {
   assert.deepEqual(Object.keys(cord.cost), ['fiber']);
 });
 
+test('the world layout is pinned to the save version', () => {
+  // A save replays `chopped` tile keys and restores structures against a world
+  // rebuilt from its seed, so ANY change to the generator's RNG stream silently
+  // corrupts existing saves: felled props come back, different ones vanish, and
+  // a tree can regrow inside a wall the player built. Invariant 7.
+  //
+  // If you changed world generation on purpose, that is fine — bump
+  // `G.version` in state.js and update this fingerprint in the same commit.
+  // If you did not, something perturbed the shared rng and you have just
+  // invalidated every save without saying so.
+  const w = createWorld(20240917);
+  let h = 2166136261;
+  const mix = (n) => { h ^= n | 0; h = Math.imul(h, 16777619) >>> 0; };
+  for (let i = 0; i < w.tiles.length; i += 97) mix(w.tiles[i]);
+  mix(w.containers.length);
+  for (const c of w.containers) { mix(c.tx); mix(c.ty); }
+  mix(w.propGrid.size);
+  for (const [key, prop] of w.propGrid) {
+    for (let i = 0; i < key.length; i++) mix(key.charCodeAt(i));
+    mix(prop.harvest ? prop.harvest.length : 0);
+  }
+  mix(w.vehicleSpawns.length);
+
+  const FINGERPRINT = 'df706f76';
+  const SAVE_VERSION = 10;
+  assert.equal((h >>> 0).toString(16), FINGERPRINT,
+    `world generation changed. If that was deliberate, bump G.version (now ${G.version}) and this fingerprint together`);
+  assert.equal(G.version, SAVE_VERSION,
+    'the save version moved without the world fingerprint being rechecked');
+});
+
 test('world generation is deterministic for a seed', () => {
   const a = createWorld(4242);
   const b = createWorld(4242);

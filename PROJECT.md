@@ -75,7 +75,7 @@ farms, a forest, a river and a city — and nobody has played the new ground yet
 | Source | 42 modules, ~15,400 lines. Browser bundle depends on Vite only; the broker on `ws`. |
 | Assets | Zero. Every sprite is drawn in code at boot; every sound is WebAudio. |
 | Tests | 90 Node assertions; browser suite 384 (`npm test`, `npm run smoke`) |
-| Save format | **v9** payload (the 320-tile world; v8 was players by identity), in **slots** (index v1) |
+| Save format | **v10** payload (the litter pass moved the generator's rng stream), in **slots** (index v1) |
 | Performance | ~60fps with 90 active enemies; ~66 KB/s per guest on the wire |
 
 ### Multiplayer — where it stands
@@ -454,6 +454,8 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | Every hand tool is bench-0, and a poor weapon | The tools are made of gathered material and unlock more gathering, so gating any of them behind the workbench (which costs wood, which needs the hatchet) would deadlock the opening. They are weak on purpose: a tool tier that also won fights would make the machete and the pipe pointless. A Node test asserts both — bench 0, cost only from `sticks`/`stone`/`fiber`, damage under a machete's. |
 | Small scenery is never gated; big scenery always is | If a pickaxe were needed for *all* stone, the pickaxe could not be made. So each material has a hand source (rock, bush) and a gated source worth three times as much (boulder, thicket). `needs` is the gate, `boost` is the bonus, and `HARVEST` is keyed by rule rather than by resource precisely so a boulder and a rock can both give stone on different terms. |
 | The Stone Hammer is a bench for simple work only | "Craft anywhere" would make the workbench pointless and put a pistol in the first two minutes. The hammer lifts exactly the recipes marked `hammer` (a pipe, lockpicks, ration packs) to bench 1, never to II, and a test asserts it can never produce a gun. |
+| A generator change bumps the save version, and a test enforces it | A save replays `chopped` keys and restores structures against a world rebuilt from its seed, so any change to the shared rng stream silently corrupts it — felled props return, others vanish, and a tree can regrow inside a wall. Measured on this change: containers and vehicles were untouched (they are generated before the woodland pass) but 308 props left their tile and 141 changed kind. A Node test now fingerprints the generated world and fails unless the fingerprint and `G.version` are updated together, so this cannot happen quietly again. |
+| A save that will not load says why | Refusing a stale save silently was worse than the corruption it prevents: CONTINUE started a brand-new world (reading as "it lost my game") and LOAD did nothing at all. Both now name the version and the reason. |
 | Raw material is picked up with the interact key, not swung at | The first playtest of the tool tier could not start the game: the player ran around, found no sticks, stone or fiber, and had no reason to guess that a bush is *hit* rather than *taken*. Anything you could pick up with your hands now answers `E` with a named prompt, and the ground is littered with material that needs no tool at all. Swinging still works and a matching tool still yields more, so the tier above is untouched. |
 | The town centre is the thinnest ground, and the player starts in it | Woodland density was a function of distance from the town's *edge*, so the middle of town — where the spawn is — had a floor of 0.05, and there were literally zero bushes or rocks within ten tiles of the starting crossroads. The floor is 0.18 now, and litter is scattered independently of it. Measured, not guessed: a Node test fails if there is not enough within fifteen tiles of the camp to build the first tool. |
 | Trees need an axe, and the axe needs no bench | Wood is gated behind a tool, the tool behind gathering — a real first ten minutes (break bushes and rocks, craft the hatchet, fell a tree, build the bench) instead of hitting a tree with a pipe. The hatchet is bench-0 and costs only hand-gathered things, because the workbench itself costs wood. Asked for by the owner. |
@@ -795,6 +797,14 @@ input (`key`, `tap`, `mouseDown`, `aimAt`) and the whole `api` surface.
 
 Newest first. One line per meaningful change.
 
+- **2026-09-07** — Save → v10, from the Codex review of the gathering PR.
+  Raising the town's woodland floor and adding the litter pass moved the
+  generator's rng stream, so a v9 save rebuilt from its seed would replay its
+  `chopped` keys against different props and could regrow a tree inside a
+  built wall. Containers and vehicles were unaffected. The version bump makes
+  it honest; a world fingerprint test makes the next one impossible to miss;
+  and a refused save now says which build it came from rather than failing
+  silently.
 - **2026-09-07** — A guest can see its own weapon swing. Reported from real
   co-op play: the remote player's attack animation showed on the host's screen
   but not their own. The snapshot carries a swing flag and applies it only to

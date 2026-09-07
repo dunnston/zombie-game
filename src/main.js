@@ -14,7 +14,7 @@ import { drawHUD, pauseActions } from './ui/hud.js';
 import { drawMenu, menuDebug } from './ui/menu.js';
 import { update, newGame, toTitle, api } from './game/game.js';
 import {
-  saveGame, migrateLegacy, listSlots, createSlot, deleteSlot, loadSlot, saveToSlot, latestSlot,
+  saveGame, migrateLegacy, listSlots, createSlot, deleteSlot, loadSlot, saveToSlot, latestSlot, slotPayloadVersion,
 } from './game/saves.js';
 import {
   ACTIONS, codesFor, rebind, resetBinds, keyLabel, actionLabel, conflictsFor, loadBinds,
@@ -168,7 +168,7 @@ window.DEADLINE = {
   // The title screen, save slots and key bindings, for the browser suite.
   menu: menuDebug,
   toTitle,
-  saves: { listSlots, createSlot, deleteSlot, loadSlot, saveToSlot, latestSlot },
+  saves: { listSlots, createSlot, deleteSlot, loadSlot, saveToSlot, latestSlot, slotPayloadVersion },
   binds: { ACTIONS, codesFor, rebind, resetBinds, keyLabel, actionLabel, conflictsFor, loadBinds },
   // Networking, for the browser suite: host without a broker and drive a fake
   // guest through an in-memory loopback.
