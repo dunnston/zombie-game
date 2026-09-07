@@ -46,7 +46,12 @@ in a new off-hand slot.
       `G.stash.wood = 200` in 42 places), the six equipment slots and the new
       container prompt.
 - [x] Docs: PROJECT.md §3 §4 §5 §6 §7 §8 §9 §11, README, this file, lessons.
-- [ ] `npm run smoke` and the raid harness — **not run**; see the review note.
+- [x] `npm run smoke` — **395/395**, no runtime errors. Eight failures on the
+      first complete run, all fixed: three were the suite assuming infinite
+      storage, one was the intended armament change, and four were a fixed
+      four-frame wait for a loopback welcome that takes sixteen.
+- [x] Raid harness 1–3 — all completed, none near the 300s backstop. Two
+      figures moved and PROJECT.md §9 records why.
 - [ ] The owner plays it.
 
 ### Review
@@ -66,12 +71,22 @@ third copy of the loot entry-id encoder the decision log says must be unique.
 And `posted` and `sniping` were two different answers to "is this survivor on
 their tower", so one walking toward it already had sniper ballistics.
 
-**Not verified: the full browser suite and the raid harness.** The standing
-instruction is not to run either unasked. This round touches combat, enemies,
-structures and raids, which is exactly the case CLAUDE.md says the raid harness
-exists for, so the §9 reference figures could legitimately have moved. The
-smoke suite was *edited* for the slot stash and has not been run since. Both
-should go before this is merged.
+**Both suites run, on request.** `npm test` 126/126, browser **395/395**,
+`DEADLINE.errors` empty, raid harness 1–3 all completing.
+
+The browser suite needed real work to run at all. It poked `G.stash.wood = 200`
+in 42 places, which a slot container ignores, and it could not report any of
+its own failures: one linear function meant a single null dereference threw the
+whole run away — no results, no cleanup. Its body is wrapped now, and
+`setStash` frees space rather than silently under-delivering.
+
+**The raid figures moved, and the reason is the point of the round.** Index 1's
+walls took more damage (90% → 48%) and index 3 resolved in 77s rather than
+150–260s. Both because turrets make noise now: the horde is pulled onto the
+thing shooting at it rather than wandering or chasing the player, so more of
+them reach the walls sooner and far fewer end up as stragglers — which is what
+the long tail on index 3 was. Index 2 landed squarely in its old band, and
+nothing came near the 300s backstop.
 
 ## Previous round — mining balance and the metal tool tier
 

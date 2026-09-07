@@ -774,7 +774,7 @@ noise radii and falloff, the bow against a walker, the armament ladder, and
 that fire never touches a player structure.
 
 `tests/browser-smoke.js` is injected into the running dev server and drives the
-live game through 386 assertions using synthetic input events — the title
+live game through 395 assertions using synthetic input events — the title
 screen, save slots and key rebinding driven by real clicks, movement, aiming,
 melee, gunfire, ammo, reloading, enemy pursuit, taking damage, searching
 containers, carry-capacity overflow, structure placement and cost, walls

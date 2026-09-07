@@ -75,7 +75,7 @@ farms, a forest, a river and a city — and nobody has played the new ground yet
 | --- | --- |
 | Source | 44 modules, ~18,700 lines. Browser bundle depends on Vite only; the broker on `ws`. |
 | Assets | Zero. Every sprite is drawn in code at boot; every sound is WebAudio. |
-| Tests | 126 Node assertions; browser suite 384 (`npm test`, `npm run smoke`) |
+| Tests | 126 Node assertions; browser suite 395 (`npm test`, `npm run smoke`) |
 | Save format | **v12** payload (a third litter cut, and the stash became a slot container), in **slots** (index v1) |
 | Performance | ~60fps with 90 active enemies; ~66 KB/s per guest on the wire |
 
@@ -779,7 +779,7 @@ round. Current expected totals:
 | Suite | Expected |
 | --- | --- |
 | `npm test` (Node, pure logic) | 126 |
-| `tests/browser-smoke.js` | 384 · about 220s |
+| `tests/browser-smoke.js` | 395 · about 230s |
 
 **Run the browser suite with the page visible and focused.** Its waits are
 counted in animation frames. A backgrounded tab throttles
@@ -882,10 +882,20 @@ flatten it.
 
 | Index | Spec | Duration | Structures lost | Walls dropped to |
 | --- | --- | --- | --- | --- |
-| 1 | RUNNING HORDE | ~70s | 0 | ~90% |
-| 2 | HEAVY HORDE | ~80s | 0–2 | ~12–34% |
-| 3 | SIEGE | ~150–260s | the whole base | 0% |
+| 1 | RUNNING HORDE | ~70–76s | 0 | ~48–90% |
+| 2 | HEAVY HORDE | ~80–87s | 0–2 | ~12–34% |
+| 3 | SIEGE | ~77–260s | the whole base | 0% |
 | 5 | BEHEMOTH SIEGE +1 | overwhelming | the whole base | 0% |
+
+**Measured again on 2026-09-07** after the survival round (76s/0 lost/48%,
+87s/2 lost/27%, 77s/9 lost/0%). Index 2 landed squarely in its old band; two
+figures moved and both have the same cause. Index 1's walls took more damage
+(90% → 48%) and index 3 resolved far faster (150–260s → 77s), because **turrets
+now make noise**: the horde is pulled onto the thing shooting at it instead of
+wandering or chasing the player around the compound. More of them reach the
+walls, sooner, and far fewer end up as stragglers — which is why the long tail
+on index 3 disappeared. No raid came near the 300s backstop, which is the
+figure that actually matters.
 
 **These are single runs of a stochastic harness — treat them as ranges, not
 figures.** Index 3 has been measured at 154s, 177s, 261s and 274s on identical
@@ -951,7 +961,9 @@ Newest first. One line per meaningful change.
   — arrows 90, fire 120, sniper 700, cannon 950. **Fire**: burning zombies
   spread to zombies and to scenery, burn out and take the prop with them, and
   hurt whoever stands in them. Player structures never catch, by choice.
-  Save → v12, fingerprint `a62c50c2` → `cd427428`. Node 126.
+  Save → v12, fingerprint `a62c50c2` → `cd427428`. Node 126, smoke 395,
+  raid harness 1–3 all completing — index 1 and 3 moved, because a turret that
+  makes noise pulls the horde onto itself.
 
 - **2026-09-07** — Mining balance, and the metal tool tier. The owner: "there
   are WAY too many sticks, stones and fiber on the map... it is way too easy to
