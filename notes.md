@@ -1,14 +1,19 @@
 # Notes & feedback
 
-Quick jot-it-down log for anything either of us notices while playing or just
-thinking about the game — a bug, an idea, a "this felt off" moment. Doesn't
-need to be tidy. Add new entries at the top.
+> **The main place for this is now Notion:**
+> https://app.notion.com/p/3d510d456b168121bc2ad63cf545e76a
+>
+> Ideas, the roadmap kanban and the playtest log live there, because it is
+> better on a phone and each idea gets its own comment thread. Claude reads
+> that board at the start of a session.
 
-When something here is worth acting on, pull it into `PROJECT.md` (roadmap or
-decision log) or `tasks/todo.md`, then delete or check it off here.
+This file stays for anything jotted at a terminal, mid-session, when opening a
+browser is more friction than it is worth. Add new entries at the top; anything
+here gets moved onto the Notion board when it is triaged.
 
 Format: `- YYYY-MM-DD (initials): note`
 
 ---
 
-- 2026-09-08 (RD): set up this file to jot notes from phone/anywhere.
+- 2026-09-08 (RD): set up the Notion workspace; this file is now the scratch
+  overflow rather than the main log.

@@ -16,7 +16,8 @@ contradicts the code, the code is right and this file needs fixing — say so.
 | `README.md` | Player- and developer-facing docs. How to run, controls, systems. |
 | `tasks/todo.md` | Per-round working plan and its review notes. |
 | `tasks/lessons.md` | Raw running log of lessons. This file holds the distilled version. |
-| `notes.md` | Raw feedback/idea log either of us can add to (phone-friendly via GitHub's mobile web editor). Triaged into here or `tasks/todo.md`, then cleared. |
+| `notes.md` | Scratch feedback log for anything jotted at a terminal. Triaged into here or Notion, then cleared. |
+| [Notion](https://app.notion.com/p/3d510d456b168121bc2ad63cf545e76a) | **Ideas, the roadmap kanban and the playtest log.** Where the owner and their co-dev capture things from a phone, and where discussion of an idea happens. See `CLAUDE.md` for the data source ids. |
 
 ---
 
@@ -553,6 +554,7 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | The cannon is worse than a sniper rifle one-on-one | It is artillery. Its 70px splash is the reason to own it, and the balance test measures it against a crowd rather than against a single walker — otherwise the numbers would have been "fixed" into making it a louder sniper. |
 | Fire spreads to zombies and scenery and never to player structures | The owner chose this when asked how dangerous fire should be. Losing your own compound to your own tower is the kind of surprise that ends a run. There is no code path from a fire to `G.structures`, and a Node test reads the module (comments stripped) to keep it that way. |
 | A burn asks `damageEnemy` not to re-alert | It ticks several times a second, and `damageEnemy` sets `aggro` and resets `target` on every call — a burning zombie would be permanently aggravated and permanently forgetting where it was going. |
+| Ideas and the roadmap live in Notion, not in the repo | Asked for a place to jot feedback from a phone. A `notes.md` was built first and is the honest default — versioned, diffable, no second tool. It lost on two things a text file cannot do: editing markdown through GitHub's mobile web editor is enough friction to stop a thought being written down at all, and **an idea needs a conversation attached to it**, which a shared append-only file cannot hold. Notion has a real mobile app, comment threads per idea, and an MCP connector so a session can read and update the board directly. The cost is accepted and real: the board is outside git, so it has no history alongside the code and a triaged idea has to be copied into `PROJECT.md` by hand. The split is **game talk in Notion, engineering truth in the repo** — when an idea becomes a decision it belongs in this table, not only on the card. |
 | A burnt prop is removed the way a chopped one is | `removeProp` plus `emit('prop')`, so a guest sees it go and the save's `chopped` replay stays consistent. A burnt treeline has to still be burnt when the game is loaded again. |
 
 ---
@@ -962,6 +964,19 @@ input (`key`, `tap`, `mouseDown`, `aimAt`) and the whole `api` surface.
 ## 11. Changelog
 
 Newest first. One line per meaningful change.
+
+- **2026-09-08** — A place to think about the game away from the keyboard. The
+  owner and their co-dev needed somewhere to jot ideas and feedback from a
+  phone. `notes.md` landed first and stays as terminal-side scratch; the real
+  home is a **Notion workspace** — an *Ideas & Roadmap* database (Stage:
+  `Inbox → Next up → In progress → In review → Shipped`, plus `Someday` and
+  `Dropped`; Type: Idea / Bug / Feel / Balance / Polish / Question / Chore;
+  Area, Priority, PR link) with five views including the roadmap kanban, and a
+  *Playtest Log* related to it, so a session's findings link to the cards they
+  produced. Seeded from §7 and §3: eight `Next up`, fifteen `Someday`, fourteen
+  `Shipped`, and the 2026-09-06 playtest with what it produced. `CLAUDE.md`
+  carries the data source ids so a session can read the board through the
+  Notion MCP tools and move cards as it works. No code changed.
 
 - **2026-09-08** — The survival round: twelve notes from a play session, in one
   PR. **Stamina**: a harvest swing costs 6 and stops recovery, so a full bar is

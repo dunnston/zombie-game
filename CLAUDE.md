@@ -24,6 +24,35 @@ audio assets — everything is generated in code.
 If the code contradicts `PROJECT.md`, the code is right — fix the document and
 mention it.
 
+## Notion — where the ideas and the roadmap live
+
+The owner and their co-dev capture ideas, bugs and feel feedback in Notion
+(often from a phone). **Read the board at the start of a session** through the
+Notion MCP tools, and keep it current as you work — it is how work gets picked,
+not a status report about work already chosen.
+
+| | |
+| --- | --- |
+| Hub page | https://app.notion.com/p/3d510d456b168121bc2ad63cf545e76a |
+| Ideas & Roadmap | `collection://758ab984-3e64-4b1c-b18f-7e5d00c56023` |
+| Playtest Log | `collection://3b7db621-022c-4f26-a8c7-ca30e8610bcb` |
+
+- **`Stage`** runs `Inbox → Next up → In progress → In review → Shipped`, plus
+  `Someday` and `Dropped`. **`Type`** is Idea / Bug / Feel / Balance / Polish /
+  Question / Chore.
+- Work what is in **`Next up`**. Triage anything sitting in `Inbox` — give it a
+  Type, an Area and a Priority, and propose a Stage.
+- Move the card as you go, and put the PR link in `Link`. A card reaching
+  `Shipped` should also get its **§11 Changelog** line here.
+- **`Feel` entries outrank everything else on the board.** They are the only
+  findings that cannot be reached by reading the code or running the suites.
+- Discussion lives in Notion **comments** on the card. Read them before acting
+  on an idea; the reasoning is usually there rather than in the title.
+
+Notion holds the *game* conversation. `PROJECT.md` holds the *engineering*
+truth. When something graduates from an idea to a decision, it belongs in the
+**§6 Decision log** here, not only on the card.
+
 ## Design pillars (these settle arguments)
 
 1. Survival **without** survival-game chores. No thirst, hunger, sleep or long
@@ -98,6 +127,5 @@ failures — a dev server that had quietly died, a backgrounded page whose
 - Reproduce a review finding against the running game before fixing it.
 - Branch, PR, wait for the Codex review, address it, then merge.
 - The owner has still not played this. Their feel feedback outranks the roadmap.
-- Check `notes.md` at the start of a session — it's where the owner and their
-  co-dev jot quick feedback/ideas (often from a phone). Triage it into
-  `PROJECT.md` or `tasks/todo.md` and clear entries once actioned.
+- Check the Notion board (above) at the start of a session, and `notes.md` for
+  anything jotted at a terminal.
