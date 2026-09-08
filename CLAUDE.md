@@ -98,3 +98,6 @@ failures — a dev server that had quietly died, a backgrounded page whose
 - Reproduce a review finding against the running game before fixing it.
 - Branch, PR, wait for the Codex review, address it, then merge.
 - The owner has still not played this. Their feel feedback outranks the roadmap.
+- Check `notes.md` at the start of a session — it's where the owner and their
+  co-dev jot quick feedback/ideas (often from a phone). Triage it into
+  `PROJECT.md` or `tasks/todo.md` and clear entries once actioned.

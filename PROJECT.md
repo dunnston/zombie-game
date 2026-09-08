@@ -16,6 +16,7 @@ contradicts the code, the code is right and this file needs fixing — say so.
 | `README.md` | Player- and developer-facing docs. How to run, controls, systems. |
 | `tasks/todo.md` | Per-round working plan and its review notes. |
 | `tasks/lessons.md` | Raw running log of lessons. This file holds the distilled version. |
+| `notes.md` | Raw feedback/idea log either of us can add to (phone-friendly via GitHub's mobile web editor). Triaged into here or `tasks/todo.md`, then cleared. |
 
 ---
 
