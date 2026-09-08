@@ -2,7 +2,8 @@
 // interactions, the tutorial, and autosave.
 
 import {
-  TILE, PLAYER, THREAT, STRUCTURES, CAMERA, WEAPONS, RECIPES, GEAR, GEAR_SLOTS,
+  TILE, PLAYER, THREAT, STRUCTURES, CAMERA, WEAPONS, RECIPES, GEAR, GEAR_SLOTS, STASH_SLOTS,
+  ARMAMENTS, ARMAMENT_IDS, DEFAULT_ARMAMENT,
 } from './config.js';
 import {
   G, notify, structAtPx, solidPx, shake, addRes, addResCapped, countRes, pointerOverHud,
@@ -18,7 +19,7 @@ import {
   equipFromBag, unequip, equipBest, moveStack, dropStack, dropEquipped,
 } from './equipment.js';
 import {
-  ITEMS, slotsCount, slotsAdd, slotsTake, slotsEntries, slotsClear, packAllowance,
+  ITEMS, slotsCount, slotsAdd, slotsTake, slotsEntries, slotsClear, packAllowance, makeSlots,
 } from './items.js';
 import {
   updateEnemies, updateSpawning, rebuildSpatial, seedArea, spawnEnemy,
@@ -32,7 +33,7 @@ import {
   buildMenu, canPlace, placeStructure, repairStructure, demolishStructure,
   updateGenerators, updateFloodlights, useGenerator, generatorRunning,
   upgradeBench, nearestStructure, nearWorkbench,
-  stashDepositAll, stashWithdrawAmmo, structureCost, isUnlocked, BUILD_RANGE,
+  stashDepositAll, stashWithdrawAmmo, depositAll, withdrawSupplies, structureCost, isUnlocked, BUILD_RANGE,
   baseCenter, refreshBedrolls,
   repairCost, repairAll, planRepairAll, damagedStructures, isDamaged, costLabel, REPAIR_ALL_RANGE,
 } from './building.js';
@@ -59,14 +60,17 @@ import {
   updateSurvivors, updateUpkeep, seedRescues, recruit, reviveSurvivor,
   liveSurvivors, survivorCap, refreshAllSurvivors, makeSurvivor,
   rationsHeld, rationsCarried, JOBS, JOB_IDS, rosterLimits, freeTowers,
+  buyArmament, setTowerArmament, towerArmament, armamentUnlocked,
   assignJob, SCAVENGE, BUILDER, SURVIVOR,
 } from './survivors.js';
-import { cancelDrag, lastZones, isDragging } from '../ui/inventory.js';
+import { cancelDrag, lastZones, isDragging, openStructure } from '../ui/inventory.js';
 import { act } from '../net/actions.js';
 import { hostAfterUpdate } from '../net/host.js';
 import { updateClient, sendIdleIntent } from '../net/client.js';
 import { emit } from '../net/events.js';
-import { structChanged, netHooks } from './state.js';
+import { structChanged, netHooks, equippedLight } from './state.js';
+import { makeNoise, NOISE } from './noise.js';
+import { updateFire, resetFires, ignite, igniteProp, FIRE } from './fire.js';
 import { updateFX, clearFX } from '../core/particles.js';
 import * as FX from '../core/particles.js';
 // Only UI keys are read here — panels, build mode, pause. Everything the
@@ -87,6 +91,16 @@ export const TUTORIAL = [
   { id: 'build', text: () => `Press ${k('build')} to build  ·  place a BEDROLL to set your respawn` },
   { id: 'bench', text: () => `Build a WORKBENCH, then press ${k('craft')} beside it to craft  ·  a HATCHET is craftable by hand` },
   { id: 'threat', text: () => 'Watch the THREAT bar — activity draws a horde to your base' },
+  // The owner's note was "without it when it is dark it is very hard to see".
+  // The torch is the answer and it costs two things the ground is covered in,
+  // so the only real problem is knowing it exists. Silent until dusk, and
+  // silent once you are carrying a light.
+  {
+    id: 'light',
+    text: () => (darkness().alpha > 0.3 && !equippedLight(G.player)
+      ? `It is getting dark — craft a TORCH (3 sticks, 3 fiber) and press ${k('light')} to light it`
+      : null),
+  },
   // Only speaks up once something has actually been hit; until then it is silent.
   {
     id: 'repair',
@@ -117,8 +131,9 @@ export function newGame(seed = 20240917) {
   G.survivorSeq = 0;
   G.rationDebt = 0;
   initClock();
-  G.stash = {};
-  G.stashItems = {};
+  G.stash = makeSlots(STASH_SLOTS);
+  G.armaments = {};
+  resetFires();
   G.benchTier = 0;
   G.threat = 0;
   G.threatTier = 0;
@@ -342,7 +357,14 @@ export function findInteractable(p = G.player) {
     if (s.destroyed) continue;
     const d = dist2(p.x, p.y, s.x, s.y);
     if (d >= bestD) continue;
-    if (s.type === 'stash') { bestD = d; best = { kind: 'stash', ref: s, label: `Deposit all  ·  ${k('withdraw')}: take ammo` }; }
+    if (s.store) {
+      bestD = d;
+      const used = s.store.slots.filter(Boolean).length;
+      best = {
+        kind: 'store', ref: s,
+        label: `Open ${s.def.name}  (${used}/${s.store.slots.length})${s.type === 'stash' ? `  ·  ${k('withdraw')}: take ammo` : ''}`,
+      };
+    }
     else if (s.type === 'workbench') { bestD = d; best = { kind: 'bench', ref: s, label: s.tier >= 2 ? `Workbench II  ·  ${k('craft')}: craft` : `Upgrade Workbench  ·  ${k('craft')}: craft` }; }
     else if (s.type === 'gate') { bestD = d; best = { kind: 'gate', ref: s, label: s.open ? 'Close gate' : 'Open gate' }; }
     else if (s.type === 'generator') {
@@ -352,6 +374,14 @@ export function findInteractable(p = G.player) {
         label: generatorRunning(s)
           ? `Switch off  (${Math.round(s.fuel)}/${s.def.fuelMax} fuel)`
           : `Refuel and start  (${Math.round(s.fuel)}/${s.def.fuelMax})`,
+      };
+    } else if (s.def.post === 'sniper') {
+      bestD = d;
+      const crew = G.survivors.find((q) => !q.dead && q.tower === s);
+      const arm = ARMAMENTS[s.arm || DEFAULT_ARMAMENT];
+      best = {
+        kind: 'tower', ref: s,
+        label: `${s.def.name}: ${arm.name}${crew ? '' : '  ·  nobody posted'}`,
       };
     } else if (s.type === 'bedroll') {
       bestD = d;
@@ -484,8 +514,14 @@ export function beginInteract(p, target) {
       p.reviving = { target: target.ref, t: 0, dur: PLAYER.reviveTime };
       sfx('ui');
       break;
-    case 'stash':
-      stashDepositAll(p);
+    case 'tower':
+      // Opening the screen is local UI; buying and selecting go through act.*.
+      if (isLocal(p)) { G.ui.towerRef = target.ref; setPanel('tower'); }
+      break;
+    case 'store':
+      // Opening a container is a local screen, not a change to the world, so
+      // it does not go through act.* — the moves made inside it do.
+      if (isLocal(p)) { G.ui.storeRef = target.ref; setPanel('store'); }
       break;
     case 'bench':
       if (target.ref.tier < 2) upgradeBench(target.ref, p);
@@ -545,7 +581,9 @@ function finishSearch(p) {
  * by a panel nobody can see.
  */
 function setPanel(name) {
-  if (G.ui.panel === 'inv' && name !== 'inv') cancelDrag();
+  if ((G.ui.panel === 'inv' || G.ui.panel === 'store') && name !== G.ui.panel) cancelDrag();
+  if (name !== 'store') G.ui.storeRef = null;
+  if (name !== 'tower') G.ui.towerRef = null;
   G.ui.panel = name;
   sfx('ui');
 }
@@ -776,6 +814,7 @@ export function update(dt) {
   // The controls panel is capturing a key: nothing else may read the keyboard.
   const rebinding = G.ui.panel === 'controls' && !!G.menu.pendingRebind;
   if (!rebinding) {
+    if ((G.ui.panel === 'store' || G.ui.panel === 'tower') && actTap('interact')) setPanel(null);
     if (actTap('inventory')) { setPanel(G.ui.panel === 'inv' ? null : 'inv'); }
     if (actTap('map')) { setPanel(G.ui.panel === 'map' ? null : 'map'); }
     if (actTap('character')) { setPanel(G.ui.panel === 'char' ? null : 'char'); }
@@ -865,6 +904,9 @@ export function update(dt) {
   updateBullets(dt);
   updateTurrets(dt);
   updateTraps(dt);
+  // After the shooting, so anything set alight this step starts burning now
+  // rather than a frame late.
+  updateFire(dt);
   updateGenerators(dt);
   updateFloodlights();
   updateUpkeep(dt);
@@ -916,7 +958,8 @@ export const api = {
   startRaid, addXp, addRes, countRes, dangerAtPx, solidPx, shake,
   findInteractable, placeStructure, canPlace, spawnEnemy, forceEndRaid,
   visibleRecipes, craft, craftStatus, nearWorkbench, upgradeBench, baseCenter,
-  spawnEntryPickup, RECIPES,
+  spawnEntryPickup, RECIPES, makeNoise, NOISE, ignite, igniteProp, FIRE,
+  stashDepositAll, stashWithdrawAmmo, depositAll, withdrawSupplies, openStructure,
   grantLoot, rollContainer, spawnPickup, repairStructure, demolishStructure,
   repairCost, repairAll, planRepairAll, damagedStructures, isDamaged, costLabel, REPAIR_ALL_RANGE,
   killPlayer: (p = G.player, force = false) => killPlayer(p, force),
@@ -937,6 +980,7 @@ export const api = {
   seedRescues, recruit, reviveSurvivor, liveSurvivors, survivorCap,
   refreshAllSurvivors, makeSurvivor, rationsHeld, rationsCarried,
   JOBS, JOB_IDS, rosterLimits, freeTowers, assignJob, SCAVENGE, BUILDER,
+  buyArmament, setTowerArmament, towerArmament, armamentUnlocked, ARMAMENTS, ARMAMENT_IDS,
   clockString, darkness, nightFactors, SURVIVOR,
   quietAt, totalQuietAt, densityMul, suppressed, addQuiet, updatePressure, CELL,
   WEAPONS, STRUCTURES, RECIPES, CAMERA, PLAYER, THREAT,

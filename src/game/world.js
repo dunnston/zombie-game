@@ -910,23 +910,63 @@ export function createWorld(seed = 20240917) {
   // are what the first tools cost most of; a little denser on soft ground than
   // on tarmac, but present on both, because "search the roadside" has to work.
   //
-  // The first pass shipped ~14,800 pieces — about 41,000 units of free
-  // material — and the ground read as a carpet of sticks. These are a quarter
-  // of the original odds (0.30 / 0.22 / 0.10). The floor is what the camp
-  // needs, not what looks tidy: a Node test fails if a first Hatchet is no
-  // longer reachable within fifteen tiles of where the player wakes up.
+  // Third pass. The first shipped ~14,800 pieces (~41,000 units of free
+  // material) and read as a carpet of sticks; a quarter of that was ~4,250, and
+  // the owner's next note was still "probably too much". These odds are a
+  // little over half of those again. What makes the cut safe this time is that
+  // litter finally has an ongoing sink: arrows cost sticks, stone and fiber,
+  // and a bow or an arrow tower eats them continuously. The floor is what the
+  // camp needs, not what looks tidy — a Node test fails if a first Hatchet is
+  // no longer reachable within fifteen tiles of where the player wakes up.
   for (let i = 0; i < 90000; i++) {
     const x = rng.int(1, W - 2), y = rng.int(1, W - 2);
     if (world.blocked[idx(x, y)] || world.propGrid.has(`${x},${y}`)) continue;
     const t = world.tiles[idx(x, y)];
     let p;
-    if (t === T.GRASS || t === T.DIRT) p = 0.08;
-    else if (t === T.GRAVEL || t === T.SAND || t === T.FIELD) p = 0.055;
-    else if (t === T.ROAD || t === T.SIDEWALK || t === T.LOT || t === T.RUBBLE) p = 0.02;
+    if (t === T.GRASS || t === T.DIRT) p = 0.045;
+    else if (t === T.GRAVEL || t === T.SAND || t === T.FIELD) p = 0.03;
+    else if (t === T.ROAD || t === T.SIDEWALK || t === T.LOT || t === T.RUBBLE) p = 0.01;
     else continue;                                   // not indoors
     if (!rng.chance(p)) continue;
     const r = rng();
     plantLitter(x, y, r < 0.42 ? 'sticks' : r < 0.78 ? 'fiber' : 'stone');
+  }
+
+  // The starter cache. Three litter passes have now traded "the ground is a
+  // carpet of sticks" against "there is nothing to pick up", and each time the
+  // thing that actually broke was narrow: enough material within a short walk
+  // of where the player wakes up to make the first tool. Guarantee that here,
+  // topping up only what the map-wide odds above did not happen to provide,
+  // and the density is then free to be as sparse as the ground should look.
+  // Measured at the odds above: stone came to three units inside fifteen tiles
+  // against a Hatchet's three, which is a coin flip, not an opening.
+  {
+    const camp = world.locations.find((l) => l.id === 'camp');
+    const cx = Math.round(camp.rect[0] + camp.rect[2] / 2);
+    const cy = Math.round(camp.rect[1] + camp.rect[3] / 2);
+    const R = 12;
+    // Worst-roll units, so the quota holds on the unluckiest possible pickup.
+    const MIN_UNITS = { sticks: 2, fiber: 2, stone: 1 };
+    const quota = { sticks: 14, fiber: 14, stone: 12 };
+    const have = { sticks: 0, fiber: 0, stone: 0 };
+    for (let y = cy - R; y <= cy + R; y++) {
+      for (let x = cx - R; x <= cx + R; x++) {
+        const prop = inBounds(x, y) ? world.propGrid.get(`${x},${y}`) : null;
+        if (!prop || !prop.hand) continue;
+        // bush -> fiber, rock -> stone, litter_* -> its own resource.
+        const res = prop.res || (prop.harvest === 'fiber' ? 'fiber' : 'stone');
+        if (have[res] !== undefined) have[res] += MIN_UNITS[res];
+      }
+    }
+    for (const res of ['sticks', 'fiber', 'stone']) {
+      // Bounded: a full quota is about a dozen pieces, and a tile that is
+      // blocked or already taken simply costs one of the tries.
+      for (let tries = 0; tries < 400 && have[res] < quota[res]; tries++) {
+        const x = cx + rng.int(-R, R), y = cy + rng.int(-R, R);
+        if (!inBounds(x, y)) continue;
+        if (plantLitter(x, y, res)) have[res] += MIN_UNITS[res];
+      }
+    }
   }
 
   // Reeds along every shore: scenery, not an obstacle.

@@ -2,9 +2,9 @@
 // system shares. Deliberately free of gameplay rules — those live in the
 // system modules so this file stays cycle-free.
 
-import { TILE, RES, SHOOT_OVER, bagWeight } from './config.js';
+import { TILE, RES, GEAR, SHOOT_OVER, STASH_SLOTS, bagWeight } from './config.js';
 import {
-  ITEMS, isSlots, slotsAdd, slotsTake, slotsCount, slotsWeight, itemWeight,
+  ITEMS, isSlots, slotsAdd, slotsTake, slotsCount, slotsWeight, itemWeight, makeSlots,
 } from './items.js';
 import { isBlockedTile } from './world.js';
 import { clamp } from '../core/util.js';
@@ -25,7 +25,12 @@ export const G = {
   // 11, for the same reason again: the litter pass got a quarter of its old
   // odds, so every rng draw after it lands differently and the props a v10
   // save's `chopped` keys refer to are not the props this generator makes.
-  version: 11,
+  //
+  // 12, twice over. The litter odds moved a third time (and gained a
+  // guaranteed starter cache at the camp), which is the same generator-stream
+  // problem again; and the shared stash stopped being a plain id->count map
+  // and became a slot container, so the shape of the payload changed too.
+  version: 12,
   world: null,
   // Every survivor in the world who is a person at a keyboard. In solo this
   // holds exactly one. `G.player` below is an alias for the *local* one, so the
@@ -53,7 +58,18 @@ export const G = {
   structures: [],
   structGrid: new Map(),   // "tx,ty" -> structure
   backpacks: [],           // death drops
-  stash: {},               // shared base storage
+  // The base's one shared pile, and the only container survivors, turrets and
+  // towers draw from. A slot container since v12: storage is finite, so a
+  // stash full of scrap really can leave your people without rations. Every
+  // Supply Stash structure aliases this, so building a second one is another
+  // door into the same room rather than a second room.
+  stash: makeSlots(STASH_SLOTS),
+  // Tower armaments bought for the whole base. Arrows are free and are not
+  // listed here; everything else is unlocked once and then chosen per tower.
+  armaments: {},
+  // Scenery that is currently alight. See fire.js — player structures never
+  // appear here, deliberately.
+  fires: [],
   camera: { x: 0, y: 0, zoom: 1, shake: 0, shakeX: 0, shakeY: 0 },
   time: 0,
   threat: 0,
@@ -66,6 +82,11 @@ export const G = {
   tutorial: { step: 0, done: {}, hint: null },
   ui: {
     panel: null, buildIndex: 0, buildMode: false, hover: null, mapOpen: false,
+    // The container the storage screen is showing. Local UI only: it never
+    // travels, and the moves made in it carry the tile instead.
+    storeRef: null,
+    // The Watchtower whose armament screen is open. Local UI, like storeRef.
+    towerRef: null,
     levelChoices: null, tab: 0,
     hudRects: [],   // screen-space regions that swallow clicks from the world
   },
@@ -164,6 +185,23 @@ export function nearestPlayer(x, y, pred = targetable) {
 // across building, crafting, combat, loot and survivors completely untouched.
 
 /** Weight of either container shape. */
+// ------------------------------------------------------------------ light ---
+//
+// These live here rather than in player.js because three modules that must not
+// import each other all need the answer: the renderer punches the darkness,
+// enemies.js widens their senses against a lit player, and player.js burns the
+// fuel. state.js is the one file all three already depend on.
+
+/** The light in a player's off-hand, or null if they are carrying none. */
+export function equippedLight(p) {
+  const id = p && p.equip ? p.equip.offhand : null;
+  const g = id ? GEAR[id] : null;
+  return g && g.light ? g : null;
+}
+
+/** Is this player actually casting light right now? */
+export const lightActive = (p) => !!(p && p.lightOn && p.lightFuel > 0 && equippedLight(p));
+
 export function containerWeight(bag) {
   return isSlots(bag) ? slotsWeight(bag) : bagWeight(bag);
 }
@@ -260,6 +298,7 @@ export function structRecord(s) {
     open: !!s.open, tier: s.tier || 1, fuel: Math.round((s.fuel || 0) * 10) / 10, ammo: s.ammo || 0,
     on: s.on !== false, active: !!s.active, running: !!s.running, powered: !!s.powered,
     aim: Math.round((s.aim || 0) * 100) / 100,
+    arm: s.arm || null,
   };
 }
 

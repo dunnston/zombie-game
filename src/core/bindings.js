@@ -30,6 +30,7 @@ export const ACTIONS = [
   { id: 'interact', label: 'Interact (hold to search)', group: 'Interact', def: ['KeyE'] },
   { id: 'withdraw', label: 'Take ammo from stash', group: 'Interact', def: ['KeyF'] },
   { id: 'stow', label: 'Stow pack in car boot (Sprint + this takes it out)', group: 'Interact', def: ['KeyG'] },
+  { id: 'light', label: 'Torch / flashlight on or off', group: 'Interact', def: ['KeyT'] },
 
   { id: 'inventory', label: 'Inventory', group: 'Screens', def: ['KeyI'] },
   { id: 'character', label: 'Character sheet', group: 'Screens', def: ['Tab'] },

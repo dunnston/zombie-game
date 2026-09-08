@@ -63,7 +63,8 @@ other players directly.
 | `R` | Reload · refuel a car you are in or standing beside |
 | `1`–`6` | Select weapon slot |
 | Mouse wheel | Cycle weapons (or build pieces in build mode) |
-| `E` | Interact — hold to search containers; get in and out of a car; repair a damaged wall, trap, turret or tower |
+| `E` | Interact — hold to search containers; open a chest, locker or stash; set what a Watchtower shoots; get in and out of a car; repair a damaged wall, trap, turret or tower |
+| `T` | Light or douse whatever is in your off-hand (torch, flashlight) |
 | `G` | Stow your pack in a car's boot (`Shift`+`G` takes it back out) |
 | Driving | `W`/`S` throttle · `A`/`D` steer · `Space` brake |
 | `F` | At a stash: withdraw ammo and supplies |
@@ -84,6 +85,21 @@ a save.
 
 Melee swings also chop trees and give **Wood** — that's the main early supply,
 and felling trees clears firing lines for your turrets.
+
+**Chopping costs stamina.** A swing at scenery takes a real bite out of the bar
+and stops it recovering for a moment, so a full bar is about **three trees**
+and then a few seconds' pause. Run yourself out and you are *winded*: you have
+to get back to half before you can work again. Fighting is never blocked by it
+— being tired stops you working, not defending yourself. Constitution raises
+both the bar and how fast it comes back, and the **Woodcraft** perk makes
+harvesting cheaper.
+
+**Carry a light.** Nights are genuinely dark. A **Torch** costs 3 sticks and 3
+fiber, needs no workbench, and burns for about three and a half minutes before
+it is gone; a **Flashlight** throws a much longer beam and runs on **batteries**,
+which turn up in parts bins, desks, toolboxes and glove boxes. Both go in the
+new **off-hand** equipment slot, so you keep your weapon, and `T` lights them.
+The catch: a lit player is noticed from further away.
 
 ---
 
@@ -217,9 +233,20 @@ Four enemy tiers:
 Walkers and runners are a threat to *you*; brutes are what actually breach a
 perimeter. That split is why the third raid feels like a different game.
 
-Enemies detect you by sight and by gunfire, steer around obstacles by fanning
+Enemies detect you by sight and by **sound**, steer around obstacles by fanning
 out to the nearest clear heading, and attack whatever player-built thing is in
 their way. They recover if they get wedged.
+
+**Noise is a real mechanic.** Anything loud pulls whatever is in earshot toward
+the place it happened — and if they lose track of you, they go and look. Rough
+radii: a bow 90, chopping 140, building 190, a generator 300, an SMG 400, a
+pistol 420, an auto turret 520, a shotgun 620, a rifle 700, a tower cannon 950.
+Crouching halves what they see; the Low Profile and Ghost perks make everything
+you do quieter, cars included.
+
+So there are two ways to fight. Guns are decisive and bring the district. A
+**bow** is craftable by hand, costs sticks, stone and fiber to feed, takes
+three arrows to put down a walker — and almost nothing hears it.
 
 ### Scavenging and inventory
 
@@ -258,12 +285,59 @@ Build anywhere in the world — "base" is simply wherever your structures are.
 Pick a piece, see a ghost preview with a live validity check, click to place.
 Hold to lay a run of walls. No timers.
 
-Walls (barricade → wood → reinforced → steel), gates you can open and close,
-spike traps, a workbench, a stash, a bedroll, a fuel-burning generator, an auto
-turret that needs generator power within 260px and feeds on 9mm from your stash,
-a floodlight that holds back the night, Bunks that house your survivors, and a
-Watchtower to post a sniper on. Plus repair and salvage tools (salvage returns
-50%).
+Walls (barricade → wood → stone → reinforced → steel), gates you can open and
+close, spike traps, a workbench, a bedroll, a fuel-burning generator, an auto
+turret that needs generator power within 260px and feeds on 9mm from your
+stash, a floodlight that holds back the night, Bunks that house your survivors,
+and a Watchtower to crew. Plus repair and salvage tools (salvage returns 50%).
+
+**Storage is finite.** Every container has a fixed number of slots, so running
+out of room is a thing that happens and building more is the answer:
+
+| | Slots | Costs | |
+| --- | --- | --- | --- |
+| Wooden Chest | 16 | 20 wood, 8 sticks | Cheap overflow. Build as many as you like |
+| Steel Locker | 32 | 34 scrap, 1 part | Survives a raid that flattens a chest |
+| Supply Stash | 48 | 25 wood, 8 scrap | **The base pantry and armoury** |
+
+Press `E` on any of them for a two-panel screen — the container on the left,
+your pack and hotbar on the right. Drag either way, right-click to send a stack
+across, or use DEPOSIT ALL and TAKE AMMO & SUPPLIES. Break one and its contents
+spill on the ground.
+
+The Supply Stash is the one that matters: survivors eat their Rations out of
+it, and turrets and towers draw their ammunition from it. However many stashes
+you build they are all the same pile — but a stash packed with scrap really can
+leave your people without food, which is the point.
+
+### Manned towers
+
+A Watchtower is a post, not a weapon. Assign a survivor to **Sniper** duty on
+the PEOPLE tab and they will climb it; press `E` on the tower to choose what
+they shoot. Each armament is bought once for the whole base and can then be set
+on any tower, and the choice is always noise against effectiveness:
+
+| Armament | Unlock | Per shot | Noise | |
+| --- | --- | --- | --- | --- |
+| Arrows | **free** | 1 arrow | 90 | Quiet, cheap and weak |
+| Fire Arrows | 20 wood, 20 cloth, 30 fuel, 2 parts | 1 arrow + 1 fuel | 120 | Sets them alight, and it spreads |
+| Sniper Rifle | 70 scrap, 12 parts, 6 military | 1 rifle round | 700 | One shot, one walker |
+| Scrap Cannon | 90 scrap, 8 parts, 10 electronics | 2 scrap | 950 | Splash damage. Deafening |
+
+Ammunition comes out of the Supply Stash a shot at a time, so a tower that runs
+the stash dry stops shooting.
+
+### Fire
+
+A burning zombie takes damage over time and sets light to zombies and to
+**scenery** around it — trees, bushes, thickets, dry grass, hay, reeds. Burning
+scenery spreads to its neighbours, burns out, and is gone for good: a treeline
+you set alight stays burnt.
+
+Fire burns anything standing in it, **including you and your survivors**. Your
+own walls, chests, bunks and workbenches never catch — that is a deliberate
+limit, so a fire arrow is a risk to the landscape and to whoever is in it,
+never to your base.
 
 ### Repairing
 
@@ -689,14 +763,18 @@ nearest-neighbour filtering.
 npm test
 ```
 
-98 Node assertions covering world generation determinism, spawn-point safety,
+126 Node assertions covering world generation determinism, spawn-point safety,
 danger tiers, loot-table integrity and theming, weapon/enemy/wall tier ordering,
 recipe gating, the XP curve, raid escalation, threat thresholds, every attribute
 and perk actually changing a stat, perk gating by rank and cost, recompute
-idempotency, the day/night curve and clock, and survivor scaling.
+idempotency, the day/night curve and clock, survivor scaling, the stamina cost
+of work (three trees to a bar, and exhaustion that latches), the litter budget
+at both ends, the off-hand light, container slot counts and the withdraw list,
+noise radii and falloff, the bow against a walker, the armament ladder, and
+that fire never touches a player structure.
 
 `tests/browser-smoke.js` is injected into the running dev server and drives the
-live game through 386 assertions using synthetic input events — the title
+live game through 395 assertions using synthetic input events — the title
 screen, save slots and key rebinding driven by real clicks, movement, aiming,
 melee, gunfire, ammo, reloading, enemy pursuit, taking damage, searching
 containers, carry-capacity overflow, structure placement and cost, walls

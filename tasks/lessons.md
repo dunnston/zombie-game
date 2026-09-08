@@ -780,3 +780,101 @@ ctrl+click and drag-out-of-the-window instead. Neither has any travel between
 aiming and acting, so neither can have this class of bug at all. **The cheapest
 fix for "the cursor has to be in two places at once" is usually a different
 gesture, not more state to bridge the gap.**
+
+## A dev server in a worktree can serve you yesterday's code (2026-09-07)
+
+Two browser measurements in the survival round were taken against a build that
+did not contain the change being measured. The vite watcher running in
+`.claude/worktrees/…` did not pick up edits to `src/`; the page loaded happily,
+reported no errors, and served the pre-edit module. The conclusion drawn from
+the first one — "the exhaustion fix did nothing" — was perfectly true of the
+code being served and false of the code on disk.
+
+Two habits fix it, and both are cheap:
+
+- **Restart the dev server before every browser check.** Do not trust HMR or
+  the watcher in a worktree.
+- **Put a guard at the top of the check.** `if (D.api.PLAYER.stamWindedRecovery
+  === undefined) return { FATAL: 'stale build' }`. A stale build is silent; a
+  missing constant is loud, and it costs one line.
+
+The same round then found the exhaustion bug for real — but only because the
+second measurement was run against a server that had actually been restarted.
+
+## Measure with a control, and pen the ambient spawner (2026-09-07)
+
+"Eight walkers moved 250px toward the noise" means nothing on its own. They
+move 91px in the same five seconds with no noise at all, because they drift
+toward the player regardless. The number is only a result once the same setup
+has been run both ways.
+
+Three separate measurements in this round were also confounded by the ambient
+spawner, which keeps a standing population near the player and kept adding
+walkers that were *nearer to the tower* than the ones being measured — so the
+tower dutifully shot at those and the planted target sat at full health,
+looking exactly like "the tower does not work". Delete anything you did not
+plant, every frame, for the length of the trial.
+
+## Write the test that fails for the right reason (2026-09-07)
+
+Two new assertions failed on their first run and both were the test's fault,
+in ways worth keeping:
+
+- One asserted that `fire.js` never mentions `G.structures` — and matched the
+  comment in `fire.js` explaining that it does not. Strip comments before
+  grepping source in a test, or the documentation defeats the assertion.
+- One asserted that louder tower armaments hit harder, and failed the cannon,
+  which is deliberately *worse* than a sniper rifle one-on-one because it is
+  artillery. The fix was to measure the cannon against a crowd, which is what
+  it is for. Had it gone the other way, the "fix" would have been to buff the
+  cannon into a louder sniper and delete the design.
+
+A test that measures the wrong quantity does not just fail; it argues for the
+wrong change.
+
+## Finishing a mechanic beats adding one (2026-09-07)
+
+"Noise attracts zombies" was on the owner's list as a new feature. It was
+already written: `alertEnemies` set an aggro flag, an alert timer and a
+destination, and every firearm carried a noise radius. It had never once
+worked, because `e.aggro` was set on first sight and cleared only when every
+player was dead — so the branch that walks toward the remembered sound was
+unreachable while anybody was alive. The feature was one expiry condition.
+
+This is the third time on this project (repair, gathering, now noise) that a
+request for something "new" was really a request to make something reachable.
+Grep for the thing before designing it.
+
+## A control run is only a control if it can tell the two stories apart (2026-09-08)
+
+The noise round shipped with what looked like solid evidence: eight walkers
+closed 91px on their own and 250px after a sound. Codex then found that the
+mechanic could not work at all — an enemy refreshed its own alert timer from
+its own aggro flag, so aggro never expired and the noise branch stayed dead.
+
+Both numbers were real. The measurement was worthless, because the noise had
+been placed *between* the group and the player: walking at the player closed
+the distance to the noise too. Two completely different behaviours produced the
+same reading, and the control run did not separate them — it only showed that
+something changed.
+
+Rerun with the noise on the FAR side of the group, so investigating means
+walking *away* from the player, and the answer was unambiguous and the opposite
+of what had been reported: 304px toward the player, away from the sound.
+
+**Design the layout so the two hypotheses have opposite signs.** If a single
+number is consistent with both "it works" and "it does something else that
+happens to look similar", it is not evidence. This is the same failure as
+asserting on calls rather than outcomes, one level up: the outcome was measured,
+but along an axis that could not discriminate.
+
+## Fixing the wrong half of a two-part bug (2026-09-08)
+
+The aggro fix and the noise fix are separate, and either alone does nothing.
+Making aggro expire still leaves eight seconds where a sound has aggro'd
+everyone onto the player; making the noise not set aggro still leaves aggro
+pinned on for ever from an earlier sighting. Both had to change together, and
+the browser test that proves it only passes when both are right.
+
+When a mechanic has an ordering ("A outranks B") and a lifetime ("A never
+ends"), check both before believing a fix.

@@ -7,10 +7,11 @@ import assert from 'node:assert/strict';
 import {
   RES, WEAPONS, ENEMIES, STRUCTURES, RECIPES, LOOT, CONTAINERS, FURNISHING, CONSUMABLES, T,
   BUILD_ORDER, THREAT, RAIDS, PLAYER, TILE, WORLD_TILES,
-  bagWeight, xpForLevel, raidSpec, GEAR, GEAR_SLOTS, MAX_GEAR_DR,
+  bagWeight, xpForLevel, raidSpec, GEAR, GEAR_SLOTS, ARMOR_SLOTS, MAX_GEAR_DR, STASH_SLOTS,
+  ARMAMENTS, ARMAMENT_IDS, DEFAULT_ARMAMENT,
 } from '../src/game/config.js';
 import { createWorld, isBlockedTile, dangerAtPx, locationAtPx, propAtTile, removeProp } from '../src/game/world.js';
-import { HARVEST, chopMultiplier } from '../src/game/combat.js';
+import { HARVEST, chopMultiplier, chopStamCost, canChop } from '../src/game/combat.js';
 import {
   ATTRS, ATTR_IDS, ATTR_MAX, ATTR_START, PERKS, perksFor, perkStatus,
   canRaiseAttr, recomputeStats, startingAttrs,
@@ -22,10 +23,10 @@ import { pointsForLevel } from '../src/game/progression.js';
 import {
   SURVIVOR, JOBS, JOB_IDS, SCAVENGE, BUILDER, POST_RADIUS, canSeeContainer,
 } from '../src/game/survivors.js';
-import { G } from '../src/game/state.js';
+import { G, equippedLight, lightActive, addRes, takeRes, countRes } from '../src/game/state.js';
 import {
   makeStructure, repairCost, planRepairAll, isDamaged, costLabel, REPAIR_COST_SHARE, REPAIR_ALL_RANGE,
-  buildMenu, buildBarLayout,
+  buildMenu, buildBarLayout, withdrawSupplies, depositAll,
 } from '../src/game/building.js';
 import {
   ITEMS, makeSlots, slotsAdd, slotsTake, slotsCount, slotsWeight, stackLimit,
@@ -39,7 +40,11 @@ import {
   listSlots, createSlot, deleteSlot, renameSlot, defaultName, latestSlot, hasSave,
   migrateLegacy, saveGame, playtimeLabel, INDEX_KEY,
 } from '../src/game/saves.js';
-import { LEGACY_KEY } from '../src/game/save.js';
+import { LEGACY_KEY, restoreSlots } from '../src/game/save.js';
+import { makeNoise, NOISE } from '../src/game/noise.js';
+import { FIRE, isFlammable, resetFires } from '../src/game/fire.js';
+import { spillStore } from '../src/game/loot.js';
+import { readFileSync } from 'node:fs';
 
 /** A localStorage stand-in for the Node tests: the same four calls, in memory. */
 function fakeStorage() {
@@ -637,8 +642,8 @@ test('every resource stacks and has a weight', () => {
   }
 });
 
-test('gear covers all five slots at three tiers', () => {
-  for (const slot of GEAR_SLOTS) {
+test('gear covers all five armour slots at three tiers', () => {
+  for (const slot of ARMOR_SLOTS) {
     const pieces = Object.values(GEAR).filter((g) => g.slot === slot);
     assert.ok(pieces.length >= 3, `${slot} has only ${pieces.length} pieces`);
     const drs = pieces.map((g) => g.dr).sort((a, b) => a - b);
@@ -651,7 +656,7 @@ test('gear covers all five slots at three tiers', () => {
 
 test('a full set of the best gear stays under the armour cap', () => {
   let total = 0;
-  for (const slot of GEAR_SLOTS) {
+  for (const slot of ARMOR_SLOTS) {
     const best = Object.values(GEAR)
       .filter((g) => g.slot === slot)
       .reduce((a, b) => (b.dr > a.dr ? b : a));
@@ -667,7 +672,7 @@ test('the body slot still carries the most armour', () => {
   const bestOf = (slot) => Object.values(GEAR)
     .filter((g) => g.slot === slot)
     .reduce((a, b) => (b.dr > a.dr ? b : a)).dr;
-  for (const slot of GEAR_SLOTS) {
+  for (const slot of ARMOR_SLOTS) {
     if (slot === 'body') continue;
     assert.ok(bestOf('body') > bestOf(slot), `${slot} rivals the vest`);
   }
@@ -1105,8 +1110,13 @@ test('hand-gathered litter never blocks the ground it lies on', () => {
   // stones and fiber on the map" — the ground read as a carpet. Too little and
   // the opening stalls; too much and gathering is not a decision. Both ends
   // are the assertion.
-  assert.ok(litter.length > 2500 && litter.length < 6000,
-    `${litter.length} pieces of litter on a 320-tile map — the budget is 2,500–6,000`);
+  //
+  // Cut a second time on 2026-09-07 (~4,250 -> ~2,370) after the owner said
+  // there was still too much. The floor could come down this far only because
+  // the opening is now protected directly by the starter cache in world.js
+  // rather than by hoping the map-wide odds land near the camp.
+  assert.ok(litter.length > 1800 && litter.length < 3200,
+    `${litter.length} pieces of litter on a 320-tile map — the budget is 1,800–3,200`);
   assert.ok(litter.every((p) => !p.solid), 'litter must not be solid');
   assert.ok(litter.every((p) => !isBlockedTile(w, p.tx, p.ty)), 'litter must not block its tile');
 });
@@ -1222,8 +1232,11 @@ test('the world layout is pinned to the save version', () => {
   }
   mix(w.vehicleSpawns.length);
 
-  const FINGERPRINT = 'a62c50c2';
-  const SAVE_VERSION = 11;
+  // Measured on the 2026-09-07 litter cut: containers, vehicles, tiles and
+  // every non-litter prop came out byte-identical, so only the litter (and the
+  // purely cosmetic reeds, which hold no tile) actually moved.
+  const FINGERPRINT = 'cd427428';
+  const SAVE_VERSION = 12;
   assert.equal((h >>> 0).toString(16), FINGERPRINT,
     `world generation changed. If that was deliberate, bump G.version (now ${G.version}) and this fingerprint together`);
   assert.equal(G.version, SAVE_VERSION,
@@ -1246,6 +1259,518 @@ test('player tuning keeps the fantasy intact', () => {
   assert.ok(ENEMIES.runner.speed > PLAYER.speed * 0.6, 'runners still need to be scary');
   assert.ok(PLAYER.respawnTime <= 5, 'death should not mean waiting around');
   assert.ok(PLAYER.searchTime < 2, 'looting must stay snappy');
+});
+
+// ---------------------------------------------------------------- stamina ---
+
+/** A fresh character with real derived stats, as recomputeStats builds them. */
+function freshStats() {
+  return recomputeStats({ attrs: startingAttrs(), perks: {}, hp: 100, stam: 0, equip: null });
+}
+
+test('a full bar is about three trees, and then a breather', () => {
+  // The owner, after playing the tool tier: "Chopping should use significantly
+  // more stamina. After chopping should have to wait a bit before the next
+  // trees. Can maybe chop like 3 before having to wait for stamina to refill."
+  //
+  // Before this round a swing cost a flat 4, never set `stamLock`, and was
+  // repaid in 0.2s at 20/s regen — so felling a 470hp tree was free.
+  const p = freshStats();
+  p.stam = p.maxStam;
+  const axe = WEAPONS.axe;
+  const perSwing = axe.dmg * p.meleeMul * chopMultiplier(axe, p, HARVEST.wood);
+  const swingsPerTree = Math.ceil(470 / perSwing);
+  const trees = p.maxStam / (swingsPerTree * chopStamCost(p));
+
+  assert.equal(swingsPerTree, 6, `a tree is ${swingsPerTree} hatchet swings at starting stats`);
+  assert.ok(trees >= 2.5 && trees < 4,
+    `a full bar is ${trees.toFixed(2)} trees — the ask was about three`);
+
+  // And the breather is a real pause, not a blink.
+  const refill = PLAYER.stamChopDelay + p.maxStam / p.stamRegen;
+  assert.ok(refill > 4 && refill < 12, `${refill.toFixed(1)}s to get back to full`);
+});
+
+test('work is gated by stamina and fighting never is', () => {
+  const p = freshStats();
+  p.stam = 0;
+  assert.equal(canChop(p), false, 'an empty bar cannot harvest');
+  p.stam = chopStamCost(p);
+  assert.equal(canChop(p), true, 'exactly one swing left is still a swing');
+
+  // Exhaustion latches. Measured in the browser: without this, a player who
+  // held the button felled trees forever at a sixth of the speed, because
+  // every regen tick bought exactly one more swing and there was never a
+  // moment where you had to stop.
+  p.winded = true;
+  assert.equal(canChop(p), false, 'a winded player cannot dribble one swing per tick');
+  p.stam = p.maxStam * PLAYER.stamWindedRecovery;
+  p.winded = false;                       // movePlayer clears it at this point
+  assert.equal(canChop(p), true, 'and back to half is back to work');
+  assert.ok(PLAYER.stamWindedRecovery > 0.2 && PLAYER.stamWindedRecovery <= 0.75,
+    'the recovery threshold has to be a real pause without being a punishment');
+
+  // Fighting must never be refused: being winded may stop you working, but it
+  // must not leave you unable to defend yourself.
+  assert.ok(PLAYER.stamSwing < PLAYER.stamChop,
+    'a combat swing has to be cheaper than a harvest swing');
+  assert.ok(PLAYER.stamSwing * 20 < PLAYER.maxStam,
+    'a fight must not be able to empty the bar in a few swings');
+});
+
+test('the metal tier buys endurance as well as time', () => {
+  const p = freshStats();
+  const swings = (w) => Math.ceil(470 / (w.dmg * p.meleeMul * chopMultiplier(w, p, HARVEST.wood)));
+  const stone = swings(WEAPONS.axe) * chopStamCost(p);
+  const metal = swings(WEAPONS.fireaxe) * chopStamCost(p);
+  assert.ok(metal < stone, `a Fire Axe fells a tree for ${metal} stamina against the Hatchet's ${stone}`);
+});
+
+test('stamina is a stat you can raise, in ceiling and in recovery', () => {
+  const base = freshStats();
+
+  const tough = recomputeStats({ attrs: { ...startingAttrs(), con: 8 }, perks: {}, hp: 100, stam: 0, equip: null });
+  assert.ok(tough.maxStam > base.maxStam, 'CON raises the ceiling');
+  assert.ok(tough.stamRegen > base.stamRegen, 'CON raises recovery too — it did not before this round');
+
+  const woody = recomputeStats({
+    attrs: { ...startingAttrs(), con: 5 }, perks: { woodcraft: 2 }, hp: 100, stam: 0, equip: null,
+  });
+  assert.ok(chopStamCost(woody) < chopStamCost(base) * 0.5,
+    'two ranks of Woodcraft roughly halve what a harvest swing costs');
+
+  // recomputeStats is the only source of modifiers (invariant 4), so the cost
+  // has to survive a rebuild rather than being mutated on purchase.
+  const again = chopStamCost(recomputeStats(woody));
+  assert.equal(again, chopStamCost(woody), 'recomputing is idempotent for the chop cost');
+});
+
+// -------------------------------------------------------------- armaments ---
+
+test('every armament is buildable, feedable and describable', () => {
+  assert.ok(ARMAMENT_IDS.length >= 4, 'there is a real choice to make');
+  for (const id of ARMAMENT_IDS) {
+    const a = ARMAMENTS[id];
+    assert.ok(a.name && a.desc, `${id} says what it is`);
+    assert.ok(a.dmg > 0 && a.cd > 0 && a.range > 0, `${id} has sane numbers`);
+    assert.ok(a.noise > 0, `${id} makes some sound`);
+    assert.ok(Object.keys(a.ammo).length > 0, `${id} costs something to fire`);
+    for (const res of Object.keys(a.ammo)) {
+      assert.ok(RES[res], `${id} feeds on '${res}', which is not a resource`);
+    }
+    if (id === DEFAULT_ARMAMENT) continue;
+    assert.ok(a.cost && Object.keys(a.cost).length, `${id} has to be bought`);
+    for (const res of Object.keys(a.cost)) assert.ok(RES[res], `${id} costs '${res}', which is not a resource`);
+  }
+});
+
+test('arrows are free, and everything else is an upgrade', () => {
+  // A tower you built must never be a thing that does nothing. The default is
+  // the one that costs nothing to unlock and almost nothing to feed.
+  assert.equal(ARMAMENTS[DEFAULT_ARMAMENT].cost, null);
+  assert.equal(DEFAULT_ARMAMENT, 'arrows');
+  for (const id of ARMAMENT_IDS) {
+    if (id !== DEFAULT_ARMAMENT) assert.ok(ARMAMENTS[id].cost, `${id} should be bought, not given`);
+  }
+});
+
+test('louder is stronger, which is the whole decision', () => {
+  // The owner's framing: "The trade off is noise level vs effectiveness." So
+  // the ordering by noise has to be an ordering by output too, or the choice
+  // collapses into one obviously-best answer.
+  //
+  // Two armaments buy something other than raw impact, and the measure has to
+  // know that or it punishes them for it:
+  //
+  //   - fire arrows hit SOFTER than plain ones; what they sell is the burn.
+  //   - the cannon is deliberately worse than a sniper rifle one-on-one. It
+  //     is artillery. Its 70px splash is the reason to own it, so it is
+  //     measured against a modest crowd rather than a single walker.
+  //
+  // Measured single-target: arrows 0.80, fire 0.52, sniper 1.12, cannon 1.06.
+  const CROWD = 2.5;                       // a conservative count of extra hits
+  const dps = (a) => (a.dmg * (a.splash ? CROWD : 1)) / a.cd;
+  const ladder = [...ARMAMENT_IDS]
+    .filter((id) => !ARMAMENTS[id].burns)
+    .sort((x, y) => ARMAMENTS[x].noise - ARMAMENTS[y].noise);
+  for (let i = 1; i < ladder.length; i++) {
+    const q = ARMAMENTS[ladder[i - 1]], l = ARMAMENTS[ladder[i]];
+    assert.ok(dps(l) > dps(q),
+      `${l.id} is louder than ${q.id} and must hit harder for it (${dps(l).toFixed(2)} vs ${dps(q).toFixed(2)})`);
+  }
+  // And the quiet end really is quiet: an arrow tower must be quieter than
+  // the auto turret it exists as an alternative to.
+  assert.ok(ARMAMENTS.arrows.noise < NOISE.turret);
+  assert.ok(ARMAMENTS.cannon.noise > NOISE.turret, 'the cannon is the loudest thing you own');
+  // And the cannon is the only one that hits a group, which is what it is for.
+  assert.ok(ARMAMENTS.cannon.splash > 0);
+  for (const id of ARMAMENT_IDS) {
+    if (id !== 'cannon') assert.ok(!ARMAMENTS[id].splash, `${id} hits one thing`);
+  }
+});
+
+// ------------------------------------------------------------------- fire ---
+
+test('fire spreads to zombies and scenery, and never to your base', () => {
+  // The owner chose this explicitly when asked how dangerous fire should be.
+  // Losing your own compound to your own tower would be the kind of surprise
+  // that ends a run, so the absence of a path from a fire to a structure is a
+  // decision — this is the assertion that keeps it one.
+  // Comments stripped first. The first version of this test matched the
+  // sentence in fire.js explaining that it does not touch G.structures, which
+  // is a nicely circular way to fail.
+  const src = readFileSync(new URL('../src/game/fire.js', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/.*$/gm, '');
+  assert.ok(!/G\.structures/.test(src),
+    'fire.js must not touch G.structures — player buildings do not burn, by choice');
+  assert.ok(/G\.enemies/.test(src), 'but zombies do');
+  assert.ok(/propAtTile|isFlammable/.test(src), 'and so does scenery');
+});
+
+test('a container that stops existing gives back what was in it', () => {
+  // Destruction always spilled; a deliberate demolish did not, so taking your
+  // own full chest apart deleted everything inside it — sixty items, measured
+  // (Codex review). Both paths go through spillStore now.
+  G.structures.length = 0;
+  G.pickups.length = 0;
+  const chest = { type: 'chest', x: 100, y: 100, store: makeSlots(8), destroyed: false };
+  addRes(chest.store, 'ammoR', 40);
+  addRes(chest.store, 'mil', 20);
+  const spilled = spillStore(chest);
+  assert.equal(spilled, 60, 'every unit comes back out');
+  assert.equal(countRes(chest.store, 'ammoR'), 0, 'and the container is emptied');
+  assert.ok(G.pickups.length >= 2, `${G.pickups.length} stacks on the ground`);
+
+  // A stash is the exception: they all alias one pile, so knocking one over
+  // while another stands must not empty the base's pantry onto the floor.
+  const a = { type: 'stash', x: 0, y: 0, store: makeSlots(8), destroyed: false };
+  const b = { type: 'stash', x: 50, y: 0, store: a.store, destroyed: false };
+  addRes(a.store, 'rations', 30);
+  G.structures.push(a, b);
+  assert.equal(spillStore(a), 0, 'not while another stash still stands');
+  assert.equal(countRes(a.store, 'rations'), 30);
+  b.destroyed = true;
+  assert.equal(spillStore(a), 30, 'but the last one takes the pile with it');
+  G.structures.length = 0;
+  G.pickups.length = 0;
+});
+
+test('a loaded world has nothing alight in it', () => {
+  // `G.fires` held entries pointing at props from the PREVIOUS world after a
+  // load: damage at stale coordinates, and a prop deleted out of the new world
+  // when the old fire burned out (Codex review).
+  G.fires.length = 0;
+  G.fires.push({ x: 1, y: 1, t: 0, life: 5, prop: { tx: 1, ty: 1 } });
+  resetFires();
+  assert.equal(G.fires.length, 0);
+
+  // And the load path actually calls it. Comments stripped, so the sentence
+  // explaining the rule cannot satisfy the assertion — that mistake has
+  // already been made once in this file.
+  const src = readFileSync(new URL('../src/game/save.js', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/.*$/gm, '');
+  assert.ok(/resetFires\(\)/.test(src), 'applySaveData must clear the fires');
+});
+
+test('only the things that should burn are flammable', () => {
+  for (const kind of ['tree', 'pine', 'bush', 'thicket', 'litter']) {
+    assert.ok(isFlammable({ kind }), `${kind} should burn`);
+  }
+  for (const kind of ['rock', 'boulder', 'silo', 'wreck', 'car']) {
+    assert.ok(!isFlammable({ kind }), `${kind} must not burn`);
+  }
+  assert.ok(!isFlammable(null), 'and nothing is not something');
+});
+
+test('a fire is bounded in time and in number', () => {
+  // A pine forest is thousands of trees. A fire with no ceiling would take the
+  // frame rate with it, and one with no lifetime would never go out.
+  assert.ok(FIRE.propLife > 2 && FIRE.propLife < 30, 'a burning tree burns out');
+  assert.ok(FIRE.burnTime > 2 && FIRE.burnTime < 20, 'and so does a burning zombie');
+  assert.ok(FIRE.maxFires > 40 && FIRE.maxFires < 400, `${FIRE.maxFires} concurrent fires is the budget`);
+  assert.ok(FIRE.toEnemyChance > 0 && FIRE.toEnemyChance < 1, 'spread is a chance, not a certainty');
+  assert.ok(FIRE.propSpreadChance < FIRE.toEnemyChance,
+    'a fire should chase a crowd more readily than it eats a forest');
+});
+
+test('the fire armament is the one that burns', () => {
+  assert.ok(ARMAMENTS.firearrows.burns, 'fire arrows set things alight');
+  for (const id of ARMAMENT_IDS) {
+    if (id !== 'firearrows') assert.ok(!ARMAMENTS[id].burns, `${id} must not start fires`);
+  }
+  // It pays for the crowd damage in raw hitting power...
+  assert.ok(ARMAMENTS.firearrows.dmg < ARMAMENTS.arrows.dmg,
+    'a fire arrow hits softer than a plain one — the burn is the damage');
+  assert.ok(ARMAMENTS.firearrows.cd > ARMAMENTS.arrows.cd, '...and in cadence');
+  // ...and it has to be worth it. A full burn is several shots' worth of
+  // damage on its own, before any of it spreads.
+  const burnTotal = FIRE.burnTime * FIRE.burnDps;
+  assert.ok(burnTotal > 30, `a burn is only ${burnTotal} damage — not worth the fuel or the risk`);
+  // It costs more to feed than a plain arrow, or it would simply be better.
+  assert.ok(Object.keys(ARMAMENTS.firearrows.ammo).length > Object.keys(ARMAMENTS.arrows.ammo).length,
+    'fire arrows have to cost more per shot than plain ones');
+});
+
+// ------------------------------------------------------------------ noise ---
+
+/** Plants some enemies in G and returns them. */
+function fakeHorde(spots) {
+  G.enemies.length = 0;
+  for (const [x, y] of spots) G.enemies.push({ x, y, dead: false, aggro: false, alertT: 0 });
+  return G.enemies;
+}
+
+test('a sound is heard inside its radius and nowhere else', () => {
+  const horde = fakeHorde([[0, 0], [100, 0], [400, 0], [900, 0]]);
+  const heard = makeNoise(0, 0, 500);
+  assert.equal(heard, 3, 'three inside 500px, one outside');
+  // The destination is the point of the whole thing.
+  assert.equal(horde[0].noiseX, 0);
+  assert.ok(horde[0].alertT > 0, 'and a window in which to act on it');
+  assert.equal(horde[3].noiseX, undefined, 'the one that heard nothing has nowhere to go');
+  assert.equal(horde[3].alertT, 0);
+  G.enemies.length = 0;
+});
+
+test('a sound makes them investigate, it does not make them hunt you', () => {
+  // This is the whole mechanic, and getting it wrong is subtle enough that it
+  // shipped broken twice. `aggro` means "hunting a player", and the aggro
+  // branch in enemies.js outranks the noise branch — so a noise that also set
+  // aggro made zombies walk at the nearest player instead of at the sound.
+  // Measured before the fix: a group 420px from a bang moved 304px the OTHER
+  // way, toward a player they could not see. (Codex review.)
+  const horde = fakeHorde([[100, 0]]);
+  makeNoise(0, 0, 500);
+  assert.equal(horde[0].aggro, false, 'a noise must not aggro — it must give a destination');
+  assert.equal(horde[0].noiseX, 0);
+
+  // And it must not clear an existing hunt either: someone already chasing a
+  // player they can see should not be talked out of it by a distant bang.
+  const chasing = fakeHorde([[100, 0]]);
+  chasing[0].aggro = true;
+  makeNoise(0, 0, 500);
+  assert.equal(chasing[0].aggro, true, 'a noise never cancels a hunt in progress');
+  G.enemies.length = 0;
+});
+
+test('a noise at the origin is still a noise', () => {
+  // The branch in enemies.js tested `e.noiseX` for truthiness, so a sound at
+  // exactly x = 0 was silently ignored. The map is 10,240px square and the
+  // origin is a real corner of it.
+  fakeHorde([[10, 10]]);
+  makeNoise(0, 200, 500);
+  assert.equal(G.enemies[0].noiseX, 0);
+  assert.notEqual(G.enemies[0].noiseX, undefined);
+  G.enemies.length = 0;
+});
+
+test('being quiet actually makes you quieter, whatever the source', () => {
+  // `noiseMul` is what the Low Profile and Ghost perks buy. It only ever
+  // applied to the player's own gunshot: the copy of this function in
+  // vehicles.js ignored it, so a stealth build's car was exactly as loud.
+  fakeHorde([[300, 0]]);
+  assert.equal(makeNoise(0, 0, 400, { noiseMul: 1 }), 1);
+  fakeHorde([[300, 0]]);
+  assert.equal(makeNoise(0, 0, 400, { noiseMul: 0.5 }), 0, 'half as loud does not reach as far');
+  G.enemies.length = 0;
+});
+
+test('the noise table ranks the way the trade-off needs it to', () => {
+  // Quiet work, louder building, and the base's automated defences loudest of
+  // all — that is the choice an arrow tower exists to offer.
+  assert.ok(NOISE.chop < NOISE.build, 'an axe is quieter than a hammer');
+  assert.ok(NOISE.build < NOISE.generator, 'a running generator carries further');
+  assert.ok(NOISE.generator < NOISE.turret, 'a turret is the loudest thing you own');
+  // And a gun is loud on the same scale, so the numbers are comparable.
+  assert.ok(WEAPONS.pistol.noise > NOISE.build);
+  assert.ok(WEAPONS.rifle.noise > WEAPONS.smg.noise, 'a rifle is louder than an SMG');
+  for (const w of Object.values(WEAPONS)) {
+    if (w.kind !== 'gun') continue;
+    assert.ok(w.noise > 0, `${w.id} is a firearm and must make a sound`);
+  }
+});
+
+// -------------------------------------------------------------------- bow ---
+
+test('a bow is quiet and a gun is not', () => {
+  const bow = WEAPONS.bow;
+  assert.equal(bow.kind, 'gun', 'the bow rides the whole firearm path');
+  assert.equal(bow.ammo, 'arrow');
+  assert.ok(RES.arrow, 'arrows are a resource you can carry and craft');
+  // The entire point of the weapon. It must be quieter than every firearm,
+  // and by a wide margin, or "arrows are quiet" is a label rather than a rule.
+  for (const w of Object.values(WEAPONS)) {
+    if (w.kind !== 'gun' || w.bow) continue;
+    assert.ok(bow.noise * 3 < w.noise, `a bow (${bow.noise}) must be far quieter than a ${w.id} (${w.noise})`);
+    assert.ok(bow.threat < w.threat, `and draw less Threat than a ${w.id}`);
+  }
+});
+
+test('one bullet does what several arrows do', () => {
+  // The owner: "One bullet can kill the smaller zombies while it takes several
+  // arrows." Measured against a walker, which is the small zombie.
+  const walker = ENEMIES.walker.hp;
+  const shots = (w) => Math.ceil(walker / w.dmg);
+  const arrows = shots(WEAPONS.bow);
+  assert.ok(arrows >= 3, `a walker should take at least three arrows, not ${arrows}`);
+  assert.equal(shots(WEAPONS.rifle), 1, 'a rifle round drops a walker outright');
+  assert.ok(arrows > shots(WEAPONS.pistol), 'and a pistol still beats a bow shot for shot');
+  // Damage per second, so the trade is paid for in more than one currency.
+  const dps = (w) => w.dmg / w.cd;
+  assert.ok(dps(WEAPONS.bow) < dps(WEAPONS.pistol) * 0.4,
+    'a bow has to be much slower as well as weaker — quiet is what it sells');
+});
+
+test('arrows are made of what the ground gives up', () => {
+  const r = RECIPES.find((x) => x.id === 'arrow');
+  const bow = RECIPES.find((x) => x.id === 'bow');
+  assert.ok(r && bow, 'both are craftable');
+  assert.equal(r.bench, 0);
+  assert.equal(bow.bench, 0, 'the quiet answer to a gun cannot be gated behind a bench');
+  // This is the sink that justified cutting litter again: arrows cost the
+  // three hand-gathered materials and nothing else, and you burn them forever.
+  for (const id of Object.keys(r.cost)) {
+    assert.ok(['sticks', 'stone', 'fiber'].includes(id), `arrows should not cost ${id}`);
+  }
+  assert.ok(r.give.res.arrow >= 5, 'and a craft has to be worth the trip');
+});
+
+// ---------------------------------------------------------------- storage ---
+
+test('every container holds a fixed number of slots, and the stash is the biggest', () => {
+  const stores = Object.values(STRUCTURES).filter((s) => s.store);
+  assert.ok(stores.length >= 3, 'there is a real storage ladder, not one box');
+  for (const s of stores) {
+    assert.ok(Number.isInteger(s.store) && s.store > 0, `${s.id} has a sane slot count`);
+    assert.ok(s.protect, `${s.id} should count as base infrastructure`);
+  }
+  // The stash is the only container survivors and towers feed from, so running
+  // out of room in it is a real consequence — it has to be the roomiest.
+  assert.equal(STRUCTURES.stash.store, STASH_SLOTS);
+  for (const s of stores) {
+    if (s.id !== 'stash') assert.ok(s.store < STASH_SLOTS, `${s.id} must not out-hold the stash`);
+  }
+  // Cheap wood box, tougher metal one. Storage should be a build decision.
+  assert.ok(STRUCTURES.chest.store < STRUCTURES.locker.store);
+  assert.ok(STRUCTURES.chest.hp < STRUCTURES.locker.hp);
+  for (const id of ['chest', 'locker']) assert.ok(BUILD_ORDER.includes(id), `${id} is on the build bar`);
+});
+
+test('the shared stash is a slot container, and a full one refuses politely', () => {
+  const stash = makeSlots(4);
+  // Four slots of scrap is 200; the 201st has nowhere to go and must be
+  // reported as not taken rather than silently vanishing.
+  assert.equal(addRes(stash, 'scrap', 300), 200);
+  assert.equal(slotsCount(stash, 'scrap'), 200);
+  assert.equal(addRes(stash, 'wood', 10), 0, 'a full container takes nothing more');
+  assert.equal(takeRes(stash, 'scrap', 60), 60);
+  assert.equal(addRes(stash, 'wood', 10), 10, 'and takes it again once there is room');
+});
+
+test('a stash full of junk really can starve your survivors', () => {
+  // The owner chose this trade-off explicitly when asked. It is the whole
+  // reason storage is worth building more of, so assert it rather than let a
+  // later "fix" quietly restore an infinite pile.
+  const stash = makeSlots(2);
+  addRes(stash, 'scrap', 100);
+  assert.equal(addRes(stash, 'rations', 5), 0, 'no room left for food');
+  assert.equal(countRes(stash, 'rations'), 0);
+});
+
+test('a container round-trips through a save as slots', () => {
+  const store = makeSlots(6);
+  addRes(store, 'wood', 40);
+  addRes(store, 'ammoP', 30);
+  const saved = JSON.parse(JSON.stringify(store.slots));
+
+  const restored = makeSlots(6);
+  restoreSlots(restored, saved);
+  assert.equal(countRes(restored, 'wood'), 40);
+  assert.equal(countRes(restored, 'ammoP'), 30);
+
+  // The sanitiser has to survive content changes: an id that no longer exists
+  // becomes an empty slot, never a stack of nothing.
+  const junk = makeSlots(3);
+  restoreSlots(junk, [{ id: 'notAThing', n: 5 }, null, { id: 'wood', n: 2 }]);
+  assert.equal(junk.slots[0], null);
+  assert.equal(countRes(junk, 'wood'), 2);
+});
+
+test('the withdraw list is what you take out, not everything', () => {
+  // Deposit-all then take-all must not be a loop: building material stays put.
+  const store = makeSlots(10);
+  addRes(store, 'wood', 50);
+  addRes(store, 'ammoP', 40);
+  addRes(store, 'arrow', 20);
+  const p = { bag: makeSlots(20), hotbar: makeSlots(6), carryCap: 999 };
+  withdrawSupplies(p, store);
+  assert.equal(countRes(p.bag, 'ammoP'), 40, 'ammunition comes out');
+  assert.equal(countRes(p.bag, 'arrow'), 20, 'so do arrows');
+  assert.equal(countRes(p.bag, 'wood'), 0, 'building material does not');
+  assert.equal(countRes(store, 'wood'), 50);
+});
+
+// ------------------------------------------------------------------ light ---
+
+test('the off-hand is a gear slot and not an armour slot', () => {
+  assert.ok(GEAR_SLOTS.includes('offhand'), 'the off-hand is a real equipment slot');
+  assert.ok(!ARMOR_SLOTS.includes('offhand'), 'it carries no armour');
+  assert.equal(GEAR_SLOTS.length, ARMOR_SLOTS.length + 1);
+  // Only lights fit there, so nothing can quietly occupy the slot.
+  for (const g of Object.values(GEAR)) {
+    if (g.slot !== 'offhand') continue;
+    assert.ok(g.light, `${g.id} is in the off-hand but casts no light`);
+    assert.equal(g.dr, 0, `${g.id} must not be armour`);
+  }
+  assert.ok(Object.values(GEAR).some((g) => g.slot === 'offhand'),
+    'the slot needs something to put in it');
+});
+
+test('a torch is made of what the ground is covered in, and burns itself up', () => {
+  const r = RECIPES.find((x) => x.id === 'torch');
+  assert.ok(r, 'there is a torch recipe');
+  assert.equal(r.bench, 0, 'the first night cannot wait for a workbench');
+  assert.deepEqual(Object.keys(r.cost).sort(), ['fiber', 'sticks'],
+    'a torch costs only hand-gathered material');
+  assert.equal(GEAR.torch.consumed, true, 'a torch is spent, not owned');
+  assert.ok(GEAR.torch.burn > 60, 'and it lasts long enough to be worth making');
+});
+
+test('a flashlight reaches further than a torch, and costs batteries to do it', () => {
+  const t = GEAR.torch.light, f = GEAR.flashlight.light;
+  assert.ok(f.cone && !t.cone, 'the flashlight is a beam and the torch is a puddle');
+  assert.ok(f.cone.len > t.radius * 1.5, 'the beam is the reason to want one');
+  assert.equal(GEAR.flashlight.battery, 'battery');
+  assert.ok(RES.battery, 'batteries are a real resource');
+  assert.ok(!GEAR.flashlight.consumed, 'a flashlight is kept; only its charge runs out');
+
+  // Findable before it is craftable, or the flashlight is a bench unlock
+  // rather than something you scavenge your way into.
+  const tables = Object.entries(LOOT).filter(([, t2]) => t2.some((e) => e.id === 'battery'));
+  assert.ok(tables.length >= 4, `batteries appear in only ${tables.length} loot tables`);
+});
+
+test('a light only counts as lit when it is equipped, switched on and has charge', () => {
+  const p = { equip: { offhand: null }, lightOn: true, lightFuel: 99 };
+  assert.equal(lightActive(p), false, 'an empty off-hand casts nothing');
+  p.equip.offhand = 'torch';
+  assert.equal(lightActive(p), true);
+  p.lightFuel = 0;
+  assert.equal(lightActive(p), false, 'a spent torch casts nothing');
+  p.lightFuel = 99; p.lightOn = false;
+  assert.equal(lightActive(p), false, 'an unlit torch casts nothing');
+  assert.equal(equippedLight(p).id, 'torch', 'but it is still what you are carrying');
+});
+
+test('being lit is being seen', () => {
+  // Pillar 6: the only reason to carry a light at night is to see, so it has
+  // to cost something. A player with no light must be no easier to notice.
+  const dark = { equip: { offhand: 'torch' }, lightOn: false, lightFuel: 99 };
+  const lit = { equip: { offhand: 'torch' }, lightOn: true, lightFuel: 99 };
+  assert.equal(lightActive(dark), false);
+  assert.equal(lightActive(lit), true);
 });
 
 // -------------------------------------------------------------- bindings ---
@@ -1506,7 +2031,8 @@ test('a snapshot describes only what is near the guest, and every player', async
     time: 10, day: 1, dayTime: 0.3, threat: 5, threatTier: 0, raid: null, raidsDone: 0, benchTier: 1,
     players: [
       { netId: 1, x: 0, y: 0, angle: 0, hp: 100, maxHp: 100, stam: 50, maxStam: 100, slot: 0, level: 1, xp: 0, xpNext: 55, skillPoints: 0 },
-      { netId: 2, x: far, y: 0, angle: 0, hp: 100, maxHp: 100, stam: 50, maxStam: 100, slot: 0, level: 1, xp: 0, xpNext: 55, skillPoints: 0 },
+      { netId: 2, x: far, y: 0, angle: 0, hp: 100, maxHp: 100, stam: 50, maxStam: 100, slot: 0, level: 1, xp: 0, xpNext: 55, skillPoints: 0,
+        equip: { offhand: 'torch' }, lightOn: true, lightFuel: 90 },
     ],
     enemies: [
       { id: 1, type: 'walker', x: 100, y: 0, angle: 0, hp: 10, maxHp: 10, flash: 0 },
@@ -1516,6 +2042,9 @@ test('a snapshot describes only what is near the guest, and every player', async
     pickups: [{ uid: 7, x: 10, y: 10, kind: 'res', id: 'wood', n: 3 }, { uid: 8, x: far, y: 10, kind: 'res', id: 'wood', n: 3 }],
     vehicles: [{ id: 1, x: far, y: 100, angle: 0, hp: 1, fuel: 1 }],
     survivors: [], backpacks: [{ id: 'b1', x: 5, y: 5 }],
+    // Burning scenery travels too, or a guest watches props vanish and takes
+    // damage off something it cannot see.
+    fires: [{ x: 60, y: 0, t: 2, life: 8 }, { x: far, y: 0, t: 1, life: 8 }],
   };
   const s = packSnapshot(fakeG, fakeG.players[0], 42);
   assert.equal(s.q, 42);
@@ -1524,9 +2053,22 @@ test('a snapshot describes only what is near the guest, and every player', async
   assert.deepEqual(s.pk.map((p) => p.u), [7]);
   assert.equal(s.vh.length, 0, 'a far car is not described');
   assert.equal(s.bp.length, 1);
+  // Fire is culled by distance like everything else, and carries how much of
+  // it is left so a guest can draw one dying down.
+  assert.equal(s.fr.length, 1, 'only the near fire');
+  assert.equal(s.fr[0].x, 60);
+  assert.ok(s.fr[0].r > 0 && s.fr[0].r < 1, `${s.fr[0].r} of it left`);
   // The same world seen by the far player describes the far things instead.
   const s2 = packSnapshot(fakeG, fakeG.players[1], 43);
   assert.deepEqual(s2.en.map((e) => e.id), [2]);
+  assert.equal(s2.fr.length, 1, 'and the far fire, for the far player');
+  // WHICH light a player is carrying, not just that one is lit. A guest only
+  // ever receives its own inventory, so without this everyone else's
+  // `equip.offhand` stays stale and nothing draws their torch.
+  const lit = s.pl.find((x) => x.n === 2);
+  assert.equal(lit.lo, 'torch', 'the off-hand item id travels');
+  assert.equal(lit.li, 1);
+  assert.equal(s.pl.find((x) => x.n === 1).lo, null, 'and empty hands say so');
   assert.equal(s2.vh.length, 1);
 });
 

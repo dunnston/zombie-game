@@ -2,7 +2,8 @@
 // immediate-mode button helper, so clicks are resolved during the draw pass.
 
 import {
-  RES, WEAPONS, GEAR, GEAR_SLOTS, CONSUMABLES, STRUCTURES, TILE, THREAT, TERRAIN, T,
+  RES, WEAPONS, GEAR, GEAR_SLOTS, ARMOR_SLOTS, CONSUMABLES, STRUCTURES, TILE, THREAT, TERRAIN, T,
+  ARMAMENTS, ARMAMENT_IDS, DEFAULT_ARMAMENT,
   RECIPES, BENCH_UPGRADE_COST,
 } from '../game/config.js';
 import { G, countRes, totalRes, canAfford } from '../game/state.js';
@@ -23,10 +24,12 @@ import {
 import { clockString, darkness, phaseAt } from '../game/daynight.js';
 import { drivenCar, trunkLoad, CAR } from '../game/vehicles.js';
 import { threatLabel, threatColor } from '../game/threat.js';
+import { chopStamCost } from '../game/combat.js';
+import { equippedLight, lightActive } from '../game/state.js';
 import { dangerAtPx } from '../game/world.js';
 import { clamp, TAU, clock } from '../core/util.js';
 import { sfx } from '../core/audio.js';
-import { drawInventoryPanel } from './inventory.js';
+import { drawInventoryPanel, drawStoragePanel } from './inventory.js';
 import { drawControlsPanel } from './menu.js';
 import { ITEMS } from '../game/items.js';
 // The palette, panels, buttons and cursor live in kit.js so the title screen
@@ -80,6 +83,8 @@ export function drawHUD(ctx, deviceW, deviceH, interactive = true) {
 
   if (G.ui.panel === 'char') drawCharPanel(ctx, W, H);
   else if (G.ui.panel === 'inv') drawInventoryPanel(ctx, W, H, UI_KIT);
+  else if (G.ui.panel === 'store') drawStoragePanel(ctx, W, H, UI_KIT);
+  else if (G.ui.panel === 'tower') drawTowerPanel(ctx, W, H);
   else if (G.ui.panel === 'craft') drawCraftPanel(ctx, W, H);
   else if (G.ui.panel === 'map') drawMapPanel(ctx, W, H);
   else if (G.ui.panel === 'controls') drawControlsPanel(ctx, W, H, () => { G.ui.panel = null; });
@@ -93,15 +98,26 @@ export function drawHUD(ctx, deviceW, deviceH, interactive = true) {
 
 // ------------------------------------------------------------------ vitals --
 
+// The vitals block grows a row when a light is carried, and the skill-point
+// line and the clock stack under it. One source for the geometry, because the
+// first version hardcoded the clock at y=112 and the extra row drew straight
+// through its border.
+const LIGHT_ROW = 16;
+const vitalsPanelH = (p) => 92 + (equippedLight(p) ? LIGHT_ROW : 0);
+const skillLineY = (p) => 16 + vitalsPanelH(p) + 8;
+const clockTop = (p) => 8 + vitalsPanelH(p) + (p.skillPoints > 0 ? 20 : 4);
+
 function drawVitals(ctx, W, H) {
   const p = G.player;
   const x = 16, y = 16, w = 236;
 
+  const light = equippedLight(p);
+  const panelH = vitalsPanelH(p);
   ctx.fillStyle = C.bgSoft;
-  ctx.fillRect(x - 8, y - 8, w + 16, 92);
+  ctx.fillRect(x - 8, y - 8, w + 16, panelH);
   ctx.strokeStyle = C.border;
   ctx.lineWidth = 1;
-  ctx.strokeRect(x - 7.5, y - 7.5, w + 15, 91);
+  ctx.strokeRect(x - 7.5, y - 7.5, w + 15, panelH - 1);
 
   // Health
   const hf = p.hp / p.maxHp;
@@ -111,7 +127,9 @@ function drawVitals(ctx, W, H) {
   ctx.fillText(`HP ${Math.ceil(p.hp)} / ${p.maxHp}`, x + 6, y + 12);
 
   // Stamina
-  bar(ctx, x, y + 20, w, 8, p.stam / p.maxStam, p.stam > 12 ? '#6fa8c4' : '#c47a4a');
+  // Fractional, not an absolute 12: with Marathon and high CON the bar tops
+  // out over 300, and an absolute threshold only warned in the last 4%.
+  bar(ctx, x, y + 20, w, 8, p.stam / p.maxStam, p.stam > p.maxStam * 0.15 ? '#6fa8c4' : '#c47a4a');
 
   // XP
   bar(ctx, x, y + 32, w, 10, p.xp / p.xpNext, '#9a7ec4');
@@ -126,7 +144,7 @@ function drawVitals(ctx, W, H) {
   // recomputeStats; the breakdown lives on the inventory screen.
   ctx.font = '11px "Courier New", monospace';
   const dr = p.armorDR || 0;
-  const wornCount = GEAR_SLOTS.reduce((n, s) => n + (p.equip[s] ? 1 : 0), 0);
+  const wornCount = ARMOR_SLOTS.reduce((n, s) => n + (p.equip[s] ? 1 : 0), 0);
   ctx.fillStyle = dr > 0 ? C.accent : C.dim;
   ctx.fillText(
     dr > 0 ? `ARMOUR ${Math.round(dr * 100)}%  (${wornCount}/5)` : 'UNARMOURED  —  I',
@@ -145,12 +163,26 @@ function drawVitals(ctx, W, H) {
   ctx.fillStyle = bandages + kits > 0 ? C.text : C.dim;
   ctx.fillText(`${primaryLabel('useHeal').toUpperCase()}  HEAL   bandage ${bandages}   medkit ${kits}`, x, y + 74);
 
+  // The off-hand light. Burn time is the whole tension of carrying one, so it
+  // is on the HUD rather than buried on the inventory screen.
+  if (light) {
+    const lit = lightActive(p);
+    const secs = Math.max(0, Math.round(p.lightFuel));
+    const clockText = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+    ctx.fillStyle = lit ? (p.lightFuel > 30 ? '#ffb45a' : C.warn) : C.dim;
+    ctx.fillText(
+      lit ? `${light.name.toUpperCase()} LIT  ${clockText}`
+          : `${light.name.toUpperCase()} OUT  ${clockText}  ·  ${primaryLabel('light').toUpperCase()}`,
+      x, y + 90,
+    );
+  }
+
   if (p.skillPoints > 0) {
     ctx.fillStyle = C.gold;
     ctx.font = 'bold 12px "Courier New", monospace';
     ctx.fillText(
       `▲ ${p.skillPoints} SKILL POINT${p.skillPoints === 1 ? '' : 'S'} — TAB`,
-      x, y + 100,
+      x, skillLineY(p),
     );
   }
 }
@@ -159,7 +191,7 @@ function drawVitals(ctx, W, H) {
 function drawClock(ctx, W, H) {
   const p = G.player;
   const x = 16;
-  const y = p.skillPoints > 0 ? 128 : 112;
+  const y = clockTop(p) + 8;
   const dark = darkness().alpha;
   const phase = phaseAt(G.dayTime);
 
@@ -426,7 +458,7 @@ function drawResourceStrip(ctx, W, H) {
 
   // Ammo row
   ctx.font = '11px "Courier New", monospace';
-  const ammo = ['ammoP', 'ammoS', 'ammoR']
+  const ammo = ['arrow', 'ammoP', 'ammoS', 'ammoR']
     .map((id) => `${RES[id].short} ${countRes(p.bag, id)}`)
     .join('   ');
   ctx.fillStyle = C.gold;
@@ -1005,6 +1037,8 @@ function drawStatusTab(ctx, px, py, pw, ph) {
   const stats = [
     ['Max health', Math.round(p.maxHp)],
     ['Max stamina', Math.round(p.maxStam)],
+    ['Stamina recovery', `${p.stamRegen.toFixed(1)}/s`],
+    ['Harvest swing cost', `${chopStamCost(p).toFixed(1)} stam`],
     ['Carry capacity', Math.round(p.carryCap)],
     ['Melee damage', pct(p.meleeMul)],
     ['Firearm damage', pct(p.gunMul)],
@@ -1079,11 +1113,14 @@ function drawStatusTab(ctx, px, py, pw, ph) {
   ry += 6;
   for (const slot of GEAR_SLOTS) {
     const id = p.equip[slot];
+    const g = id ? GEAR[id] : null;
     ctx.fillStyle = id ? C.accent : C.dim;
-    ctx.fillText(
-      `${slot.padEnd(6)} ${id ? `${GEAR[id].name}  +${Math.round(GEAR[id].dr * 100)}%` : '—'}`,
-      col2, ry,
-    );
+    // The off-hand holds a light, which protects nothing — quote its burn time
+    // rather than a "+0% armour" that reads like a broken piece of gear.
+    const detail = !g ? '—'
+      : g.light ? `${g.name}  ${Math.max(0, Math.round(p.lightFuel))}s`
+      : `${g.name}  +${Math.round(g.dr * 100)}%`;
+    ctx.fillText(`${slot.padEnd(8)} ${detail}`, col2, ry);
     ry += 15;
   }
 }
@@ -1258,6 +1295,73 @@ function drawPeopleTab(ctx, px, py, pw, ph) {
 }
 
 // ------------------------------------------------------------- craft panel ---
+
+/**
+ * The Watchtower screen: who is up it, and what they are shooting.
+ *
+ * Each armament is bought once for the whole base and then chosen per tower,
+ * so the panel does both jobs in one row — BUY when it is not fitted yet,
+ * SELECT when it is. The noise rating is on the card because noise against
+ * effectiveness is the entire decision.
+ */
+function drawTowerPanel(ctx, W, H) {
+  const t = G.ui.towerRef;
+  if (!t || t.destroyed) { G.ui.panel = null; return; }
+
+  const w = Math.min(560, W - 60), h = Math.min(430, H - 50);
+  const x = (W - w) / 2, y = (H - h) / 2;
+  const crew = G.survivors.find((s) => !s.dead && s.tower === t);
+  panel(ctx, x, y, w, h,
+    `${t.def.name.toUpperCase()}  —  ${primaryLabel('interact')} or ESC to close`);
+
+  ctx.font = '11px "Courier New", monospace';
+  ctx.fillStyle = crew ? C.accent : C.warn;
+  ctx.fillText(
+    crew
+      ? `Manned by ${crew.name} (level ${crew.level})${crew.posted ? '' : ' — on their way up'}`
+      : 'Nobody posted here. Assign a survivor to Sniper on the PEOPLE tab.',
+    x + 20, y + 44,
+  );
+  ctx.fillStyle = C.dim;
+  ctx.fillText('Ammunition comes out of the Supply Stash, a shot at a time.', x + 20, y + 60);
+
+  const cur = t.arm || DEFAULT_ARMAMENT;
+  let by = y + 74;
+  for (const id of ARMAMENT_IDS) {
+    const a = ARMAMENTS[id];
+    const owned = id === DEFAULT_ARMAMENT || !!(G.armaments && G.armaments[id]);
+    const active = cur === id;
+    const ammo = Object.entries(a.ammo).map(([k, n]) => `${n} ${RES[k].short}`).join(' + ');
+    const loud = a.noise >= 700 ? 'DEAFENING' : a.noise >= 300 ? 'LOUD' : a.noise >= 110 ? 'AUDIBLE' : 'QUIET';
+    const label = `${active ? '▶ ' : ''}${a.name}`;
+    const sub = owned
+      ? `${a.desc}   ·   ${ammo} a shot   ·   ${loud}`
+      : `${a.desc}   ·   ${costLabel(a.cost)}`;
+
+    const bw = w - 40;
+    if (button(ctx, x + 20, by, bw - 92, 44, label, {
+      sub, enabled: owned && !active, color: active ? C.accent : C.text,
+    })) {
+      act.setTowerArm(t, id);
+    }
+    if (!owned) {
+      if (button(ctx, x + 20 + bw - 86, by, 86, 44, 'BUY', {
+        enabled: canAfford(a.cost), center: true, color: C.gold,
+      })) act.buyArmament(id);
+    } else {
+      ctx.font = 'bold 11px "Courier New", monospace';
+      ctx.fillStyle = active ? C.accent : C.dim;
+      ctx.textAlign = 'center';
+      ctx.fillText(active ? 'FITTED' : 'READY', x + 20 + bw - 43, by + 26);
+      ctx.textAlign = 'left';
+    }
+    by += 50;
+  }
+
+  ctx.font = '10px "Courier New", monospace';
+  ctx.fillStyle = C.dim;
+  ctx.fillText('An armament is bought once and can then be set on any tower.', x + 20, y + h - 22);
+}
 
 function drawCraftPanel(ctx, W, H) {
   const w = Math.min(720, W - 60), h = Math.min(620, H - 50);

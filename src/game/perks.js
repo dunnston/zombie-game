@@ -29,7 +29,7 @@ export const ATTRS = {
   con: {
     id: 'con', name: 'Constitution', abbr: 'CON', color: '#7ec46a',
     blurb: 'More to lose before you lose it.',
-    perRank: '+12 health · +10 stamina',
+    perRank: '+12 health · +10 stamina · +1.2 stam/s',
   },
   cha: {
     id: 'cha', name: 'Charisma', abbr: 'CHA', color: '#c48fd0',
@@ -113,6 +113,11 @@ export const PERKS = [
     id: 'marathon', attr: 'con', req: 3, max: 3, name: 'Marathon',
     desc: '+45 stamina and faster recovery per rank.',
     apply: (p, r) => { p.maxStam += 45 * r; p.stamRegen += 5 * r; },
+  },
+  {
+    id: 'woodcraft', attr: 'con', req: 4, max: 2, name: 'Woodcraft',
+    desc: 'Harvest swings cost 35% less stamina per rank.',
+    apply: (p, r) => { p.chopStamMul *= Math.pow(0.65, r); },
   },
   {
     id: 'ironStomach', attr: 'con', req: 4, max: 2, name: 'Iron Stomach',
@@ -222,7 +227,7 @@ export function baseStats() {
     pickupRange: PLAYER.pickupRange,
 
     meleeMul: 1, gunMul: 1, reloadMul: 1, fireRateMul: 1, spreadMul: 1,
-    rangeMul: 1, chopMul: 1, critChance: 0.06, freeShotChance: 0,
+    rangeMul: 1, chopMul: 1, chopStamMul: 1, critChance: 0.06, freeShotChance: 0,
     lootMul: 1, rareLootMul: 1, doubleDropChance: 0, searchMul: 1,
     buildCostMul: 1, structHpMul: 1, turretMul: 1, craftYieldMul: 1,
     healMul: 1, healSpeedMul: 1, speedMul: 1,
@@ -266,6 +271,10 @@ function applyAttributes(p, attrs) {
 
   p.maxHp += 12 * r('con');
   p.maxStam += 10 * r('con');
+  // CON is the only attribute that touches stamina, and until chopping cost
+  // any it only raised the ceiling. Recovery is half the stat now that work
+  // empties the bar, so CON raises both.
+  p.stamRegen += 1.2 * r('con');
 
   p.survivorCap += Math.floor((attrs.cha || ATTR_START) / 2);
   p.survivorDmgMul += 0.06 * r('cha');

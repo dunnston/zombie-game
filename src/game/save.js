@@ -6,16 +6,17 @@
 // which key) is saves.js's business, and a guest joining a hosted game will
 // come in through applySaveData too, so the two can never drift.
 
-import { G, structAt, addPlayer } from './state.js';
+import { G, structAt, addPlayer, equippedLight } from './state.js';
 import { createWorld, removeProp } from './world.js';
 import { createPlayer, pickRandomSpawn } from './player.js';
-import { PLAYER } from './config.js';
+import { PLAYER, STASH_SLOTS, ARMAMENTS } from './config.js';
 import { loadIdentity } from '../net/protocol.js';
 import { makeStructure } from './building.js';
+import { resetFires } from './fire.js';
 import { recomputeStats, startingAttrs } from './perks.js';
 import { makeSurvivor, refreshAllSurvivors } from './survivors.js';
 import { spawnPickup } from './loot.js';
-import { ITEMS, stackLimit } from './items.js';
+import { ITEMS, stackLimit, makeSlots } from './items.js';
 import { GEAR, GEAR_SLOTS } from './config.js';
 import { clamp } from '../core/util.js';
 import { xpForLevel, TILE } from './config.js';
@@ -80,6 +81,7 @@ export function playerRecord(p) {
     spawn: p.spawnStructure ? { tx: p.spawnStructure.tx, ty: p.spawnStructure.ty } : null,
     carKeys: p.carKeys || [],
     driving: p.drivingId || null,
+    lightOn: !!p.lightOn, lightFuel: p.lightFuel || 0, lightId: p.lightId || null,
     away: !!p.away,
   };
 }
@@ -108,6 +110,10 @@ export function restorePlayerRecord(p, rec, { keepPosition = false } = {}) {
   p.perks = rec.perks || {};
   p.secondWindCd = rec.secondWindCd || 0;
   p.carKeys = rec.carKeys || [];
+  // The light's charge lives on the player, not in the slot it was worn in.
+  p.lightId = rec.lightId || null;
+  p.lightFuel = Math.max(0, rec.lightFuel || 0);
+  p.lightOn = !!rec.lightOn && p.lightFuel > 0 && !!equippedLight(p);
   if (rec.name) p.name = rec.name;
   recomputeStats(p);
   if (!keepPosition) {
@@ -159,8 +165,8 @@ export function serialiseGame() {
       raidsDone: G.raidsDone,
       benchTier: G.benchTier,
       stats: G.stats,
-      stash: G.stash,
-      stashItems: G.stashItems,
+      stash: G.stash.slots,
+      armaments: Object.keys(G.armaments || {}),
       tutorial: { step: G.tutorial.step, done: G.tutorial.done },
       looted: G.world.containers.filter((c) => c.looted).map((c) => c.id),
       chopped: G.world.chopped,
@@ -194,6 +200,10 @@ export function serialiseGame() {
       structures: G.structures.map((s) => ({
         t: s.type, tx: s.tx, ty: s.ty, hp: s.hp, maxHp: s.maxHp,
         open: s.open, tier: s.tier, fuel: s.fuel, ammo: s.ammo, on: s.on, active: s.active,
+        // A Supply Stash aliases G.stash, which is saved once on its own —
+        // writing it per structure would restore N copies of the same pile.
+        store: s.store && s.type !== 'stash' ? s.store.slots : null,
+        arm: s.arm || null,
       })),
       backpacks: G.backpacks.map((b) => ({ x: b.x, y: b.y, c: b.contents })),
       // Loose items on the ground are real progress — a scavenger's delivered
@@ -244,8 +254,15 @@ export function applySaveData(raw) {
     G.threat = data.threat || 0;
     G.raidsDone = data.raidsDone || 0;
     G.benchTier = data.benchTier || 0;
-    G.stash = data.stash || {};
-    G.stashItems = data.stashItems || {};
+    // Nothing is alight in a world you have just loaded. Without this,
+    // `G.fires` kept entries pointing at props from the PREVIOUS world —
+    // damaging things at stale coordinates and deleting a prop out of the new
+    // one when the old fire burned out (Codex review).
+    resetFires();
+    G.stash = makeSlots(STASH_SLOTS);
+    restoreSlots(G.stash, data.stash || []);
+    G.armaments = {};
+    for (const id of data.armaments || []) if (ARMAMENTS[id]) G.armaments[id] = true;
     G.stats = { kills: 0, looted: 0, built: 0, crafted: 0, deaths: 0, damageDealt: 0, repaired: 0, ...(data.stats || {}) };
     G.tutorial = { step: data.tutorial?.step || 0, done: data.tutorial?.done || {}, hint: null };
     G.raid = null;
@@ -281,6 +298,12 @@ export function applySaveData(raw) {
       st.ammo = s.ammo || 0;
       st.on = s.on !== false;
       st.active = !!s.active;
+      // A stash aliases G.stash, which is restored on its own above; anything
+      // else with a store gets its contents back through the same sanitiser
+      // the pack uses, so an unknown id becomes an empty slot rather than a
+      // stack of something that no longer exists.
+      if (st.store && s.t !== 'stash') restoreSlots(st.store, s.store || []);
+      if (s.arm && ARMAMENTS[s.arm]) st.arm = s.arm;
       if (s.t === 'bedroll') {
         for (const q of G.players) {
           if (q.spawnTile && q.spawnTile.tx === s.tx && q.spawnTile.ty === s.ty) {

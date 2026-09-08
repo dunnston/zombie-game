@@ -6,9 +6,14 @@
 // that's what turns a base into a tower-defence problem.
 
 import { ENEMIES, TILE } from './config.js';
+
+// How much further a lit player is noticed from. Sized against a walker's 330
+// sense: a torch is worth roughly a quarter of that, so it is a real cost
+// without turning the night into a death sentence for carrying one.
+const LIGHT_SENSE_BONUS = 90;
 import {
   G, moveCircle, solidPx, structAtPx, hasLineOfSight, SpatialHash, unstick,
-  nearestPlayer, presentPlayers, isLocal,
+  nearestPlayer, presentPlayers, isLocal, lightActive,
 } from './state.js';
 import { dangerAtPx } from './world.js';
 import { damagePlayer, damageStructure } from './damage.js';
@@ -220,7 +225,11 @@ export function updateEnemies(dt) {
     // ---------------------------------------------------------- targeting --
     let tx, ty, targetStruct = null, targetIsPlayer = false;
     const dPlayer2 = p ? dist2(e.x, e.y, p.x, p.y) : Infinity;
-    const senseR = e.def.sense * (p && p.sneaking ? 0.55 : 1) * night.sense;
+    // Crouching halves what they notice; carrying a light does the opposite.
+    // A torch is the only reason to be visible at night, so it has to cost
+    // something — pillar 6, the same bargain as a generator or a gunshot.
+    const senseR = e.def.sense * (p && p.sneaking ? 0.55 : 1) * night.sense
+      + (p && lightActive(p) ? LIGHT_SENSE_BONUS : 0);
 
     // Survivors are people too: a zombie that gets close to one goes for it.
     let victim = null, victimD = 999999;
@@ -232,14 +241,22 @@ export function updateEnemies(dt) {
     const survivorInReach = victim &&
       victimD < (e.def.atkRange + SURVIVOR_R) * (e.def.atkRange + SURVIVOR_R);
 
-    if (p && (e.aggro || dPlayer2 < senseR * senseR)) {
+    // Only a player this enemy can sense RIGHT NOW refreshes the chase.
+    //
+    // The first version of this read `e.aggro || senses`, which meant an
+    // already-aggro'd enemy renewed its own alert timer from its own flag,
+    // every tick, for ever — so the expiry below could never fire and the
+    // noise branch stayed exactly as dead as it had always been. Measured:
+    // `alertT` pinned at 4.0 on every enemy in the group. (Codex review.)
+    const senses = p && dPlayer2 < senseR * senseR;
+    if (senses && (dPlayer2 < 120 * 120 || hasLineOfSight(e.x, e.y, p.x, p.y))) {
       // Sight check stops enemies tracking you through solid buildings.
-      if (e.aggro || dPlayer2 < 120 * 120 || hasLineOfSight(e.x, e.y, p.x, p.y)) {
-        e.aggro = true;
-        e.alertT = Math.max(e.alertT, 4);
-      }
+      e.aggro = true;
+      e.alertT = Math.max(e.alertT, 4);
     }
     if (!p) e.aggro = false;
+    // Losing you does not make them peaceful; it makes them investigate.
+    else if (e.aggro && !senses && e.alertT <= 0 && !e.raid) e.aggro = false;
 
     if (e.raid && G.raid) {
       // Raiders push for the base, but will happily eat the player en route.
@@ -249,8 +266,13 @@ export function updateEnemies(dt) {
       else { tx = G.raid.cx; ty = G.raid.cy; }
     } else if (e.aggro && p) {
       tx = p.x; ty = p.y; targetIsPlayer = true;
-    } else if (e.alertT > 0 && e.noiseX) {
+    } else if (e.alertT > 0 && e.noiseX !== undefined && e.noiseX !== null) {
+      // Something made a sound over there. `!== undefined` rather than a
+      // truthiness test, or a noise at exactly x=0 would be ignored.
       tx = e.noiseX; ty = e.noiseY;
+      // Arriving is the end of it: standing on the spot forever is how a
+      // horde ends up milling around a wall (invariant 8, give-up logic).
+      if (dist2(e.x, e.y, tx, ty) < 48 * 48) { e.alertT = 0; e.noiseX = null; }
     } else {
       // Idle shamble.
       e.wanderT -= dt;

@@ -50,11 +50,16 @@ export const RES = {
   scrap:  { name: 'Scrap',       short: 'SCRP', color: '#9aa2ab', wt: 1, stack: 50 },
   cloth:  { name: 'Cloth',       short: 'CLTH', color: '#c2a98a', wt: 1, stack: 50 },
   elec:   { name: 'Electronics', short: 'ELEC', color: '#59b8c4', wt: 1, stack: 30 },
+  battery:{ name: 'Batteries',   short: 'BATT', color: '#8fd08a', wt: 0.5, stack: 20 },
   med:    { name: 'Medical',     short: 'MED',  color: '#d9575f', wt: 1, stack: 30 },
   parts:  { name: 'Weapon Parts',short: 'PART', color: '#c9a227', wt: 1, stack: 20 },
   mil:    { name: 'Military',    short: 'MIL',  color: '#7fa14a', wt: 1, stack: 20 },
   fuel:   { name: 'Fuel',        short: 'FUEL', color: '#d2762c', wt: 1, stack: 20 },
   rations:{ name: 'Rations',     short: 'FOOD', color: '#c4a86a', wt: 1, stack: 20 },
+  // Ammunition you make rather than find. Light, stacks deep, and cheap in
+  // material the ground is covered in — which is what finally gives sticks,
+  // stone and fiber a sink that never stops consuming them.
+  arrow:  { name: 'Arrows',      short: 'ARRW', color: '#b9a072', wt: 0.15, stack: 60 },
   ammoP:  { name: '9mm Rounds',  short: '9MM',  color: '#d8c98a', wt: 0.2, stack: 120 },
   ammoS:  { name: 'Shells',      short: 'SHEL', color: '#c9584e', wt: 0.3, stack: 60 },
   ammoR:  { name: 'Rifle Rounds',short: 'RIFL', color: '#b8a05a', wt: 0.25, stack: 90 },
@@ -140,6 +145,24 @@ export const WEAPONS = {
     id: 'sledge', name: 'Sledgehammer', kind: 'melee', dmg: 78, cd: 0.86,
     range: 60, arc: 1.7, knock: 340, shake: 5, structureMul: 1.0, color: '#8d7a5e',
   },
+  // ------------------------------------------------------------- the bow --
+  // A firearm as far as the code is concerned, so it reuses the whole firing,
+  // reloading and ammunition path — the "magazine" of one plus a short reload
+  // IS the draw. What makes it a different weapon is the two numbers at the
+  // end: it is almost silent, and it hits for about a quarter of what a rifle
+  // does. Three arrows to put down a walker against a rifle's one.
+  //
+  // That is the trade the owner asked for: "arrows are quiet, guns and turrets
+  // are loud... one bullet can kill the smaller zombies while it takes several
+  // arrows." Arrows are also the only ammunition made entirely of things you
+  // pick up off the ground, which is what finally gives sticks, stone and
+  // fiber a sink that never stops consuming them.
+  bow: {
+    id: 'bow', name: 'Hunting Bow', kind: 'gun', dmg: 19, cd: 0.85, mag: 1,
+    reload: 0.55, spread: 0.03, ammo: 'arrow', speed: 780, life: 0.85,
+    knock: 60, shake: 0.4, pellets: 1, threat: 0.15, noise: 90, bow: true,
+    color: '#9a7a48',
+  },
   pistol: {
     id: 'pistol', name: 'M9 Pistol', kind: 'gun', dmg: 27, cd: 0.17, mag: 12,
     reload: 1.15, spread: 0.035, ammo: 'ammoP', speed: 1150, life: 0.55,
@@ -173,11 +196,23 @@ export const WEAPONS = {
 // contributor, so the vest is still the piece worth hunting, but the other
 // four slots are what take you from "survivable" to "armoured".
 
-export const GEAR_SLOTS = ['head', 'body', 'hands', 'legs', 'feet'];
+// Five armour slots and an off-hand. The off-hand is what your other hand is
+// carrying rather than what you are wearing: a torch or a flashlight, so you
+// can see at night without giving up the weapon in your hands.
+export const GEAR_SLOTS = ['head', 'body', 'hands', 'legs', 'feet', 'offhand'];
 
 export const GEAR_SLOT_NAMES = {
   head: 'Head', body: 'Body', hands: 'Hands', legs: 'Legs', feet: 'Feet',
+  offhand: 'Off-hand',
 };
+
+/**
+ * The slots that carry damage reduction. Every armour rule — three tiers per
+ * slot, each a real step up, a full set under the cap, the body slot the
+ * biggest single contributor — is about these five and not about the off-hand,
+ * which holds a light and protects nothing.
+ */
+export const ARMOR_SLOTS = GEAR_SLOTS.filter((s) => s !== 'offhand');
 
 export const GEAR = {
   // head
@@ -200,6 +235,31 @@ export const GEAR = {
   workBoots:  { id: 'workBoots',  name: 'Work Boots',    slot: 'feet',  dr: 0.02, wt: 3, tier: 1, color: '#6b4a2f' },
   combatBoots:{ id: 'combatBoots',name: 'Combat Boots',  slot: 'feet',  dr: 0.05, wt: 4, tier: 2, color: '#3f4a38' },
   milBoots:   { id: 'milBoots',   name: 'Assault Boots', slot: 'feet',  dr: 0.08, wt: 5, tier: 3, color: '#5b6640' },
+
+  // ------------------------------------------------------------- off-hand --
+  // Light, not armour, so `dr` is zero and the total-armour readout is
+  // unaffected. `light` is what the renderer punches out of the darkness;
+  // `burn` is how many seconds of being lit the thing holds.
+  //
+  // The torch is the first-night answer — sticks and fiber, craftable before
+  // you own anything — and it burns itself up. The flashlight is brighter,
+  // reaches much further because it is a cone rather than a puddle, and does
+  // not consume itself: it consumes batteries, which you find before you can
+  // make them.
+  torch: {
+    id: 'torch', name: 'Torch', slot: 'offhand', dr: 0, wt: 2, tier: 1,
+    color: '#e0913a', light: { radius: 200, strength: 0.80, warm: '#ffb45a' },
+    burn: 210, consumed: true,
+  },
+  flashlight: {
+    id: 'flashlight', name: 'Flashlight', slot: 'offhand', dr: 0, wt: 2, tier: 2,
+    color: '#d8d2c0',
+    light: {
+      radius: 140, strength: 0.72, warm: '#fff6cd',
+      cone: { len: 460, spread: 0.34, strength: 0.86 },
+    },
+    burn: 300, battery: 'battery',
+  },
 };
 
 /** No amount of scavenging should make you immune. */
@@ -245,6 +305,14 @@ export const ENEMIES = {
 
 // ------------------------------------------------------------- structures ---
 
+/**
+ * How many slots the shared base stash holds. Named because two places need
+ * to agree: the structure definition below, and `G.stash` in state.js, which
+ * every Supply Stash structure aliases so the base has one pile however many
+ * access points you build.
+ */
+export const STASH_SLOTS = 48;
+
 export const STRUCTURES = {
   bedroll: {
     id: 'bedroll', name: 'Bedroll', cost: { wood: 15, cloth: 12 }, hp: 90,
@@ -262,10 +330,26 @@ export const STRUCTURES = {
     sniperRange: 520, sniperDmg: 1.9,
     desc: 'Assign a survivor here and they cover the whole approach.',
   },
+  // ------------------------------------------------------------ storage --
+  // Every container holds a fixed number of slots now. The Supply Stash is
+  // still the base's pantry and armoury — survivors eat from it and turrets
+  // and towers draw ammunition from it, and only from it — so it is the
+  // biggest, and running it out of room really will starve your people. That
+  // is the point: storage is a thing you have to build more of.
   stash: {
     id: 'stash', name: 'Supply Stash', cost: { wood: 25, scrap: 8 }, hp: 220,
-    solid: true, tier: 1, threat: 2, protect: true,
-    desc: 'Shared storage. Deposit everything with one key.',
+    solid: true, tier: 1, threat: 2, protect: true, store: STASH_SLOTS,
+    desc: 'The base pantry and armoury. 48 slots. Survivors and towers feed from this one.',
+  },
+  chest: {
+    id: 'chest', name: 'Wooden Chest', cost: { wood: 20, sticks: 8 }, hp: 180,
+    solid: true, tier: 1, threat: 0.5, protect: true, store: 16,
+    desc: 'Sixteen slots of overflow. Cheap — build as many as you need.',
+  },
+  locker: {
+    id: 'locker', name: 'Steel Locker', cost: { scrap: 34, parts: 1 }, hp: 420,
+    solid: true, tier: 1, threat: 1, protect: true, store: 32,
+    desc: 'Thirty-two slots, and it survives a raid that flattens a chest.',
   },
   workbench: {
     id: 'workbench', name: 'Workbench', cost: { wood: 30, scrap: 18 }, hp: 300,
@@ -329,9 +413,70 @@ export const STRUCTURES = {
   },
 };
 
+// ------------------------------------------------------------- armaments ---
+//
+// What the survivor on a Watchtower is shooting. Each is bought once for the
+// whole base and then chosen per tower, so two towers can cover the same
+// approach with different answers.
+//
+// The axis every entry trades along is noise against effectiveness. Arrows
+// are free, weak and almost silent; the cannon flattens a group and brings the
+// district down on you. Fire is the interesting middle: cheap ammunition and
+// crowd damage, at the risk of setting the treeline — and anything standing in
+// it — alight.
+//
+// `dmg`, `cd` and `range` are multipliers on the survivor's own numbers, so a
+// levelled-up crew is better with every armament rather than just with one.
+// `ammo` is drawn from the shared stash, per shot, exactly as 9mm always was.
+
+export const ARMAMENTS = {
+  arrows: {
+    id: 'arrows', name: 'Arrows', order: 0,
+    cost: null,                                  // the default; a tower is never useless
+    dmg: 1.0, cd: 1.25, range: 480, noise: 90,
+    ammo: { arrow: 1 },
+    speed: 780, life: 0.85, knock: 60, pierce: 0, size: 2.6, color: '#c8a878',
+    sfx: 'swing', flash: 0,
+    desc: 'Quiet, cheap, and weak. Nothing hears a tower shooting arrows.',
+  },
+  firearrows: {
+    id: 'firearrows', name: 'Fire Arrows', order: 1,
+    cost: { wood: 20, cloth: 20, fuel: 30, parts: 2 },
+    dmg: 0.75, cd: 1.45, range: 480, noise: 120,
+    ammo: { arrow: 1, fuel: 1 },
+    speed: 720, life: 0.85, knock: 60, pierce: 0, size: 3, color: '#ff9a3a',
+    sfx: 'swing', flash: 0.5, burns: true,
+    desc: 'Sets what it hits alight, and fire spreads. Watch your treeline.',
+  },
+  sniper: {
+    id: 'sniper', name: 'Sniper Rifle', order: 2,
+    cost: { scrap: 70, parts: 12, mil: 6 },
+    dmg: 1.9, cd: 1.7, range: 520, noise: 700,
+    ammo: { ammoR: 1 },
+    speed: 1700, life: 0.55, knock: 110, pierce: 1, size: 2.8, color: '#e8f0c0',
+    sfx: 'rifle', flash: 1.1,
+    desc: 'One shot, one walker. Every district hears it.',
+  },
+  cannon: {
+    id: 'cannon', name: 'Scrap Cannon', order: 3,
+    cost: { scrap: 90, parts: 8, elec: 10 },
+    dmg: 3.4, cd: 3.2, range: 420, noise: 950,
+    ammo: { scrap: 2 },
+    speed: 900, life: 0.5, knock: 260, pierce: 0, size: 4.4, color: '#ffd08a',
+    sfx: 'shotgun', flash: 1.9, splash: 70,
+    desc: 'Flattens a group. The loudest thing you can build.',
+  },
+};
+
+export const ARMAMENT_IDS = Object.keys(ARMAMENTS)
+  .sort((a, b) => ARMAMENTS[a].order - ARMAMENTS[b].order);
+
+/** The one every base starts with, so a manned tower always does something. */
+export const DEFAULT_ARMAMENT = 'arrows';
+
 export const BUILD_ORDER = [
   'woodWall', 'stoneWall', 'barricade', 'reinforcedWall', 'metalWall', 'gate', 'spike',
-  'workbench', 'stash', 'bedroll', 'bunk', 'watchtower',
+  'workbench', 'stash', 'chest', 'locker', 'bedroll', 'bunk', 'watchtower',
   'generator', 'turret', 'floodlight',
 ];
 
@@ -349,6 +494,14 @@ export const RECIPES = [
   { id: 'hammer', name: 'Stone Hammer', bench: 0, cost: { sticks: 3, stone: 6, fiber: 2 }, give: { weapon: 'hammer' }, xp: 12 },
   // Cordage: fiber becomes cloth, but only with a blade to cut it.
   { id: 'cordage', name: 'Cloth x4', bench: 0, tool: 'knife', cost: { fiber: 10 }, give: { res: { cloth: 4 } }, xp: 4 },
+  // The first night's answer to "I cannot see anything", and deliberately made
+  // of the two things the ground is covered in. It burns itself up, so it is a
+  // consumable you keep remaking rather than a thing you own once.
+  { id: 'torch', name: 'Torch', bench: 0, cost: { sticks: 3, fiber: 3 }, give: { armor: 'torch' }, xp: 6 },
+  // Bench 0, like the tools: a bow is a stick and a string, and it has to be
+  // reachable in the first ten minutes to be the quiet answer to a gun.
+  { id: 'bow', name: 'Hunting Bow', bench: 0, cost: { sticks: 8, fiber: 12, cloth: 2 }, give: { weapon: 'bow' }, xp: 18 },
+  { id: 'arrow', name: 'Arrows x10', bench: 0, cost: { sticks: 6, stone: 3, fiber: 2 }, give: { res: { arrow: 10 } }, xp: 3 },
   { id: 'pipe', name: 'Steel Pipe', bench: 1, hammer: true, cost: { wood: 6, scrap: 10 }, give: { weapon: 'pipe' }, xp: 12 },
   { id: 'ammoP', name: '9mm x24', bench: 1, cost: { scrap: 9, parts: 1 }, give: { res: { ammoP: 24 } }, xp: 6 },
   { id: 'medkit', name: 'Medkit', bench: 1, cost: { med: 5, cloth: 5 }, give: { item: 'medkit', n: 1 }, xp: 8 },
@@ -368,6 +521,11 @@ export const RECIPES = [
   { id: 'lockpick', name: 'Lockpicks x3', bench: 1, hammer: true, cost: { scrap: 8, parts: 1 }, give: { item: 'lockpick', n: 3 }, xp: 6 },
   { id: 'rationPack', name: 'Ration Pack x8', bench: 1, hammer: true, cost: { med: 2, cloth: 3 }, give: { res: { rations: 8 } }, xp: 5 },
   { id: 'fuel', name: 'Fuel x25', bench: 1, cost: { scrap: 10, elec: 4 }, give: { res: { fuel: 25 } }, xp: 6 },
+  // A battery is findable long before it is craftable — it is in the parts
+  // bins, the desks and the glove boxes — so the flashlight is a thing you
+  // scavenge your way into rather than a bench unlock.
+  { id: 'battery', name: 'Batteries x2', bench: 1, cost: { scrap: 6, elec: 5 }, give: { res: { battery: 2 } }, xp: 6 },
+  { id: 'flashlight', name: 'Flashlight', bench: 1, cost: { scrap: 10, elec: 6, parts: 1 }, give: { armor: 'flashlight' }, xp: 18 },
 
   { id: 'sledge', name: 'Sledgehammer', bench: 2, cost: { wood: 18, scrap: 38, parts: 2 }, give: { weapon: 'sledge' }, xp: 45 },
   { id: 'smg', name: 'Scrap SMG', bench: 2, cost: { scrap: 48, parts: 8, elec: 10 }, give: { weapon: 'smg' }, xp: 60 },
@@ -400,6 +558,7 @@ export const LOOT = {
   ],
   toolbox: [
     { id: 'scrap', min: 6, max: 14, w: 34 }, { id: 'wood', min: 8, max: 18, w: 30 },
+    { id: 'battery', min: 1, max: 2, w: 12 },
     { id: 'parts', min: 1, max: 2, w: 16 }, { id: 'elec', min: 1, max: 3, w: 12 },
     { id: 'weapon:pipe', min: 1, max: 1, w: 6 }, { id: 'weapon:axe', min: 1, max: 1, w: 5 },
   ],
@@ -414,11 +573,12 @@ export const LOOT = {
     { id: 'item:bandage', min: 2, max: 4, w: 24 }, { id: 'cloth', min: 3, max: 7, w: 12 },
   ],
   electronics: [
-    { id: 'elec', min: 5, max: 12, w: 40 }, { id: 'parts', min: 1, max: 3, w: 24 },
+    { id: 'elec', min: 5, max: 12, w: 40 }, { id: 'battery', min: 1, max: 4, w: 22 }, { id: 'parts', min: 1, max: 3, w: 24 },
     { id: 'scrap', min: 6, max: 14, w: 26 }, { id: 'fuel', min: 5, max: 12, w: 10 },
   ],
   carTrunk: [
     { id: 'scrap', min: 4, max: 10, w: 34 }, { id: 'fuel', min: 4, max: 12, w: 26 },
+    { id: 'battery', min: 1, max: 2, w: 14 },
     { id: 'parts', min: 1, max: 1, w: 14 }, { id: 'cloth', min: 2, max: 5, w: 16 },
     { id: 'elec', min: 1, max: 2, w: 10 },
   ],
@@ -451,7 +611,7 @@ export const LOOT = {
   fuelDrum: [{ id: 'fuel', min: 8, max: 18, w: 70 }, { id: 'scrap', min: 2, max: 6, w: 30 }],
   // A stack of felled timber: the lumber camp's reason to exist.
   logPile: [
-    { id: 'wood', min: 12, max: 24, w: 64 }, { id: 'scrap', min: 1, max: 3, w: 14 },
+    { id: 'wood', min: 12, max: 24, w: 64 }, { id: 'arrow', min: 4, max: 10, w: 8 }, { id: 'scrap', min: 1, max: 3, w: 14 },
     { id: 'cloth', min: 1, max: 3, w: 12 }, { id: 'parts', min: 1, max: 1, w: 10 },
   ],
   // Palletised stock: bulk building material rather than anything personal.
@@ -494,6 +654,7 @@ export const LOOT = {
   ],
   desk: [
     { id: 'elec', min: 2, max: 6, w: 34 },
+    { id: 'battery', min: 1, max: 2, w: 14 },
     { id: 'parts', min: 1, max: 2, w: 20 },
     { id: 'cloth', min: 2, max: 5, w: 18 },
     { id: 'scrap', min: 2, max: 6, w: 16 },
@@ -501,6 +662,7 @@ export const LOOT = {
   ],
   filing: [
     { id: 'cloth', min: 4, max: 10, w: 34 },
+    { id: 'battery', min: 1, max: 1, w: 10 },
     { id: 'elec', min: 1, max: 3, w: 18 },
     { id: 'parts', min: 1, max: 2, w: 16 },
     { id: 'ammoP', min: 5, max: 12, w: 18 },
@@ -514,6 +676,7 @@ export const LOOT = {
   ],
   nightstand: [
     { id: 'med', min: 2, max: 5, w: 30 },
+    { id: 'battery', min: 1, max: 2, w: 16 },
     { id: 'item:bandage', min: 1, max: 2, w: 22 },
     { id: 'ammoP', min: 4, max: 10, w: 20 },
     { id: 'cloth', min: 1, max: 4, w: 16 },
@@ -527,6 +690,7 @@ export const LOOT = {
   ],
   footlocker: [
     { id: 'mil', min: 3, max: 8, w: 28 },
+    { id: 'arrow', min: 8, max: 20, w: 8 },
     { id: 'ammoR', min: 8, max: 18, w: 20 },
     { id: 'gear:milVest', min: 1, max: 1, w: 6 },
     { id: 'gear:milHelm', min: 1, max: 1, w: 6 },
@@ -544,6 +708,7 @@ export const LOOT = {
   ],
   toolrack: [
     { id: 'parts', min: 2, max: 5, w: 34 },
+    { id: 'weapon:bow', min: 1, max: 1, w: 6 }, { id: 'arrow', min: 6, max: 16, w: 10 },
     { id: 'scrap', min: 6, max: 14, w: 32 },
     { id: 'wood', min: 5, max: 12, w: 22 },
     { id: 'weapon:pipe', min: 1, max: 1, w: 6 },
@@ -553,6 +718,7 @@ export const LOOT = {
   ],
   displaycase: [
     { id: 'elec', min: 4, max: 10, w: 34 },
+    { id: 'battery', min: 1, max: 3, w: 16 },
     { id: 'parts', min: 2, max: 5, w: 26 },
     { id: 'weapon:pistol', min: 1, max: 1, w: 10 },
     { id: 'ammoP', min: 10, max: 22, w: 18 },
@@ -799,6 +965,31 @@ export const PLAYER = {
   stamDrain: 26,
   stamRegen: 20,
   stamRegenDelay: 0.65,
+  // Work costs stamina; fighting barely does.
+  //
+  // A harvest swing is the expensive one, and unlike a sprint it also stops
+  // recovery for `stamChopDelay` afterwards — so felling trees is a burst of
+  // effort and then a breather, rather than something you do continuously. At
+  // starting stats (110 max at CON 2) a tree is six hatchet swings, so a full
+  // bar is three trees and then about six and a half seconds of waiting. A
+  // Fire Axe fells in three, so the metal tier now buys back endurance as well
+  // as time.
+  //
+  // A combat swing costs `stamSwing` and locks nothing. Fighting is never
+  // gated: running out of stamina must never leave you unable to defend
+  // yourself, only unable to keep working.
+  stamChop: 6,
+  stamSwing: 2,
+  stamChopDelay: 1.1,
+  // Exhaustion has hysteresis: once the bar bottoms out you are winded, and
+  // one swing's worth of recovery is not enough to start working again — you
+  // have to get back to half.
+  //
+  // Measured in the browser before this was added: a player who simply held
+  // the button kept felling trees forever at a sixth of the speed, because
+  // each 1.1s of recovery bought exactly one more swing. There was never a
+  // moment where you had to stop, which is the whole thing that was asked for.
+  stamWindedRecovery: 0.5,
   carryCap: 200,
   // The grid is generous enough that weight is normally what stops you, but
   // finite enough that carrying thirty kinds of thing still has a cost.

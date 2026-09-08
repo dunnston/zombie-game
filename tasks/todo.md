@@ -1,6 +1,100 @@
 # tasks/todo.md
 
-## Current round — mining balance and the metal tool tier
+## Current round — stamina, light, storage, noise, the bow and manned towers
+
+Owner, 2026-09-07, after a play session. Twelve notes, taken in one PR at their
+request. Four decisions were taken with them before any code: one PR rather
+than three; fire spreads to zombies and scenery but never to player structures;
+ALL storage becomes slot-limited, the Supply Stash included; and the torch goes
+in a new off-hand slot.
+
+- [x] **Chopping costs stamina.** 6 a harvest swing, recovery locked for 1.1s,
+      2 for a combat swing and never refused. Three trees to a full bar at
+      starting stats, then a three-second pause. Measured in the browser.
+- [x] **Exhaustion latches.** The first version set `winded` at zero stamina,
+      which chopping never reaches (110 is 18 swings of 6, so the bar stops at
+      2) — a held button felled trees forever at a sixth speed. It latches on
+      the refusal now. The first fix did literally nothing; the browser found it.
+- [x] **Stamina is a stat.** CON raises recovery as well as the ceiling; a new
+      CON perk, Woodcraft, cuts harvest cost 35% a rank. Both surfaced on the
+      character sheet, and the HUD's low-stamina warning is fractional rather
+      than the absolute 12 a high-CON character never reached.
+- [x] **Litter cut again**, 4,246 → 2,372 pieces. Safe this time because the
+      camp is protected directly by a starter cache rather than by hoping the
+      global odds land near the spawn — measured, the odds alone left three
+      stone inside fifteen tiles against a Hatchet's three.
+- [x] **Off-hand slot, Torch, Flashlight, batteries.** `ARMOR_SLOTS` splits out
+      so every armour rule still means the five that carry damage reduction.
+      A lit player is noticed 90px further out.
+- [x] **Storage.** Stash → 48 slots, Chest 16, Locker 32, a two-panel drag
+      screen, `stashOrDrop` on every path that used to write to an infinite
+      pile, spilling on destruction, and `G.stashItems` deleted.
+- [x] **Noise.** One `makeNoise`, aggro that expires so the existing branch is
+      reachable at all, `noiseMul` applied everywhere, and turrets, generators,
+      building and chopping made audible.
+- [x] **Bow and arrows**, bench 0, three arrows to a walker, a seventh of a
+      pistol's noise, no muzzle flash. Arrows cost only hand-gathered material.
+- [x] **Manned towers.** Four armaments bought once and set per tower; arrows
+      free, sniper/fire/cannon bought. Fixed the `posted`/`sniping` split.
+- [x] **Fire.** Burning enemies and burning scenery, spread, burn-out that
+      removes the prop for good, damage to anyone standing in it, and no path
+      at all to a player structure.
+- [x] Save → v12, fingerprint `a62c50c2` → `cd427428`. Verified the world
+      change is isolated: containers, vehicles, tiles and every non-litter prop
+      are byte-identical to `main`.
+- [x] Node tests 98 → 126. Browser suite updated for the slot stash (it poked
+      `G.stash.wood = 200` in 42 places), the six equipment slots and the new
+      container prompt.
+- [x] Docs: PROJECT.md §3 §4 §5 §6 §7 §8 §9 §11, README, this file, lessons.
+- [x] `npm run smoke` — **395/395**, no runtime errors. Eight failures on the
+      first complete run, all fixed: three were the suite assuming infinite
+      storage, one was the intended armament change, and four were a fixed
+      four-frame wait for a loopback welcome that takes sixteen.
+- [x] Raid harness 1–3 — run twice, all completing, none near the 300s
+      backstop. Structures lost identical both times (0 / 2 / 9); PROJECT.md §9
+      has both sets and why index 1 and 3 moved against the old figures.
+- [x] **Codex review: five findings, four P1, every one real and every one
+      reproduced against the running game first.** The big one: noise still did
+      not work, and the measurement quoted in the PR had been taken along an
+      axis that could not tell "investigates the sound" from "walks at the
+      player past it". Both halves fixed, and the lesson is in §8.
+- [ ] The owner plays it.
+
+### Review
+
+**What was measured rather than guessed.** Every balance number in this round
+was taken from the running game: three trees at 2.7s/5.9s/9.1s with the winded
+latch at 9.7s and recovery at 12.7s; a torch taking the ground around the
+player from 36.7 to 58.5 brightness and a flashlight adding 20.6 at 300px where
+a torch adds nothing; eight walkers closing 91px on their own against 250px
+after one sound; four arrows into a walker for 19/19/19/34.2; and six seconds
+of each tower armament against three walkers — arrows 81 damage for 7 arrows,
+fire 98 plus two alight and two scenery fires, sniper 174 and three kills.
+
+**Three things this round found that were already broken.** `alertEnemies` had
+never worked, because aggro never expired. `crafting.js` had grown a private
+third copy of the loot entry-id encoder the decision log says must be unique.
+And `posted` and `sniping` were two different answers to "is this survivor on
+their tower", so one walking toward it already had sniper ballistics.
+
+**Both suites run, on request.** `npm test` 126/126, browser **395/395**,
+`DEADLINE.errors` empty, raid harness 1–3 all completing.
+
+The browser suite needed real work to run at all. It poked `G.stash.wood = 200`
+in 42 places, which a slot container ignores, and it could not report any of
+its own failures: one linear function meant a single null dereference threw the
+whole run away — no results, no cleanup. Its body is wrapped now, and
+`setStash` frees space rather than silently under-delivering.
+
+**The raid figures moved, and the reason is the point of the round.** Index 1's
+walls took more damage (90% → 48%) and index 3 resolved in 77s rather than
+150–260s. Both because turrets make noise now: the horde is pulled onto the
+thing shooting at it rather than wandering or chasing the player, so more of
+them reach the walls sooner and far fewer end up as stragglers — which is what
+the long tail on index 3 was. Index 2 landed squarely in its old band, and
+nothing came near the 300s backstop.
+
+## Previous round — mining balance and the metal tool tier
 
 Owner, 2026-09-07: "There are WAY too many sticks, stones and fiber on the map
 right now. Also it is way too easy to mine trees and boulders. We need to make

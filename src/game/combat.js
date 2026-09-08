@@ -5,7 +5,7 @@
 // and being able to shoot over your own walls is what makes defending a base
 // fun rather than infuriating.
 
-import { WEAPONS, STRUCTURES, THREAT, TILE, RES } from './config.js';
+import { WEAPONS, STRUCTURES, THREAT, TILE, RES, PLAYER } from './config.js';
 import {
   G, bulletBlocksPx, hasTerrainLineOfSight, notify, shake, takeRes, countRes,
   isLocal, baseOwner, presentPlayers,
@@ -20,6 +20,8 @@ import { propAtTile, removeProp } from './world.js';
 import { spawnPickup } from './loot.js';
 import { addXp } from './progression.js';
 import { emit } from '../net/events.js';
+import { makeNoise, alertEnemies, NOISE } from './noise.js';
+import { ignite } from './fire.js';
 
 const scratch = [];
 
@@ -46,6 +48,10 @@ export function spawnBullet(x, y, angle, opts) {
     // The player object for a player's shot, or a tag for anything automated.
     owner: opts.owner || null,
     crit: opts.crit || false,
+    // Tower armaments. `burns` sets what it hits alight; `splash` is a radius
+    // that catches everything around the impact for a share of the damage.
+    burns: !!opts.burns,
+    splash: opts.splash || 0,
   });
 }
 
@@ -83,6 +89,8 @@ export function updateBullets(dt) {
         if (dist2(b.x, b.y, e.x, e.y) > rr * rr) continue;
 
         damageEnemy(e, b.dmg, { fromX: b.px, fromY: b.py, knock: b.knock, crit: b.crit, source: b.owner });
+        if (b.burns) ignite(e);
+        if (b.splash > 0) splashDamage(b, e);
         sfx('bulletHit');
         if (b.pierce > 0) {
           b.pierce--;
@@ -101,23 +109,90 @@ export function updateBullets(dt) {
 
 // -------------------------------------------------------------------- melee --
 
-export function meleeAttack(p, w) {
+/**
+ * What one harvest swing costs in stamina. Exported so the HUD, the tests and
+ * the guest's own prediction all ask the same question rather than three
+ * copies of the arithmetic drifting apart.
+ */
+export const chopStamCost = (p) => PLAYER.stamChop * (p.chopStamMul ?? 1);
+
+/**
+ * Enough left to swing at scenery? Fighting never asks this.
+ *
+ * `p.winded` is the hysteresis: it latches when the bar empties — however it
+ * emptied, sprinting included — and only clears once you are back to half. See
+ * `movePlayer`, which owns both edges so a guest predicting its own movement
+ * arrives at the same answer the host will.
+ */
+export const canChop = (p) => !p.winded && p.stam >= chopStamCost(p);
+
+/**
+ * One melee swing. Returns true if the swing happened.
+ *
+ * The stamina rules live here rather than in `updatePlayer` because this is
+ * the only place that knows whether a swing was a fight or a job: the arc is
+ * searched for enemies first, and only an empty arc falls through to the
+ * scenery. A fight costs `stamSwing` and is never refused; a harvest costs
+ * `chopStamCost(p)`, stops recovery for `stamChopDelay`, and IS refused when
+ * the bar is short — which is what makes three trees a decision.
+ */
+/** Everything a swing of `w` would connect with, nearest first. */
+function meleeTargets(p, w) {
   const reach = w.range + p.r;
   const halfArc = w.arc / 2;
   const maxTargets = w.arc > 1.4 ? 6 : 3;
-  const dmg = w.dmg * p.meleeMul * (p.adrenalineActive ? 1.45 : 1);
-
-  p.swing = { t: 0, dur: Math.min(0.26, w.cd * 0.75), angle: p.angle, arc: w.arc, range: reach };
-  sfx('swing');
-
   G.spatial.query(p.x, p.y, reach + 24, scratch);
-  const hits = scratch
+  return scratch
     .filter((e) => !e.dead && dist2(e.x, e.y, p.x, p.y) < (reach + e.def.r) * (reach + e.def.r))
     .filter((e) => Math.abs(angleDelta(p.angle, Math.atan2(e.y - p.y, e.x - p.x))) < halfArc + e.def.r / reach)
     .sort((a, b) => dist2(a.x, a.y, p.x, p.y) - dist2(b.x, b.y, p.x, p.y))
     .slice(0, maxTargets);
+}
+
+/**
+ * Would this swing be turned down for want of puff? Only work is ever
+ * refused, so an enemy in the arc always answers no.
+ *
+ * Exported because a guest predicts its own swing arc locally (see
+ * `predictSwing` in net/client.js) and must ask exactly the question the host
+ * is about to ask, or it plays an animation for a swing that never happens.
+ * `fighting` is passed in when the caller has already done the arc query.
+ */
+export function swingRefused(p, w, fighting = null) {
+  if (fighting === null ? meleeTargets(p, w).length > 0 : fighting) return false;
+  return !canChop(p) && !!propInFront(p, w);
+}
+
+export function meleeAttack(p, w) {
+  const reach = w.range + p.r;
+  const dmg = w.dmg * p.meleeMul * (p.adrenalineActive ? 1.45 : 1);
+  const hits = meleeTargets(p, w);
+
+  // Nothing to fight, something to harvest, and no puff left: refuse before
+  // the animation starts, so a winded player sees why nothing is happening
+  // instead of swinging uselessly at a tree.
+  if (swingRefused(p, w, hits.length > 0)) {
+    // Being turned down for work IS what makes you winded. Latching here
+    // rather than at "stamina hit exactly zero" is the difference between a
+    // pause and a dribble: 110 stamina is 18 swings of 6, so the bar stops at
+    // 2 and never reaches zero, and without this latch the player simply
+    // regenerated one swing's worth and took it, forever. Measured in the
+    // browser — the first version of this fix did nothing for that reason.
+    if (!p.winded) p.windedAt = 0;
+    p.winded = true;
+    if (!p.windedAt || G.time - p.windedAt > 3) {
+      p.windedAt = G.time;
+      if (isLocal(p)) notify('Winded — get your breath back before working again', '#d9c46a');
+    }
+    sfx('deny');
+    return false;
+  }
+
+  p.swing = { t: 0, dur: Math.min(0.26, w.cd * 0.75), angle: p.angle, arc: w.arc, range: reach };
+  sfx('swing');
 
   if (hits.length) {
+    p.stam = Math.max(0, p.stam - PLAYER.stamSwing);
     sfx('meleeHit');
     if (isLocal(p)) shake(w.shake || 1.6);
     for (const e of hits) {
@@ -129,11 +204,30 @@ export function meleeAttack(p, w) {
     // Brief hitstop makes a heavy swing land hard. It is a feel effect for the
     // person swinging — slowing the whole world for someone else's hit is not.
     if (w.id === 'sledge' && isLocal(p)) G.slowmo = Math.max(G.slowmo, 0.06);
-  } else {
-    // Nothing to fight? Chop whatever scenery is in front of you instead.
-    chopProp(p, w, dmg);
+  } else if (chopProp(p, w, dmg)) {
+    p.stam = Math.max(0, p.stam - chopStamCost(p));
+    p.stamLock = PLAYER.stamChopDelay;
   }
-  return hits.length;
+  // A swing that connects with nothing — thin air, or a tree you have no axe
+  // for — costs nothing. Charging for it made flailing at the scenery a way to
+  // exhaust yourself, and it is already its own punishment.
+  return true;
+}
+
+/**
+ * The tile a swing would land on, if it holds scenery this weapon could
+ * actually harvest. The tool gate is part of the question: swinging a pipe at
+ * a tree should say "you need a hatchet", not "you are too tired".
+ */
+function propInFront(p, w) {
+  const reach = w.range + p.r;
+  const tx = Math.floor((p.x + Math.cos(p.angle) * reach * 0.7) / TILE);
+  const ty = Math.floor((p.y + Math.sin(p.angle) * reach * 0.7) / TILE);
+  const prop = propAtTile(G.world, tx, ty);
+  if (!prop) return null;
+  const rule = HARVEST[prop.harvest];
+  if (!rule || (rule.needs && !w[rule.needs])) return null;
+  return prop;
 }
 
 /**
@@ -198,6 +292,12 @@ function dropRes(x, y, id, n) {
  * wood supply, and the thing that opens firing lines for turrets. Felling one
  * is a real tactical decision, not just a resource tap.
  */
+/**
+ * Returns true only when the swing actually bit into the scenery. A swing at
+ * nothing, or one that bounced off a tree for want of an axe, returns false —
+ * `meleeAttack` charges those as an ordinary swing rather than as a full day's
+ * work, because neither of them moved any material.
+ */
 function chopProp(p, w, dmg) {
   const reach = w.range + p.r;
   const tx = Math.floor((p.x + Math.cos(p.angle) * reach * 0.7) / TILE);
@@ -214,7 +314,7 @@ function chopProp(p, w, dmg) {
     }
     FX.debris(prop.x, prop.y, 2, '#4a3a22');
     sfx('hitWall');
-    return true;
+    return false;
   }
   if (!G.tutorial.done.chop) {
     G.tutorial.done.chop = true;
@@ -226,6 +326,9 @@ function chopProp(p, w, dmg) {
   prop.hitAt = G.time;          // renderer reads this; avoids a per-frame prop loop
   FX.debris(prop.x, prop.y, 5, rule.debris);
   sfx('meleeHit');
+  // Work is audible. Felling a tree in the open is a decision now that it
+  // costs stamina; this is the other half of the cost.
+  makeNoise(prop.x, prop.y, NOISE.chop, p);
   if (isLocal(p)) shake(1.2);
 
   if (prop.hp <= 0) {
@@ -244,6 +347,28 @@ function chopProp(p, w, dmg) {
     addXp(p, rule.xp || 2);
   }
   return true;
+}
+
+/**
+ * A cannon round catches everything around where it landed for a share of the
+ * damage. The direct hit has already been paid, so the target is skipped.
+ */
+function splashDamage(b, hit) {
+  const r = b.splash;
+  G.spatial.query(b.x, b.y, r, scratch);
+  for (const e of scratch) {
+    if (e.dead || e === hit) continue;
+    const d2 = dist2(b.x, b.y, e.x, e.y);
+    if (d2 > r * r) continue;
+    // Full damage at the centre, a third at the edge.
+    const falloff = 1 - (Math.sqrt(d2) / r) * 0.66;
+    damageEnemy(e, b.dmg * falloff, {
+      fromX: b.x, fromY: b.y, knock: b.knock * 0.5, source: b.owner,
+    });
+    if (b.burns) ignite(e);
+  }
+  FX.ring(b.x, b.y, 6, r, 0.32, '#ffb45a', 3);
+  FX.debris(b.x, b.y, 10, '#a0764a');
 }
 
 // --------------------------------------------------------------------- guns --
@@ -273,25 +398,31 @@ export function fireGun(p, w) {
       life: w.life * p.rangeMul,
       knock: w.knock,
       pierce: w.pierce || 0,
-      color: w.id === 'shotgun' ? '#ffd08a' : '#ffe6a8',
-      size: w.id === 'rifle' ? 3 : 2.2,
+      color: w.bow ? '#c8a878' : w.id === 'shotgun' ? '#ffd08a' : '#ffe6a8',
+      size: w.bow ? 2.8 : w.id === 'rifle' ? 3 : 2.2,
+      trail: w.bow ? 14 : undefined,
       crit,
       owner: p,
       w: i === 0 ? w.id : null,      // one sound per shot, not per pellet
     });
   }
 
-  FX.muzzle(mx, my, p.angle, w.id === 'shotgun' ? 1.9 : w.id === 'rifle' ? 1.5 : 1);
-  FX.smoke(mx, my, w.id === 'shotgun' ? 4 : 1, '#7a756a');
+  // No flash and no smoke from a bow — a muzzle particle is also a light
+  // source at night (see drawNight), and a bow that lit up the treeline every
+  // shot would give away the one thing it is for.
+  if (!w.bow) {
+    FX.muzzle(mx, my, p.angle, w.id === 'shotgun' ? 1.9 : w.id === 'rifle' ? 1.5 : 1);
+    FX.smoke(mx, my, w.id === 'shotgun' ? 4 : 1, '#7a756a');
+  }
   if (isLocal(p)) shake(w.shake);
   // Recoil kick, so rapid fire visibly pushes the aim around.
   p.recoil = Math.min(0.16, (p.recoil || 0) + spread * 1.4 + 0.012);
   p.vx -= Math.cos(p.angle) * (w.id === 'shotgun' ? 90 : 22);
   p.vy -= Math.sin(p.angle) * (w.id === 'shotgun' ? 90 : 22);
 
-  sfx(w.id === 'smg' ? 'smg' : w.id === 'shotgun' ? 'shotgun' : w.id === 'rifle' ? 'rifle' : 'pistol');
+  sfx(w.bow ? 'swing' : w.id === 'smg' ? 'smg' : w.id === 'shotgun' ? 'shotgun' : w.id === 'rifle' ? 'rifle' : 'pistol');
   addThreat(THREAT.perGunshot * w.threat, '', p);
-  alertEnemies(p.x, p.y, w.noise * p.noiseMul);
+  makeNoise(p.x, p.y, w.noise, p);
   return true;
 }
 
@@ -339,19 +470,6 @@ export function updateReload(p, dt) {
   if (!w || !held || held.id !== w.id) { p.reloading = null; return; }
   p.reloading.t += dt;
   if (p.reloading.t >= p.reloading.dur) finishReloadStep(p, w);
-}
-
-/** Gunfire pulls nearby wandering enemies toward the sound. */
-export function alertEnemies(x, y, radius) {
-  const r2 = radius * radius;
-  for (const e of G.enemies) {
-    if (e.dead) continue;
-    if (dist2(e.x, e.y, x, y) < r2) {
-      e.aggro = true;
-      e.alertT = 8;
-      e.noiseX = x; e.noiseY = y;
-    }
-  }
 }
 
 // ------------------------------------------------------------------ turrets --
@@ -423,6 +541,9 @@ export function updateTurrets(dt) {
       FX.muzzle(s.x + Math.cos(a) * 20, s.y + Math.sin(a) * 20, a, 0.7);
       sfx('turret');
       addThreat(THREAT.turretPerShot);
+      // A machine gun on a post. It pulls the horde onto itself, which is the
+      // whole trade an arrow tower exists to offer an alternative to.
+      makeNoise(s.x, s.y, NOISE.turret, owner);
     }
   }
 }

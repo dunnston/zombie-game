@@ -2,7 +2,7 @@
 // transform; the HUD layer draws afterwards in screen space.
 
 import { TILE, TERRAIN, T, WEAPONS, STRUCTURES, ENEMIES } from '../game/config.js';
-import { G, isLocal } from '../game/state.js';
+import { G, isLocal, lightActive, equippedLight } from '../game/state.js';
 import { driverOf } from '../game/vehicles.js';
 import { primaryLabel } from '../core/bindings.js';
 import { Sprites, structureSprite } from '../core/sprites.js';
@@ -80,6 +80,10 @@ export function render(ctx, W, H) {
     if (q.dead || q.away) continue;
     drawList.push({ y: q.y, kind: 'player', ref: q });
   }
+  for (const f of G.fires) {
+    if (f.x < view.x0 - 40 || f.x > view.x1 + 40 || f.y < view.y0 - 40 || f.y > view.y1 + 40) continue;
+    drawList.push({ y: f.y + 2, kind: 'fire', ref: f });
+  }
 
   drawList.sort((a, b) => a.y - b.y);
   for (const d of drawList) {
@@ -93,6 +97,7 @@ export function render(ctx, W, H) {
       case 'survivor': drawSurvivor(ctx, d.ref); break;
       case 'rescue': drawRescue(ctx, d.ref); break;
       case 'player': drawPlayer(ctx, d.ref); break;
+      case 'fire': drawFire(ctx, d.ref); break;
       default: break;
     }
   }
@@ -160,7 +165,22 @@ function drawNight(ctx, W, H) {
   // No light source clears the dark completely — even a floodlit yard should
   // still read as night, or the whole cycle stops mattering.
   for (const q of G.players) {
-    if (!q.dead && !q.away) hole(q.x, q.y, q.downed ? 90 : 175, 0.72);
+    if (q.dead || q.away) continue;
+    hole(q.x, q.y, q.downed ? 90 : 175, 0.72);
+    // What is in their off-hand. A teammate's torch lights the world for
+    // everyone, which is why `lightOn` rides the snapshot.
+    const g = lightActive(q) ? equippedLight(q) : null;
+    if (!g || q.downed) continue;
+    hole(q.x, q.y, g.light.radius, g.light.strength);
+    const cone = g.light.cone;
+    if (!cone) continue;
+    // A beam, built the same way the car headlights are: a row of overlapping
+    // holes marching away along the aim, each wider and weaker than the last.
+    for (let i = 1; i <= 5; i++) {
+      const d = (cone.len / 5) * i;
+      hole(q.x + Math.cos(q.angle) * d, q.y + Math.sin(q.angle) * d,
+        cone.len * cone.spread * (0.42 + i * 0.1), cone.strength - i * 0.1);
+    }
   }
 
   for (const s of G.structures) {
@@ -186,6 +206,15 @@ function drawNight(ctx, W, H) {
       const d = i * 52;
       hole(v.x + Math.cos(v.angle) * d, v.y + Math.sin(v.angle) * d, 90 + i * 12, 0.85 - i * 0.09);
     }
+  }
+
+  // Fire is a light source. A treeline going up should be the brightest thing
+  // on the screen, and a burning zombie should be visible coming.
+  for (const f of G.fires) {
+    hole(f.x, f.y, 120 * (1 - Math.min(1, f.t / f.life) * 0.45), 0.6);
+  }
+  for (const e of G.enemies) {
+    if (!e.dead && e.burnT > 0) hole(e.x, e.y, 80, 0.45);
   }
 
   // Muzzle flashes briefly light the world around them.
@@ -540,6 +569,27 @@ function drawEnemy(ctx, e) {
   ctx.drawImage(spr, -spr.width / 2, -spr.height / 2);
   ctx.restore();
 
+  // On fire. Readability first (pillar 4): a burning zombie is about to set
+  // light to the ones around it, so you have to be able to see which one it is
+  // in a crowd, at a glance, without reading a health bar.
+  if (e.burnT > 0) {
+    ctx.save();
+    ctx.translate(e.x, e.y);
+    for (let i = 0; i < 2; i++) {
+      const ph = G.time * (9 + i * 3) + i * 2.3 + e.id;
+      const h = 9 + Math.sin(ph) * 3.5;
+      const ox = (i === 0 ? -3.5 : 3.5) + Math.sin(ph * 0.8) * 1.5;
+      ctx.fillStyle = i === 0 ? '#ff8c2a' : '#ffd86a';
+      ctx.beginPath();
+      ctx.moveTo(ox - 2.6, -e.def.r * 0.3);
+      ctx.quadraticCurveTo(ox - 1.2, -e.def.r * 0.3 - h * 0.6, ox, -e.def.r * 0.3 - h);
+      ctx.quadraticCurveTo(ox + 1.2, -e.def.r * 0.3 - h * 0.6, ox + 2.6, -e.def.r * 0.3);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   // Health bar for anything that's been hurt.
   if (e.hp < e.maxHp) {
     const w = e.def.r * 2.2;
@@ -562,9 +612,52 @@ function drawEnemy(ctx, e) {
 
 // ------------------------------------------------------------------ player --
 
+/**
+ * The warm part of a carried light, drawn in the world pass and therefore
+ * *under* the darkness that drawNight lays on top. Same arrangement as the car
+ * headlights: this is what the light looks like, drawNight is what it does.
+ * Without it a torch at dusk — when darkness is real but thin — would cut a
+ * hole in nothing and read as no light at all.
+ */
+function drawCarriedLight(ctx, p) {
+  if (!lightActive(p)) return;
+  const g = equippedLight(p);
+  const dark = darkness().alpha;
+  if (dark <= 0.06) return;
+  const a = Math.min(1, dark * 1.5);
+  ctx.save();
+  const L = g.light;
+  const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, L.radius);
+  glow.addColorStop(0, `rgba(255,196,110,${0.16 * a})`);
+  glow.addColorStop(1, 'rgba(255,196,110,0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, L.radius, 0, TAU);
+  ctx.fill();
+
+  if (L.cone) {
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.angle);
+    const half = L.cone.len * L.cone.spread;
+    const beam = ctx.createLinearGradient(10, 0, L.cone.len, 0);
+    beam.addColorStop(0, `rgba(255,246,205,${0.26 * a})`);
+    beam.addColorStop(1, 'rgba(255,246,205,0)');
+    ctx.fillStyle = beam;
+    ctx.beginPath();
+    ctx.moveTo(8, -7);
+    ctx.lineTo(L.cone.len, -half);
+    ctx.lineTo(L.cone.len, half);
+    ctx.lineTo(8, 7);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 function drawPlayer(ctx, p) {
   if (p.downed) { drawDownedPlayer(ctx, p); return; }
 
+  drawCarriedLight(ctx, p);
   const w = currentWeapon(p);
   const moving = Math.hypot(p.vx, p.vy) > 20;
   const t = G.time;
@@ -809,6 +902,30 @@ function drawWeapon(ctx, w, p) {
       ctx.fillStyle = '#4a3a2a'; ctx.fillRect(4, -1.6, 5, 3.2);
       ctx.fillStyle = w.color; ctx.fillRect(9, -1.2, 10, 2.4); ctx.fillRect(17, -0.8, 3, 1.6);
     } else ctx.fillRect(5, -1.6, 17, 3.2);
+  } else if (w.bow) {
+    // A limb curved away from the hand with a string across it, and a nocked
+    // arrow that draws back as the shot recharges — the bow has to read as a
+    // bow at a glance or it is just another grey stick (pillar 4).
+    const draw = p.reloading ? 0 : Math.min(1, Math.max(0, 1 - p.attackCd / (w.cd || 1)));
+    ctx.strokeStyle = w.color;
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.arc(2, 0, 11, -1.9, 1.9);
+    ctx.stroke();
+    ctx.strokeStyle = '#d8d0bc';
+    ctx.lineWidth = 1;
+    const pull = -5 * draw;
+    ctx.beginPath();
+    ctx.moveTo(-1.5, -10.4);
+    ctx.lineTo(pull, 0);
+    ctx.lineTo(-1.5, 10.4);
+    ctx.stroke();
+    ctx.strokeStyle = '#b9a072';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(pull, 0);
+    ctx.lineTo(pull + 20, 0);
+    ctx.stroke();
   } else {
     ctx.fillStyle = '#22262a';
     ctx.fillRect(-2, -2.6, 8, 5.2);
@@ -821,6 +938,37 @@ function drawWeapon(ctx, w, p) {
       ctx.fillStyle = '#3a2f22';
       ctx.fillRect(-6, -2.2, 6, 4.4);
     }
+  }
+  ctx.restore();
+}
+
+/**
+ * A burning piece of scenery: three flames on different phases so a treeline
+ * on fire reads as motion rather than as an orange dot, plus a scorch under
+ * it. Dies down over the fire's life so a nearly-out fire looks nearly out.
+ */
+function drawFire(ctx, f) {
+  const left = 1 - Math.min(1, f.t / f.life);
+  const scale = 0.55 + left * 0.65;
+  ctx.save();
+  ctx.translate(f.x, f.y);
+  ctx.globalAlpha = 0.24 * left;
+  ctx.fillStyle = '#2a1a10';
+  ctx.beginPath();
+  ctx.ellipse(0, 3, 13, 7, 0, 0, TAU);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  for (let i = 0; i < 3; i++) {
+    const ph = G.time * (7 + i * 2.2) + i * 2.1 + (f.tx || 0);
+    const h = (11 + Math.sin(ph) * 4) * scale;
+    const ox = (i - 1) * 5 + Math.sin(ph * 0.7) * 2;
+    ctx.fillStyle = i === 1 ? '#ffd86a' : '#ff8c2a';
+    ctx.beginPath();
+    ctx.moveTo(ox - 3.4 * scale, 2);
+    ctx.quadraticCurveTo(ox - 1.6 * scale, 2 - h * 0.6, ox, 2 - h);
+    ctx.quadraticCurveTo(ox + 1.6 * scale, 2 - h * 0.6, ox + 3.4 * scale, 2);
+    ctx.closePath();
+    ctx.fill();
   }
   ctx.restore();
 }
@@ -1255,7 +1403,11 @@ function drawRepairOverlay(ctx, g, p) {
 
 function drawInteractPrompt(ctx) {
   const h = G.ui.hover;
-  if (!h || G.ui.buildMode || G.player.searching || G.player.reviving) return;
+  // A panel over the world hides the prompt too. It always should have — the
+  // HUD's own key hints are gated on `!G.ui.panel` — but it only became
+  // obvious when E started opening a screen on the very thing being pointed
+  // at, and the prompt showed through the panel describing it.
+  if (!h || G.ui.panel || G.ui.buildMode || G.player.searching || G.player.reviving) return;
   const ref = h.ref;
   ctx.save();
   ctx.textAlign = 'center';

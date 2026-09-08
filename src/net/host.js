@@ -216,7 +216,7 @@ export function hostAfterUpdate(dt) {
   if (H.syncT >= SYNC_INTERVAL) {
     H.syncT = 0;
     for (const g of H.guests.values()) sendInventory(g, false);
-    syncStash();
+    syncStores();
     syncDynamicStructures();
   }
 
@@ -249,11 +249,25 @@ function sendInventory(guest, force) {
   guest.peer.send('reliable', msg.ev('inv', { rec }));
 }
 
-function syncStash() {
-  const text = JSON.stringify([G.stash, G.stashItems]);
+/**
+ * Storage, diffed and sent only when it changed — the same hash-and-resync
+ * shape inventories already use. Every container in the base is one entry:
+ * the shared stash under a null tile, and each chest or locker under its own.
+ *
+ * Sent whole rather than as deltas because a container is small (16-48 slots),
+ * changes rarely, and a missed delta would leave a guest looking at a chest
+ * that does not match what is in it.
+ */
+function syncStores() {
+  const list = [{ tx: null, ty: null, slots: G.stash.slots }];
+  for (const s of G.structures) {
+    if (!s.store || s.destroyed || s.type === 'stash') continue;
+    list.push({ tx: s.tx, ty: s.ty, slots: s.store.slots });
+  }
+  const text = JSON.stringify(list);
   if (text === H.stashHash) return;
   H.stashHash = text;
-  emit('stash', { stash: G.stash, items: G.stashItems || {} });
+  emit('stores', { list });
 }
 
 /** Generators burn, turrets aim, floodlights power up: low-rate field sync. */
@@ -261,7 +275,9 @@ function syncDynamicStructures() {
   const list = [];
   for (const s of G.structures) {
     if (s.destroyed) continue;
-    if (s.type === 'generator' || s.type === 'turret' || s.type === 'floodlight') list.push(packStructure(s));
+    if (s.type === 'generator' || s.type === 'turret' || s.type === 'floodlight' || s.type === 'watchtower') {
+      list.push(packStructure(s));
+    }
   }
   if (list.length) emit('dyn', { list });
 }

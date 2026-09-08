@@ -1,6 +1,6 @@
 // The player: stats, movement, aiming, attacking, healing, death and respawn.
 
-import { PLAYER, WEAPONS, CONSUMABLES, xpForLevel, bagWeight } from './config.js';
+import { PLAYER, WEAPONS, CONSUMABLES, GEAR, RES, xpForLevel, bagWeight } from './config.js';
 import {
   makeSlots, makeEquip, slotsAdd, slotsTake, slotsWeight, slotsCount, ITEMS,
   packAllowance,
@@ -8,7 +8,9 @@ import {
 
 export { packAllowance };
 import { startingAttrs, recomputeStats } from './perks.js';
-import { G, moveCircle, notify, unstick, isLocal } from './state.js';
+import {
+  G, moveCircle, notify, unstick, isLocal, takeRes, equippedLight, lightActive,
+} from './state.js';
 import { makeIntent } from './intent.js';
 import { meleeAttack, fireGun, startReload, updateReload } from './combat.js';
 import { healPlayer, killPlayer } from './damage.js';
@@ -44,6 +46,8 @@ export function createPlayer(x, y, opts = {}) {
     hp: PLAYER.maxHp,
     stam: PLAYER.maxStam,
     stamLock: 0,
+    // Latched when the bar empties; blocks work, never fighting.
+    winded: false,
     dead: false, respawnT: 0, invuln: 0, hurtFlash: 0, lastHurt: 99,
     // Down but not out: a teammate can still bring you back.
     downed: false, downT: 0, reviving: null,
@@ -76,6 +80,11 @@ export function createPlayer(x, y, opts = {}) {
     attrs: startingAttrs(),
     perks: {},
     secondWindCd: 0,
+
+    // What the off-hand is carrying, and how much of it is left. The charge
+    // lives here rather than in the equipment slot because a slot is only
+    // { id, n } — see items.js. equipment.js keeps these in step.
+    lightOn: false, lightFuel: 0, lightId: null,
 
     spawnPoint: null, spawnStructure: null,
     drivingId: null,
@@ -261,9 +270,11 @@ export function updatePlayer(p, dt) {
 
     if (it.fire && p.attackCd <= 0) {
       if (w.kind === 'melee') {
-        p.attackCd = w.cd;
-        p.stam = Math.max(0, p.stam - 4);
-        meleeAttack(p, w);
+        // meleeAttack owns the stamina rules — it is the only place that knows
+        // whether this swing was a fight or a job. A refused swing (too winded
+        // to harvest) takes a short beat rather than the full cooldown, so the
+        // player is not also punished with dead time for being tired.
+        p.attackCd = meleeAttack(p, w) ? w.cd : 0.3;
       } else {
         if (p.reloading && !p.reloading.shell) {
           // hold fire while a magazine swap finishes
@@ -272,7 +283,12 @@ export function updatePlayer(p, dt) {
           if ((p.mag[w.id] || 0) > 0) {
             p.attackCd = w.cd * p.fireRateMul;
             fireGun(p, w);
-          } else if (it.firePressed) {
+          } else if (it.firePressed || w.bow) {
+            // Holding the trigger on an empty gun deliberately does NOT keep
+            // asking to reload — one click, one magazine. A bow is the other
+            // thing: its "magazine" of one is the nock, so holding the button
+            // has to keep drawing or you get one arrow per click and half of
+            // those are eaten by the cooldown. Found by shooting one.
             startReload(p, w);
           }
         }
@@ -282,6 +298,72 @@ export function updatePlayer(p, dt) {
     if (it.slot >= 0) selectSlot(p, it.slot);
     if (it.wheel !== 0) cycleSlot(p, it.wheel);
     if (it.use) useHealing(p);
+  }
+
+  if (it.light) toggleLight(p);
+  updateLight(p, dt);
+}
+
+// ----------------------------------------------------------------- light ---
+//
+// Night nearly doubles enemy density and sharpens their senses, and until now
+// there was nothing you could carry to see by — only a floodlight, which needs
+// a generator, which needs fuel and scrap. The off-hand slot is the answer:
+// a torch made of the two things the ground is covered in, and a flashlight
+// that reaches much further but eats batteries.
+//
+// The trade is deliberate and lives in enemies.js: being lit is being seen.
+
+/**
+ * Strike it or douse it. A flat flashlight spends a battery — from the pack
+ * first, then the stash, because the stash is the base's supply and running
+ * out mid-street should send you home rather than end the night.
+ */
+export function toggleLight(p) {
+  const g = equippedLight(p);
+  if (!g) {
+    if (isLocal(p)) notify('Nothing in your off-hand — craft a Torch from sticks and fiber', '#d9c46a');
+    sfx('deny');
+    return false;
+  }
+  if (p.lightOn) {
+    p.lightOn = false;
+    sfx('ui');
+    return true;
+  }
+  if (p.lightFuel <= 0) {
+    if (!g.battery) return false;                 // a spent torch is gone already
+    const got = takeRes(p.bag, g.battery, 1) || takeRes(G.stash, g.battery, 1);
+    if (!got) {
+      if (isLocal(p)) notify(`${g.name} is flat — it needs a ${RES[g.battery].name.replace(/ies$/, 'y')}`, '#c96a5a');
+      sfx('deny');
+      return false;
+    }
+    p.lightFuel = g.burn;
+    if (isLocal(p)) notify('Fresh battery', '#b7e08a');
+  }
+  p.lightOn = true;
+  sfx('ui');
+  return true;
+}
+
+function updateLight(p, dt) {
+  if (!p.lightOn) return;
+  const g = equippedLight(p);
+  if (!g) { p.lightOn = false; return; }
+
+  p.lightFuel = Math.max(0, p.lightFuel - dt);
+  if (p.lightFuel > 0) return;
+
+  p.lightOn = false;
+  if (g.consumed) {
+    // A torch burns itself up. Losing it is the cost of having had light, and
+    // it is cheap to make another — that is the whole shape of the item.
+    p.equip.offhand = null;
+    p.lightId = null;
+    if (isLocal(p)) notify('Your torch burns out', '#c96a5a');
+  } else if (isLocal(p)) {
+    notify(`${g.name} is dead — load a battery`, '#c96a5a');
   }
 }
 
@@ -306,6 +388,14 @@ export function movePlayer(p, dt, rooted = false) {
     p.stamLock = Math.max(0, p.stamLock - dt);
     if (p.stamLock <= 0) p.stam = Math.min(p.maxStam, p.stam + p.stamRegen * dt);
   }
+
+  // Winded also latches on running yourself flat, and clears at half. The
+  // other edge — a harvest swing turned down — is in meleeAttack, which is the
+  // only place that knows a swing was work. Clearing lives here, in the one
+  // function a guest also runs to predict itself, so the guest and the host
+  // never disagree about when you are allowed back to work.
+  if (p.stam <= 0) p.winded = true;
+  else if (p.winded && p.stam >= p.maxStam * PLAYER.stamWindedRecovery) p.winded = false;
 
   let speed = PLAYER.speed * p.speedMul * (p.adrenalineActive ? 1.15 : 1);
   if (p.sprinting) speed *= PLAYER.sprintMul;

@@ -10,10 +10,10 @@ import { G, notify, netHooks, removeStructure, structAt } from '../game/state.js
 import { ENEMIES, TILE } from '../game/config.js';
 import { gatherLocalIntent, clearIntent } from '../game/intent.js';
 import { movePlayer, createPlayer, currentWeapon } from '../game/player.js';
-import { applySaveData, restorePlayerRecord } from '../game/save.js';
+import { applySaveData, restorePlayerRecord, restoreSlots } from '../game/save.js';
 import { makeStructure } from '../game/building.js';
 import { makeSurvivor } from '../game/survivors.js';
-import { spawnBullet } from '../game/combat.js';
+import { spawnBullet, swingRefused } from '../game/combat.js';
 import { occupyTiles, releaseTiles } from '../game/vehicles.js';
 import { removeProp } from '../game/world.js';
 import { addPlayer } from '../game/state.js';
@@ -168,7 +168,17 @@ function onReliable(m) {
     case 'struct': upsertStructure(m.s); break;
     case 'sdel': { const s = structAt(m.tx, m.ty); if (s) { s.destroyed = true; removeStructure(s); } break; }
     case 'dyn': for (const rec of m.list || []) upsertStructure(rec); break;
-    case 'stash': G.stash = m.stash || {}; G.stashItems = m.items || {}; break;
+    case 'stores':
+      for (const rec of m.list || []) {
+        const c = rec.tx === null ? G.stash : (structAt(rec.tx, rec.ty) || {}).store;
+        if (c) restoreSlots(c, rec.slots || []);
+      }
+      break;
+    case 'armaments': {
+      G.armaments = {};
+      for (const id of m.list || []) G.armaments[id] = true;
+      break;
+    }
     case 'inv': if (G.player) restorePlayerRecord(G.player, m.rec, { keepPosition: true }); break;
     case 'bullet':
       spawnBullet(m.x, m.y, m.a, { speed: m.sp, dmg: 0, life: m.lf, color: m.c, size: m.sz, owner: 'remote' });
@@ -216,6 +226,7 @@ function upsertStructure(rec) {
   s.open = !!rec.open; s.tier = rec.tier || 1; s.fuel = rec.fuel || 0; s.ammo = rec.ammo || 0;
   s.on = rec.on !== false; s.active = !!rec.active; s.running = !!rec.running; s.powered = !!rec.powered;
   s.aim = rec.aim || s.aim || 0;
+  if (rec.arm) s.arm = rec.arm;
   if (rec.destroyed) { s.destroyed = true; removeStructure(s); }
 }
 
@@ -242,6 +253,12 @@ function applySnapshot(s) {
     const p = G.players.find((q) => q.netId === pr.n);
     if (!p) continue;
     p.hp = pr.hp; p.maxHp = pr.mh; p.stam = pr.st; p.maxStam = pr.ms;
+    // The host owns the fuel; the light is drawn for everyone, so a teammate's
+    // torch lights the world on your screen too.
+    p.lightOn = !!pr.li; p.lightFuel = pr.lf ?? 0;
+    // A guest only ever receives its OWN inventory, so a teammate's off-hand
+    // has to arrive here or nobody else's torch is ever drawn.
+    if (p !== G.player && p.equip) p.equip.offhand = pr.lo || null;
     p.dead = !!pr.d; p.downed = !!pr.dn; p.downT = pr.dt; p.drivingId = pr.dr || null;
     p.level = pr.lv; p.xp = pr.xp; p.xpNext = pr.xn; p.skillPoints = pr.sk; p.away = !!pr.aw;
     const chan = pr.ck ? { t: pr.ch, dur: 1 } : null;
@@ -265,6 +282,11 @@ function applySnapshot(s) {
     }
   }
 
+  // Burning scenery, for drawing only — the host owns the spread and the
+  // damage. `life: 1` with `t` as the elapsed fraction is what drawFire wants.
+  G.fires.length = 0;
+  for (const fr of s.fr || []) G.fires.push({ x: fr.x, y: fr.y, tx: Math.floor(fr.x / 32), ty: Math.floor(fr.y / 32), t: 1 - (fr.r ?? 1), life: 1, prop: null });
+
   // Enemies, by id.
   const seen = new Set();
   for (const er of s.en) {
@@ -278,6 +300,9 @@ function applySnapshot(s) {
       G.enemies.push(e);
     }
     e.tx = er.x; e.ty = er.y; e.ta = er.a; e.hp = er.hp; e.maxHp = er.mh; e.aggro = !!er.ag; e.raid = !!er.rd;
+    // Drawing only: the renderer reads burnT to put flames on it, and the
+    // host owns the burn itself.
+    e.burnT = er.bn ? 1 : 0;
     if (er.f) e.flash = 0.11;
     if (Math.hypot(e.tx - e.x, e.ty - e.y) > 300) { e.x = e.tx; e.y = e.ty; }
   }
@@ -354,6 +379,10 @@ function predictSwing(me, dt) {
   }
   const w = currentWeapon(me);
   if (!w || w.kind !== 'melee' || !me.intent.fire || me.attackCd > 0) return;
+  // Work costs stamina and the host refuses a harvest swing you cannot pay
+  // for. Predicting one anyway would draw an arc for a swing that never
+  // happened — the exact stutter this function exists to avoid.
+  if (swingRefused(me, w)) { me.attackCd = 0.3; return; }
   const reach = w.range + me.r;
   me.swing = { t: 0, dur: Math.min(0.26, w.cd * 0.75), angle: me.angle, arc: w.arc, range: reach };
   me.attackCd = w.cd;

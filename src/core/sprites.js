@@ -638,6 +638,39 @@ function stashSprite() {
   });
 }
 
+/**
+ * A wooden chest and a steel locker, read from above. Both have to be
+ * tellable from the Supply Stash at a glance in a crowded compound — the
+ * stash is olive with a brass catch, the chest is plank-brown with iron
+ * bands, and the locker is grey steel with a vent and a handle.
+ */
+function chestSprite() {
+  return mk(32, 32, (g) => {
+    roundRect(g, 3, 7, 26, 20, 2, '#3a2a18');
+    g.fillStyle = '#7a5730'; g.fillRect(4, 8, 24, 18);
+    g.fillStyle = '#8f6839'; g.fillRect(4, 8, 24, 7);       // domed lid
+    g.strokeStyle = '#2a1d10'; g.lineWidth = 1.4;
+    g.beginPath(); g.moveTo(4, 15); g.lineTo(28, 15); g.stroke();
+    g.fillStyle = '#4a4238';                                 // iron bands
+    g.fillRect(8, 8, 2, 18); g.fillRect(22, 8, 2, 18);
+    g.fillStyle = '#c9a227'; g.fillRect(14, 14, 4, 5);       // hasp
+    speckle(g, 32, 32, 26, ['#00000044', '#ffffff14'], 23, 0.55);
+  });
+}
+
+function lockerSprite() {
+  return mk(32, 32, (g) => {
+    roundRect(g, 4, 4, 24, 25, 2, '#2b3038');
+    g.fillStyle = '#5b636d'; g.fillRect(5, 5, 22, 23);
+    g.fillStyle = '#6d757f'; g.fillRect(5, 5, 22, 5);
+    g.strokeStyle = '#232830'; g.lineWidth = 1;
+    for (let y = 8; y <= 12; y += 2) { g.beginPath(); g.moveTo(9, y); g.lineTo(23, y); g.stroke(); }
+    g.beginPath(); g.moveTo(16, 5); g.lineTo(16, 28); g.stroke();   // door seam
+    g.fillStyle = '#aeb6bd'; g.fillRect(17, 16, 4, 2);              // handle
+    speckle(g, 32, 32, 24, ['#00000044', '#ffffff18'], 29, 0.5);
+  });
+}
+
 function bedrollSprite() {
   return mk(32, 32, (g) => {
     roundRect(g, 3, 6, 26, 21, 5, '#4a3d55');
@@ -1068,6 +1101,8 @@ export function buildSprites() {
   Sprites.s_workbench = workbenchSprite(false);
   Sprites.s_workbench2 = workbenchSprite(true);
   Sprites.s_stash = stashSprite();
+  Sprites.s_chest = chestSprite();
+  Sprites.s_locker = lockerSprite();
   Sprites.s_bedroll = bedrollSprite();
   Sprites.s_bunk = bunkSprite();
   Sprites.s_watchtower = watchtowerSprite();

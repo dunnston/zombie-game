@@ -11,7 +11,7 @@ import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
 import { addXp } from './progression.js';
 import { addThreat } from './threat.js';
-import { enemyDrop, dropBackpack } from './loot.js';
+import { enemyDrop, dropBackpack, spillStore } from './loot.js';
 import { creditSurvivorKill } from './survivors.js';
 import { exitVehicle } from './vehicles.js';
 import { addQuiet } from './pressure.js';
@@ -42,13 +42,18 @@ function awardKillXp(source, xp) {
  */
 export function damageEnemy(e, dmg, opts = {}) {
   if (e.dead || dmg <= 0) return 0;
-  const { fromX = e.x, fromY = e.y, knock = 0, crit = false, source = null } = opts;
+  const { fromX = e.x, fromY = e.y, knock = 0, crit = false, source = null, noAlert = false } = opts;
 
   e.hp -= dmg;
   e.flash = 0.11;
-  e.aggro = true;
-  e.target = null;              // re-evaluate: something just hurt it
-  e.alertT = 6;
+  // Damage over time asks not to re-alert. A burn ticks several times a second
+  // and without this a burning zombie would have its alert timer and its
+  // target reset every tick for as long as it lived.
+  if (!noAlert) {
+    e.aggro = true;
+    e.target = null;            // re-evaluate: something just hurt it
+    e.alertT = 6;
+  }
   G.stats.damageDealt += dmg;
 
   const dx = e.x - fromX, dy = e.y - fromY;
@@ -238,9 +243,11 @@ export function damageStructure(s, dmg, fromX = s.x, fromY = s.y) {
   return dmg;
 }
 
+
 export function destroyStructure(s) {
   if (s.destroyed) return;
   s.destroyed = true;
+  spillStore(s);
   removeStructure(s);
   FX.debris(s.x, s.y, 20, s.def.wall ? '#8a7350' : '#9aa2ab');
   FX.smoke(s.x, s.y, 5);

@@ -6,7 +6,7 @@ import {
   firstEmpty, makeSlots, packAllowance,
 } from './items.js';
 import { recomputeStats } from './perks.js';
-import { G, addResCapped, notify, solidPx, nearestPlayer, baseOwner } from './state.js';
+import { G, addRes, addResCapped, takeRes, notify, solidPx, nearestPlayer, baseOwner } from './state.js';
 import { makeRng, weightedPick, dist2, clamp, TAU } from '../core/util.js';
 import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
@@ -287,6 +287,22 @@ export function entryToPickup(entry) {
   return { kind: 'res', id: entry };
 }
 
+/**
+ * The entry id for a bare item id — what you need to drop something you are
+ * holding in a slot. Same grammar as the two functions around it, and it lives
+ * here for the same reason: crafting.js had grown its own private copy keyed
+ * on `ITEMS[id].kind`, which is exactly the drift the decision log says this
+ * pair exists to prevent.
+ */
+export function itemEntryId(id) {
+  const it = ITEMS[id];
+  if (!it) return id;
+  if (it.kind === 'weapon') return `weapon:${id}`;
+  if (it.kind === 'gear') return `gear:${id}`;
+  if (it.kind === 'consumable') return `item:${id}`;
+  return id;
+}
+
 /** Rebuilds the entry id a pickup came from, for handing back to giveEntry. */
 const pickupEntryId = (it) =>
   it.kind === 'res' ? it.id
@@ -294,6 +310,49 @@ const pickupEntryId = (it) =>
       : it.kind === 'weapon' ? `weapon:${it.id}`
         : it.kind === 'key' ? `key:${it.id}`
           : `gear:${it.id}`;
+
+/**
+ * Into the shared stash if it fits, onto the ground beside `x,y` if it does
+ * not. The stash holds a finite number of slots since v12, so every path that
+ * used to be able to write to it unconditionally now needs somewhere for the
+ * remainder to go — and the rule has been the same since the slot inventory
+ * landed: anything that will not fit lands on the ground, never nowhere.
+ */
+export function stashOrDrop(id, n, x, y) {
+  if (n <= 0) return 0;
+  const took = addRes(G.stash, id, n);
+  if (took < n) spawnEntryPickup(x, y, itemEntryId(id), n - took);
+  return took;
+}
+
+/**
+ * A container that stops existing drops what was in it, the same way a wrecked
+ * car spills its boot. No path may destroy material for want of somewhere to
+ * put it — and that includes the deliberate ones: `demolishStructure` calls
+ * this too, because taking your own full chest apart used to delete everything
+ * inside it (sixty items, measured; Codex review).
+ *
+ * A Supply Stash is the exception with a reason: every stash aliases the one
+ * shared pile, so knocking one over while another still stands would empty the
+ * base's whole pantry onto the ground. It only spills when it was the last
+ * door into that pile.
+ *
+ * It lives here, not in damage.js, because building.js needs it too and
+ * damage.js exists precisely to avoid that import (invariant 3). loot.js is a
+ * leaf both of them already depend on.
+ */
+export function spillStore(s) {
+  if (!s || !s.store) return 0;
+  if (s.type === 'stash' && G.structures.some((o) => o !== s && o.type === 'stash' && !o.destroyed)) return 0;
+  let spilled = 0;
+  for (const [id, n] of Object.entries(slotsEntries(s.store))) {
+    if (n <= 0) continue;
+    takeRes(s.store, id, n);
+    spawnEntryPickup(s.x + (Math.random() - 0.5) * 26, s.y + (Math.random() - 0.5) * 26, itemEntryId(id), n);
+    spilled += n;
+  }
+  return spilled;
+}
 
 /** Drops a loot entry on the ground, decoding its kind from the entry id. */
 export function spawnEntryPickup(x, y, entry, n) {
