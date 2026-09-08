@@ -50,8 +50,14 @@ in a new off-hand slot.
       first complete run, all fixed: three were the suite assuming infinite
       storage, one was the intended armament change, and four were a fixed
       four-frame wait for a loopback welcome that takes sixteen.
-- [x] Raid harness 1–3 — all completed, none near the 300s backstop. Two
-      figures moved and PROJECT.md §9 records why.
+- [x] Raid harness 1–3 — run twice, all completing, none near the 300s
+      backstop. Structures lost identical both times (0 / 2 / 9); PROJECT.md §9
+      has both sets and why index 1 and 3 moved against the old figures.
+- [x] **Codex review: five findings, four P1, every one real and every one
+      reproduced against the running game first.** The big one: noise still did
+      not work, and the measurement quoted in the PR had been taken along an
+      axis that could not tell "investigates the sound" from "walks at the
+      player past it". Both halves fixed, and the lesson is in §8.
 - [ ] The owner plays it.
 
 ### Review

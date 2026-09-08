@@ -885,20 +885,31 @@ flatten it.
 
 | Index | Spec | Duration | Structures lost | Walls dropped to |
 | --- | --- | --- | --- | --- |
-| 1 | RUNNING HORDE | ~70–76s | 0 | ~48–90% |
-| 2 | HEAVY HORDE | ~80–87s | 0–2 | ~12–34% |
-| 3 | SIEGE | ~77–260s | the whole base | 0% |
+| 1 | RUNNING HORDE | ~70–93s | 0 | ~18–90% |
+| 2 | HEAVY HORDE | ~80–139s | 0–2 | ~12–34% |
+| 3 | SIEGE | ~72–260s | the whole base | 0% |
 | 5 | BEHEMOTH SIEGE +1 | overwhelming | the whole base | 0% |
 
-**Measured again on 2026-09-07** after the survival round (76s/0 lost/48%,
-87s/2 lost/27%, 77s/9 lost/0%). Index 2 landed squarely in its old band; two
-figures moved and both have the same cause. Index 1's walls took more damage
-(90% → 48%) and index 3 resolved far faster (150–260s → 77s), because **turrets
-now make noise**: the horde is pulled onto the thing shooting at it instead of
-wandering or chasing the player around the compound. More of them reach the
-walls, sooner, and far fewer end up as stragglers — which is why the long tail
-on index 3 disappeared. No raid came near the 300s backstop, which is the
-figure that actually matters.
+**Measured twice on 2026-09-07/08**, once before and once after the Codex
+review changed how aggro and noise work:
+
+| Index | Run A | Run B |
+| --- | --- | --- |
+| 1 | 76s · 0 lost · walls 48% | 93s · 0 lost · walls 18% |
+| 2 | 87s · 2 lost · walls 27% | 139s · 2 lost · walls 24% |
+| 3 | 77s · 9 lost · walls 0% | 72s · 9 lost · walls 0% |
+
+**Structures lost is identical across both runs** (0 / 2 / 9), which is the
+outcome that matters; duration and wall percentage vary as §9 has always said
+they do — index 2 has produced 67s and 172s on identical code before now.
+
+Against the old figures, index 1's walls take noticeably more damage (90% →
+18–48%) and index 3 no longer has its long tail (150–260s → 72–77s). Both have
+the same cause: **turrets make noise**, so the horde is pulled onto the thing
+shooting at it rather than wandering or chasing the player around the compound.
+More of them reach the walls, sooner, and far fewer end up as stragglers — and
+the stragglers were the tail. Nothing came near the 300s backstop in either
+run, which is the figure that actually matters.
 
 **These are single runs of a stochastic harness — treat them as ranges, not
 figures.** Index 3 has been measured at 154s, 177s, 261s and 274s on identical
