@@ -514,6 +514,13 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 
 ### Wanted, not yet scheduled
 
+- **Instanced dungeons.** Hospital, school, prison, mall as loaded instances
+  with phase-based bosses, gated by difficulty rather than level, unlocking a
+  crafting tier. Thought through in full on 2026-09-08 — the concept, the
+  owner's decisions (building disabled inside; die and your pack drops at the
+  entrance; only a boss kill lets loot leave), the open questions and a build
+  order are in **`tasks/dungeons.md`**. Nothing is built and nothing is
+  scheduled; the two unplayed roadmap items above outrank it.
 - **A metal scythe.** Trees and boulders now have a second rung; thickets do
   not, so fiber is the one gated source whose tool never improves. Obvious
   follow-up, deliberately not bundled into the mining pass.
@@ -816,6 +823,19 @@ input (`key`, `tap`, `mouseDown`, `aimAt`) and the whole `api` surface.
 
 Newest first. One line per meaningful change.
 
+- **2026-09-08** — Design note only, no code: `tasks/dungeons.md` works through
+  instanced dungeons with phase bosses. The findings worth keeping: build-anywhere
+  plus bullets-ignore-structures means six Stone Walls trivialise any boss ever
+  designed, so building is disabled inside — which in turn makes the flow field
+  *cheap* there (nothing in a dungeon ever changes, so it is computed once and
+  never invalidated), making the dungeon the easiest place to prove pathfinding
+  rather than the hardest. Keeping instance containers out of `world.containers`
+  and never saving a run means dungeon generation can change without touching the
+  save version, sidestepping invariant 7. `updateBullets` only ever queries the
+  enemy hash, so any boss that throws something needs a new hostile-bullet path —
+  which would give ranged zombies to the whole game. And the owner's rule that
+  only a boss kill lets loot leave caps a dungeon at 8–12 minutes, because a run
+  that long is one you can lose entirely.
 - **2026-09-07** — Mining balance, and the metal tool tier. The owner: "there
   are WAY too many sticks, stones and fiber on the map... it is way too easy to
   mine trees and boulders." Measured first: 14,847 pieces of ground litter
