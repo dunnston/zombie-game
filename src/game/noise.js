@@ -52,9 +52,15 @@ export function makeNoise(x, y, radius, actor = null) {
   for (const e of G.enemies) {
     if (e.dead) continue;
     if (dist2(e.x, e.y, x, y) >= r2) continue;
-    // Aggro plus a destination. The aggro is what makes them move at all; the
-    // destination is what they move toward once no player is in their senses.
-    e.aggro = true;
+    // A destination and an alert, and deliberately NOT aggro.
+    //
+    // `aggro` means "hunting a player". Setting it here was the second half of
+    // why this mechanic did not work: the aggro branch in enemies.js outranks
+    // the noise branch, so a sound made zombies walk at the nearest player
+    // rather than at the sound — measured, a group 420px from a bang walked
+    // 304px the other way, toward a player they could not see. A noise makes
+    // them investigate; if they can also sense a player, the sight check in
+    // enemies.js sets aggro on its own and the hunt wins, which is right.
     e.alertT = Math.max(e.alertT || 0, 8);
     e.noiseX = x;
     e.noiseY = y;

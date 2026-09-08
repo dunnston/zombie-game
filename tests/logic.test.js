@@ -42,7 +42,8 @@ import {
 } from '../src/game/saves.js';
 import { LEGACY_KEY, restoreSlots } from '../src/game/save.js';
 import { makeNoise, NOISE } from '../src/game/noise.js';
-import { FIRE, isFlammable } from '../src/game/fire.js';
+import { FIRE, isFlammable, resetFires } from '../src/game/fire.js';
+import { spillStore } from '../src/game/loot.js';
 import { readFileSync } from 'node:fs';
 
 /** A localStorage stand-in for the Node tests: the same four calls, in memory. */
@@ -1427,6 +1428,52 @@ test('fire spreads to zombies and scenery, and never to your base', () => {
   assert.ok(/propAtTile|isFlammable/.test(src), 'and so does scenery');
 });
 
+test('a container that stops existing gives back what was in it', () => {
+  // Destruction always spilled; a deliberate demolish did not, so taking your
+  // own full chest apart deleted everything inside it — sixty items, measured
+  // (Codex review). Both paths go through spillStore now.
+  G.structures.length = 0;
+  G.pickups.length = 0;
+  const chest = { type: 'chest', x: 100, y: 100, store: makeSlots(8), destroyed: false };
+  addRes(chest.store, 'ammoR', 40);
+  addRes(chest.store, 'mil', 20);
+  const spilled = spillStore(chest);
+  assert.equal(spilled, 60, 'every unit comes back out');
+  assert.equal(countRes(chest.store, 'ammoR'), 0, 'and the container is emptied');
+  assert.ok(G.pickups.length >= 2, `${G.pickups.length} stacks on the ground`);
+
+  // A stash is the exception: they all alias one pile, so knocking one over
+  // while another stands must not empty the base's pantry onto the floor.
+  const a = { type: 'stash', x: 0, y: 0, store: makeSlots(8), destroyed: false };
+  const b = { type: 'stash', x: 50, y: 0, store: a.store, destroyed: false };
+  addRes(a.store, 'rations', 30);
+  G.structures.push(a, b);
+  assert.equal(spillStore(a), 0, 'not while another stash still stands');
+  assert.equal(countRes(a.store, 'rations'), 30);
+  b.destroyed = true;
+  assert.equal(spillStore(a), 30, 'but the last one takes the pile with it');
+  G.structures.length = 0;
+  G.pickups.length = 0;
+});
+
+test('a loaded world has nothing alight in it', () => {
+  // `G.fires` held entries pointing at props from the PREVIOUS world after a
+  // load: damage at stale coordinates, and a prop deleted out of the new world
+  // when the old fire burned out (Codex review).
+  G.fires.length = 0;
+  G.fires.push({ x: 1, y: 1, t: 0, life: 5, prop: { tx: 1, ty: 1 } });
+  resetFires();
+  assert.equal(G.fires.length, 0);
+
+  // And the load path actually calls it. Comments stripped, so the sentence
+  // explaining the rule cannot satisfy the assertion — that mistake has
+  // already been made once in this file.
+  const src = readFileSync(new URL('../src/game/save.js', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/.*$/gm, '');
+  assert.ok(/resetFires\(\)/.test(src), 'applySaveData must clear the fires');
+});
+
 test('only the things that should burn are flammable', () => {
   for (const kind of ['tree', 'pine', 'bush', 'thicket', 'litter']) {
     assert.ok(isFlammable({ kind }), `${kind} should burn`);
@@ -1479,10 +1526,32 @@ test('a sound is heard inside its radius and nowhere else', () => {
   const horde = fakeHorde([[0, 0], [100, 0], [400, 0], [900, 0]]);
   const heard = makeNoise(0, 0, 500);
   assert.equal(heard, 3, 'three inside 500px, one outside');
-  assert.deepEqual(horde.map((e) => e.aggro), [true, true, true, false]);
   // The destination is the point of the whole thing.
   assert.equal(horde[0].noiseX, 0);
+  assert.ok(horde[0].alertT > 0, 'and a window in which to act on it');
   assert.equal(horde[3].noiseX, undefined, 'the one that heard nothing has nowhere to go');
+  assert.equal(horde[3].alertT, 0);
+  G.enemies.length = 0;
+});
+
+test('a sound makes them investigate, it does not make them hunt you', () => {
+  // This is the whole mechanic, and getting it wrong is subtle enough that it
+  // shipped broken twice. `aggro` means "hunting a player", and the aggro
+  // branch in enemies.js outranks the noise branch — so a noise that also set
+  // aggro made zombies walk at the nearest player instead of at the sound.
+  // Measured before the fix: a group 420px from a bang moved 304px the OTHER
+  // way, toward a player they could not see. (Codex review.)
+  const horde = fakeHorde([[100, 0]]);
+  makeNoise(0, 0, 500);
+  assert.equal(horde[0].aggro, false, 'a noise must not aggro — it must give a destination');
+  assert.equal(horde[0].noiseX, 0);
+
+  // And it must not clear an existing hunt either: someone already chasing a
+  // player they can see should not be talked out of it by a distant bang.
+  const chasing = fakeHorde([[100, 0]]);
+  chasing[0].aggro = true;
+  makeNoise(0, 0, 500);
+  assert.equal(chasing[0].aggro, true, 'a noise never cancels a hunt in progress');
   G.enemies.length = 0;
 });
 
@@ -1962,7 +2031,8 @@ test('a snapshot describes only what is near the guest, and every player', async
     time: 10, day: 1, dayTime: 0.3, threat: 5, threatTier: 0, raid: null, raidsDone: 0, benchTier: 1,
     players: [
       { netId: 1, x: 0, y: 0, angle: 0, hp: 100, maxHp: 100, stam: 50, maxStam: 100, slot: 0, level: 1, xp: 0, xpNext: 55, skillPoints: 0 },
-      { netId: 2, x: far, y: 0, angle: 0, hp: 100, maxHp: 100, stam: 50, maxStam: 100, slot: 0, level: 1, xp: 0, xpNext: 55, skillPoints: 0 },
+      { netId: 2, x: far, y: 0, angle: 0, hp: 100, maxHp: 100, stam: 50, maxStam: 100, slot: 0, level: 1, xp: 0, xpNext: 55, skillPoints: 0,
+        equip: { offhand: 'torch' }, lightOn: true, lightFuel: 90 },
     ],
     enemies: [
       { id: 1, type: 'walker', x: 100, y: 0, angle: 0, hp: 10, maxHp: 10, flash: 0 },
@@ -1972,6 +2042,9 @@ test('a snapshot describes only what is near the guest, and every player', async
     pickups: [{ uid: 7, x: 10, y: 10, kind: 'res', id: 'wood', n: 3 }, { uid: 8, x: far, y: 10, kind: 'res', id: 'wood', n: 3 }],
     vehicles: [{ id: 1, x: far, y: 100, angle: 0, hp: 1, fuel: 1 }],
     survivors: [], backpacks: [{ id: 'b1', x: 5, y: 5 }],
+    // Burning scenery travels too, or a guest watches props vanish and takes
+    // damage off something it cannot see.
+    fires: [{ x: 60, y: 0, t: 2, life: 8 }, { x: far, y: 0, t: 1, life: 8 }],
   };
   const s = packSnapshot(fakeG, fakeG.players[0], 42);
   assert.equal(s.q, 42);
@@ -1980,9 +2053,22 @@ test('a snapshot describes only what is near the guest, and every player', async
   assert.deepEqual(s.pk.map((p) => p.u), [7]);
   assert.equal(s.vh.length, 0, 'a far car is not described');
   assert.equal(s.bp.length, 1);
+  // Fire is culled by distance like everything else, and carries how much of
+  // it is left so a guest can draw one dying down.
+  assert.equal(s.fr.length, 1, 'only the near fire');
+  assert.equal(s.fr[0].x, 60);
+  assert.ok(s.fr[0].r > 0 && s.fr[0].r < 1, `${s.fr[0].r} of it left`);
   // The same world seen by the far player describes the far things instead.
   const s2 = packSnapshot(fakeG, fakeG.players[1], 43);
   assert.deepEqual(s2.en.map((e) => e.id), [2]);
+  assert.equal(s2.fr.length, 1, 'and the far fire, for the far player');
+  // WHICH light a player is carrying, not just that one is lit. A guest only
+  // ever receives its own inventory, so without this everyone else's
+  // `equip.offhand` stays stale and nothing draws their torch.
+  const lit = s.pl.find((x) => x.n === 2);
+  assert.equal(lit.lo, 'torch', 'the off-hand item id travels');
+  assert.equal(lit.li, 1);
+  assert.equal(s.pl.find((x) => x.n === 1).lo, null, 'and empty hands say so');
   assert.equal(s2.vh.length, 1);
 });
 

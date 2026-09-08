@@ -241,7 +241,10 @@ export function packPlayer(p) {
     n: p.netId, x: r1(p.x), y: r1(p.y), a: r2(p.angle), hp: r1(p.hp), mh: p.maxHp, st: r1(p.stam), ms: p.maxStam,
     s: p.slot, d: p.dead ? 1 : 0, dn: p.downed ? 1 : 0, dt: r1(p.downT || 0), dr: p.drivingId || 0,
     sn: p.sneaking ? 1 : 0, sp: p.sprinting ? 1 : 0, sw: p.swing ? 1 : 0, rl: p.reloading ? 1 : 0,
-    li: p.lightOn ? 1 : 0, lf: r1(p.lightFuel || 0),
+    // The light's ID as well as its state: a guest only ever receives its
+    // OWN inventory, so without this everyone else's `equip.offhand` stays
+    // stale and `lightActive` — which the renderer asks — answers no.
+    li: p.lightOn ? 1 : 0, lf: r1(p.lightFuel || 0), lo: (p.equip && p.equip.offhand) || null,
     lv: p.level, xp: Math.round(p.xp), xn: Math.round(p.xpNext), sk: p.skillPoints, aw: p.away ? 1 : 0,
     ch: p.searching ? r2(p.searching.t / p.searching.dur) : p.using ? r2(p.using.t / p.using.dur) : p.reviving ? r2(p.reviving.t / p.reviving.dur) : -1,
     ck: p.searching ? 's' : p.using ? 'u' : p.reviving ? 'r' : '',
@@ -249,7 +252,17 @@ export function packPlayer(p) {
 }
 
 export function packEnemy(e) {
-  return { id: e.id, t: e.type, x: r1(e.x), y: r1(e.y), a: r2(e.angle), hp: r1(e.hp), mh: e.maxHp, f: e.flash > 0 ? 1 : 0, ag: e.aggro ? 1 : 0, rd: e.raid ? 1 : 0 };
+  return { id: e.id, t: e.type, x: r1(e.x), y: r1(e.y), a: r2(e.angle), hp: r1(e.hp), mh: e.maxHp, f: e.flash > 0 ? 1 : 0, ag: e.aggro ? 1 : 0, rd: e.raid ? 1 : 0, bn: e.burnT > 0 ? 1 : 0 };
+}
+
+/**
+ * A burning piece of scenery, as little as a guest needs to draw one: where it
+ * is and how much of it is left. The host owns the spread and the damage; a
+ * guest that could not see fire at all was watching props vanish and taking
+ * health off nothing (Codex review).
+ */
+export function packFire(f) {
+  return { x: r1(f.x), y: r1(f.y), r: r2(Math.max(0, 1 - f.t / f.life)) };
 }
 
 export function packPickup(it) {
@@ -285,13 +298,15 @@ export function packSnapshot(G, forPlayer, seq) {
   for (const v of G.vehicles) if (near(v) || v.id === forPlayer.drivingId) vehicles.push(packVehicle(v));
   const survivors = [];
   for (const s of G.survivors) if (!s.dead) survivors.push(packSurvivor(s));
+  const fires = [];
+  for (const f of G.fires) if (near(f)) fires.push(packFire(f));
   return {
     t: 'snap', q: seq,
     tm: r2(G.time), day: G.day, dt: r2(G.dayTime), th: r1(G.threat), tt: G.threatTier,
     raid: G.raid ? { ph: G.raid.phase, w: G.raid.wave, ws: G.raid.spec.waves, k: G.raid.killed, tot: G.raid.total, tmr: r1(G.raid.timer || 0), nm: G.raid.spec.name, cx: Math.round(G.raid.cx), cy: Math.round(G.raid.cy) } : null,
     rd: G.raidsDone, bt: G.benchTier,
     pl: G.players.map(packPlayer),
-    en: enemies, pk: pickups, vh: vehicles, sv: survivors,
+    en: enemies, pk: pickups, vh: vehicles, sv: survivors, fr: fires,
     // Death drops: few, and a guest needs to see their own to recover it.
     bp: G.backpacks.map((b) => ({ id: b.id, x: Math.round(b.x), y: Math.round(b.y) })),
   };

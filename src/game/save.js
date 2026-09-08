@@ -12,6 +12,7 @@ import { createPlayer, pickRandomSpawn } from './player.js';
 import { PLAYER, STASH_SLOTS, ARMAMENTS } from './config.js';
 import { loadIdentity } from '../net/protocol.js';
 import { makeStructure } from './building.js';
+import { resetFires } from './fire.js';
 import { recomputeStats, startingAttrs } from './perks.js';
 import { makeSurvivor, refreshAllSurvivors } from './survivors.js';
 import { spawnPickup } from './loot.js';
@@ -248,6 +249,11 @@ export function applySaveData(raw) {
     G.threat = data.threat || 0;
     G.raidsDone = data.raidsDone || 0;
     G.benchTier = data.benchTier || 0;
+    // Nothing is alight in a world you have just loaded. Without this,
+    // `G.fires` kept entries pointing at props from the PREVIOUS world —
+    // damaging things at stale coordinates and deleting a prop out of the new
+    // one when the old fire burned out (Codex review).
+    resetFires();
     G.stash = makeSlots(STASH_SLOTS);
     restoreSlots(G.stash, data.stash || []);
     G.armaments = {};

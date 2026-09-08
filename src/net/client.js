@@ -256,6 +256,9 @@ function applySnapshot(s) {
     // The host owns the fuel; the light is drawn for everyone, so a teammate's
     // torch lights the world on your screen too.
     p.lightOn = !!pr.li; p.lightFuel = pr.lf ?? 0;
+    // A guest only ever receives its OWN inventory, so a teammate's off-hand
+    // has to arrive here or nobody else's torch is ever drawn.
+    if (p !== G.player && p.equip) p.equip.offhand = pr.lo || null;
     p.dead = !!pr.d; p.downed = !!pr.dn; p.downT = pr.dt; p.drivingId = pr.dr || null;
     p.level = pr.lv; p.xp = pr.xp; p.xpNext = pr.xn; p.skillPoints = pr.sk; p.away = !!pr.aw;
     const chan = pr.ck ? { t: pr.ch, dur: 1 } : null;
@@ -279,6 +282,11 @@ function applySnapshot(s) {
     }
   }
 
+  // Burning scenery, for drawing only — the host owns the spread and the
+  // damage. `life: 1` with `t` as the elapsed fraction is what drawFire wants.
+  G.fires.length = 0;
+  for (const fr of s.fr || []) G.fires.push({ x: fr.x, y: fr.y, tx: Math.floor(fr.x / 32), ty: Math.floor(fr.y / 32), t: 1 - (fr.r ?? 1), life: 1, prop: null });
+
   // Enemies, by id.
   const seen = new Set();
   for (const er of s.en) {
@@ -292,6 +300,9 @@ function applySnapshot(s) {
       G.enemies.push(e);
     }
     e.tx = er.x; e.ty = er.y; e.ta = er.a; e.hp = er.hp; e.maxHp = er.mh; e.aggro = !!er.ag; e.raid = !!er.rd;
+    // Drawing only: the renderer reads burnT to put flames on it, and the
+    // host owns the burn itself.
+    e.burnT = er.bn ? 1 : 0;
     if (er.f) e.flash = 0.11;
     if (Math.hypot(e.tx - e.x, e.ty - e.y) > 300) { e.x = e.tx; e.y = e.ty; }
   }

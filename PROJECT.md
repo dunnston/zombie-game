@@ -75,7 +75,7 @@ farms, a forest, a river and a city — and nobody has played the new ground yet
 | --- | --- |
 | Source | 44 modules, ~18,700 lines. Browser bundle depends on Vite only; the broker on `ws`. |
 | Assets | Zero. Every sprite is drawn in code at boot; every sound is WebAudio. |
-| Tests | 126 Node assertions; browser suite 395 (`npm test`, `npm run smoke`) |
+| Tests | 129 Node assertions; browser suite 395 (`npm test`, `npm run smoke`) |
 | Save format | **v12** payload (a third litter cut, and the stash became a slot container), in **slots** (index v1) |
 | Performance | ~60fps with 90 active enemies; ~66 KB/s per guest on the wire |
 
@@ -538,7 +538,10 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | `G.stashItems` is deleted rather than converted | It existed only because a plain id→count map refuses anything that is not a raw resource (`state.js` `addRes`). A slot container holds consumables, weapons and gear natively, so the parallel map — an undeclared global, written bare in two files — stops being needed at all. |
 | Storage is finite, so everything that writes to it needs a floor | Salvage, crafting overflow, raid payouts, stripped wrecks and a scavenger's haul all go through `stashOrDrop`. The rule has been the same since the slot inventory landed: anything that will not fit lands on the ground, never nowhere. |
 | A container move carries which container, and the host range-checks it | The storage screen belongs to one browser. `act.moveStack` takes a tile, the host resolves the structure itself, and a guest cannot move things into a chest it is not standing beside. |
-| Aggro expires | It was set once and cleared only when every player was dead, so anything that had ever noticed anybody walked at the nearest player for the rest of its life — and the `e.noiseX` branch that is the entire "sound attracts zombies" mechanic could not be reached while a single player was alive. Losing you does not make them peaceful; it makes them investigate. |
+| Aggro expires, and only real sensing renews it | It was set once and cleared only when every player was dead, so anything that had ever noticed anybody walked at the nearest player for the rest of its life. The first fix refreshed the alert from `e.aggro || senses` — i.e. an aggro'd enemy renewed its own timer from its own flag, every tick, so the expiry could never fire and nothing changed. Only a player the enemy can sense *now* renews the chase (Codex review). |
+| A noise gives a destination, never aggro | The other half of the same bug. `aggro` means "hunting a player" and its branch outranks the noise branch, so a sound made zombies walk at the nearest player instead of at the sound. Measured: a group 420px from a bang moved 304px the *other* way. `makeNoise` sets `alertT` and `noiseX/Y` only; if they can also sense a player, the sight check sets aggro on its own and the hunt wins, which is right. |
+| Both spill paths go through `loot.js` | Destruction spilled a container's contents; a deliberate demolish did not, so taking your own full chest apart deleted everything inside it. `spillStore` lives in loot.js rather than damage.js because building.js needs it too, and damage.js exists precisely to avoid that import (invariant 3). |
+| Fire is drawn by guests, never simulated by them | The host owns the spread and the damage, so a snapshot carries only what a guest needs to draw: where each fire is and how much is left, plus a burning flag per enemy. Without it a guest watched props vanish and took health off nothing. |
 | One `makeNoise`, and `noiseMul` applies to all of it | `alertEnemies` in combat.js and `makeNoise` in vehicles.js were byte-for-byte the same function under two names, and only the first respected the stealth perks — so a Ghost build's car was exactly as loud as anyone's. |
 | The bow is a `kind: 'gun'` | It reuses the firing, reloading and ammunition path unchanged; the magazine of one plus a short reload IS the draw. What makes it a different weapon is two numbers — noise 90 against a pistol's 420, and 19 damage against a rifle's 78. It also has no muzzle flash, because a flash is a light source at night and a bow that lit up the treeline would give away the one thing it is for. |
 | A held bow keeps drawing; a held gun does not | "One click, one magazine" is deliberate for firearms. For a magazine of one it meant one arrow per click, with any click during the cooldown swallowed. Found by shooting one. |
@@ -778,7 +781,7 @@ round. Current expected totals:
 
 | Suite | Expected |
 | --- | --- |
-| `npm test` (Node, pure logic) | 126 |
+| `npm test` (Node, pure logic) | 129 |
 | `tests/browser-smoke.js` | 395 · about 230s |
 
 **Run the browser suite with the page visible and focused.** Its waits are

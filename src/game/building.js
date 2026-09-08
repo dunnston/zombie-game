@@ -11,7 +11,7 @@ import {
 } from './state.js';
 import { isBlockedTile } from './world.js';
 import { ITEMS, slotsEntries, packAllowance, makeSlots, firstEmpty, slotsWeight } from './items.js';
-import { stashOrDrop } from './loot.js';
+import { stashOrDrop, spillStore } from './loot.js';
 import { makeNoise, NOISE } from './noise.js';
 import { sfx } from '../core/audio.js';
 import * as FX from '../core/particles.js';
@@ -295,6 +295,11 @@ export function demolishStructure(s, p = G.player) {
     const n = Math.floor(cost[id] * refundMul);
     if (n > 0) { stashOrDrop(id, n, s.x, s.y); lines.push(`${id} +${n}`); }
   }
+  // Whatever was stored in it comes out first. This path handled only the
+  // construction refund, so taking your own full chest apart deleted every
+  // item inside it — sixty of them, measured (Codex review). Destruction has
+  // always spilled; a deliberate demolish has to as well.
+  spillStore(s);
   removeStructure(s);
   s.destroyed = true;
   for (const q of G.players) {

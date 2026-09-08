@@ -820,3 +820,37 @@ unreachable while anybody was alive. The feature was one expiry condition.
 This is the third time on this project (repair, gathering, now noise) that a
 request for something "new" was really a request to make something reachable.
 Grep for the thing before designing it.
+
+## A control run is only a control if it can tell the two stories apart (2026-09-08)
+
+The noise round shipped with what looked like solid evidence: eight walkers
+closed 91px on their own and 250px after a sound. Codex then found that the
+mechanic could not work at all — an enemy refreshed its own alert timer from
+its own aggro flag, so aggro never expired and the noise branch stayed dead.
+
+Both numbers were real. The measurement was worthless, because the noise had
+been placed *between* the group and the player: walking at the player closed
+the distance to the noise too. Two completely different behaviours produced the
+same reading, and the control run did not separate them — it only showed that
+something changed.
+
+Rerun with the noise on the FAR side of the group, so investigating means
+walking *away* from the player, and the answer was unambiguous and the opposite
+of what had been reported: 304px toward the player, away from the sound.
+
+**Design the layout so the two hypotheses have opposite signs.** If a single
+number is consistent with both "it works" and "it does something else that
+happens to look similar", it is not evidence. This is the same failure as
+asserting on calls rather than outcomes, one level up: the outcome was measured,
+but along an axis that could not discriminate.
+
+## Fixing the wrong half of a two-part bug (2026-09-08)
+
+The aggro fix and the noise fix are separate, and either alone does nothing.
+Making aggro expire still leaves eight seconds where a sound has aggro'd
+everyone onto the player; making the noise not set aggro still leaves aggro
+pinned on for ever from an earlier sighting. Both had to change together, and
+the browser test that proves it only passes when both are right.
+
+When a mechanic has an ordering ("A outranks B") and a lifetime ("A never
+ends"), check both before believing a fix.

@@ -241,21 +241,21 @@ export function updateEnemies(dt) {
     const survivorInReach = victim &&
       victimD < (e.def.atkRange + SURVIVOR_R) * (e.def.atkRange + SURVIVOR_R);
 
+    // Only a player this enemy can sense RIGHT NOW refreshes the chase.
+    //
+    // The first version of this read `e.aggro || senses`, which meant an
+    // already-aggro'd enemy renewed its own alert timer from its own flag,
+    // every tick, for ever — so the expiry below could never fire and the
+    // noise branch stayed exactly as dead as it had always been. Measured:
+    // `alertT` pinned at 4.0 on every enemy in the group. (Codex review.)
     const senses = p && dPlayer2 < senseR * senseR;
-    if (p && (e.aggro || senses)) {
+    if (senses && (dPlayer2 < 120 * 120 || hasLineOfSight(e.x, e.y, p.x, p.y))) {
       // Sight check stops enemies tracking you through solid buildings.
-      if (e.aggro || dPlayer2 < 120 * 120 || hasLineOfSight(e.x, e.y, p.x, p.y)) {
-        e.aggro = true;
-        e.alertT = Math.max(e.alertT, 4);
-      }
+      e.aggro = true;
+      e.alertT = Math.max(e.alertT, 4);
     }
     if (!p) e.aggro = false;
-    // Aggro expires. It never did: it was set once and cleared only when every
-    // player was dead, so anything that had ever noticed anybody walked at the
-    // nearest player for the rest of its life — and the `e.noiseX` branch
-    // below, which is the entire "sound attracts zombies" mechanic, could not
-    // be reached while a single player was alive. Losing you does not make
-    // them peaceful; it makes them investigate, which is what a noise is for.
+    // Losing you does not make them peaceful; it makes them investigate.
     else if (e.aggro && !senses && e.alertT <= 0 && !e.raid) e.aggro = false;
 
     if (e.raid && G.raid) {
