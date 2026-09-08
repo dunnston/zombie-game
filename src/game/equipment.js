@@ -176,15 +176,20 @@ export function splitStack(p, cont, fromIndex, toIndex) {
 }
 
 /** Drops a stack on the ground at the player's feet, where it can be picked up. */
-export function dropStack(p, cont, index, all = true) {
-  const c = container(p, cont);
+export function dropStack(p, cont, index, all = true, at = null) {
+  // `at` names a chest or stash, so ctrl+click on a container slot drops on
+  // the ground rather than silently doing nothing. Range-checked host-side,
+  // exactly as moveStack is.
+  const store = at ? reachableStore(p, at) : null;
+  if (cont === 'store' && !store) return false;
+  const c = container(p, cont, store);
   if (!c) return false;
   const s = c.slots[index];
   if (!s) return false;
   const n = all ? s.n : 1;
   const id = s.id;
   slotsTake(c, id, n);
-  spawnPickup(p.x, p.y, kindOf(id), id, n);
+  spawnPickup(p.x, p.y, kindOf(id), id, n, p);
   sfx('ui');
   notify(`Dropped ${n} ${ITEMS[id].name}`, '#8a8f84');
   return true;
@@ -195,8 +200,11 @@ export function dropEquipped(p, slot) {
   const id = p.equip[slot];
   if (!id) return false;
   p.equip[slot] = null;
+  // Both sides of the merge are wanted: afterEquipChange keeps the off-hand
+  // light in step, and `p` marks the pile as this player's own drop so their
+  // pickup magnet does not hand it straight back.
   afterEquipChange(p);
-  spawnPickup(p.x, p.y, 'gear', id, 1);
+  spawnPickup(p.x, p.y, 'gear', id, 1, p);
   sfx('ui');
   return true;
 }

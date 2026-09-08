@@ -51,6 +51,10 @@ export let lastZones = [];
 
 export const isDragging = () => !!drag;
 
+/** Either Control key. Read from held state, not the click event, so the UI
+ *  keeps taking its input from one place. */
+const ctrlHeld = () => Input.down.has('ControlLeft') || Input.down.has('ControlRight');
+
 /** Drops the drag without losing the stack — the panel closing must not eat it. */
 export function cancelDrag() {
   drag = null;
@@ -180,14 +184,28 @@ function beginDrag(p, zone) {
   if (s) drag = { from: zone, stack: s };
 }
 
-function endDrag(p, zone) {
+/** Puts whatever a slot holds on the ground, worn gear included. */
+function dropFrom(p, from) {
+  if (from.kind === 'equip') { act.dropEquipped(from.slot); return; }
+  // A chest slot needs to say WHICH chest, so the host can check you are
+  // standing beside it — same rule as moving a stack across.
+  const st = openStructure();
+  act.dropStack(from.kind, from.i, true, st ? { tx: st.tx, ty: st.ty } : null);
+}
+
+function endDrag(p, zone, onGround = false) {
   if (!drag) return;
   const from = drag.from;
   drag = null;
 
-  // Released over open space: put it back rather than dropping it. Scattering
-  // your ammunition on the floor should take a deliberate button, not a slip.
-  if (!zone) return;
+  // Dragged clean out of the window and released over the world: that is the
+  // ground, so put it there. Released over open space *inside* the panel still
+  // snaps back — a slip within the grid is not an instruction to throw your
+  // ammunition away, and leaving the panel is deliberate enough to tell apart.
+  if (!zone) {
+    if (onGround) dropFrom(p, from);
+    return;
+  }
   if (zone.kind === from.kind && zone.i === from.i && zone.slot === from.slot) return;
 
   if (from.kind === 'equip') {
@@ -253,11 +271,13 @@ export function drawInventoryPanel(ctx, W, H, ui) {
   const x = (W - w) / 2;
   const y = (H - h) / 2;
   claim(x, y, w, h);
-  panel(ctx, x, y, w, h, 'INVENTORY  —  drag to move  ·  I or ESC to close');
+  panel(ctx, x, y, w, h,
+    'INVENTORY  —  drag to move  ·  ctrl+click or drag out to drop  ·  I or ESC to close');
 
   const m = uiMouse();
   const zones = [];
   const isHot = (r) => m.x >= r.x && m.x <= r.x + r.w && m.y >= r.y && m.y <= r.y + r.h;
+
 
   // -------------------------------------------------------------- equipped --
   const eqX = x + 20;
@@ -354,27 +374,37 @@ export function drawInventoryPanel(ctx, W, H, ui) {
 
   // ----------------------------------------------------------------- input --
   const over = hitZone(zones, m.x, m.y);
-  if (mouseDown() && over && !drag) beginDrag(p, over);
-  if (mouseUp() && drag) endDrag(p, over);
+  // Anywhere outside the panel is the world, and that is where a drag released
+  // there lands. Computed here because endDrag only ever sees "no slot".
+  const onPanel = m.x >= x && m.x <= x + w && m.y >= y && m.y <= y + h;
+
+  if (mouseDown() && over && !drag) {
+    // Ctrl+click drops on the spot, without the round trip to a button.
+    if (ctrlHeld()) dropFrom(p, over);
+    else beginDrag(p, over);
+  }
+  if (mouseUp() && drag) endDrag(p, over, !onPanel);
   if (Input.rightPressed && over && !drag) quickAction(p, over);
 
-  // ------------------------------------------------------------ drop, help --
-  const hoverStack = over && over.kind !== 'equip'
-    ? (containerFor(p, over.kind) || { slots: [] }).slots[over.i]
-    : null;
-  if (button(ctx, x + w - 152, y + h - 40, 132, 26, 'DROP HOVERED', {
-    small: true, enabled: !!hoverStack, color: C.warn,
-  }) && hoverStack) {
-    act.dropStack(over.kind, over.i, true);
-  }
-
+  // ------------------------------------------------------------------ help --
   ctx.font = '10px "Courier New", monospace';
   ctx.fillStyle = C.dim;
-  ctx.fillText('right click: wear gear · move between pack and hotbar', x + 20, y + h - 22);
+  ctx.fillText('right click: wear gear · move between pack and hotbar',
+    x + 20, y + h - 36);
+  // Dropping is the one destructive gesture here, so it says so in warn colour
+  // rather than hiding in the same grey line as the harmless ones.
+  ctx.fillStyle = drag && !onPanel ? C.warn : C.dim;
+  ctx.fillText(drag && !onPanel
+    ? 'release to drop it on the ground'
+    : 'ctrl+click a slot, or drag it out of this window, to drop it on the ground',
+    x + 20, y + h - 22);
 
   // Tooltip after everything else so nothing paints over it.
   if (over && !drag) {
-    const id = over.kind === 'equip' ? p.equip[over.slot] : hoverStack ? hoverStack.id : null;
+    const s = over.kind === 'equip'
+      ? null
+      : (containerFor(p, over.kind) || { slots: [] }).slots[over.i];
+    const id = over.kind === 'equip' ? p.equip[over.slot] : s ? s.id : null;
     if (id) drawTooltip(ctx, id, m.x, m.y, x, y, w, h);
   }
 
@@ -510,9 +540,17 @@ export function drawStoragePanel(ctx, W, H, ui) {
   }
 
   // ----------------------------------------------------------------- input --
+  // The same three gestures as the inventory screen, and for the same reason:
+  // two screens that disagree about what ctrl+click does would be worse than
+  // either rule on its own.
   const over = hitZone(zones, m.x, m.y);
-  if (mouseDown() && over && !drag) beginDrag(p, over);
-  if (mouseUp() && drag) endDrag(p, over);
+  const onPanel = m.x >= x && m.x <= x + w && m.y >= y && m.y <= y + h;
+
+  if (mouseDown() && over && !drag) {
+    if (ctrlHeld()) dropFrom(p, over);
+    else beginDrag(p, over);
+  }
+  if (mouseUp() && drag) endDrag(p, over, !onPanel);
   if (Input.rightPressed && over && !drag) quickAction(p, over);
 
   // The two bulk moves, on buttons rather than only on keys — the shortcuts
@@ -524,6 +562,13 @@ export function drawStoragePanel(ctx, W, H, ui) {
   if (button(ctx, x + 178, by, 168, 26, 'TAKE AMMO & SUPPLIES', { small: true })) {
     act.withdrawSupplies({ tx: st.tx, ty: st.ty });
   }
+
+  ctx.font = '10px "Courier New", monospace';
+  ctx.fillStyle = drag && !onPanel ? C.warn : C.dim;
+  ctx.fillText(drag && !onPanel
+    ? 'release to drop it on the ground'
+    : 'right click: send it across  ·  ctrl+click or drag out: drop on the ground',
+    x + 20, y + h - 56);
 
   const hoverStack = over && over.kind !== 'equip'
     ? (containerFor(p, over.kind) || { slots: [] }).slots[over.i]

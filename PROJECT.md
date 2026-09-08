@@ -453,6 +453,8 @@ The *why*, so a future session does not undo something on purpose-built reasonin
 | All art generated in code | No asset pipeline, no binary files in git, and the whole look stays consistent because one file draws everything. |
 | Fixed 60Hz sim with an accumulator | A stalled tab must not fast-forward the world. |
 | Co-op version check is a git-derived build id, not a hand-bumped constant | `PROTOCOL` stayed at 1 while the map expansion rewrote world generation, so the check that exists to catch exactly that never fired. A value derived from `git log -1 -- src/` cannot be forgotten. Keyed on `src/` so a docs-only commit does not refuse an otherwise identical pair, and a digest of the uncommitted changes when the tree is dirty, so two people editing the same commit differently do not land on the same id. |
+| Dropping is ctrl+click or drag-out-of-the-window, not a button | The button this replaced could never fire — it acted on the live hover, which the cursor destroyed on its way to the button. The original note in `inventory.js` argued open-space release should snap back so a slip cannot scatter your ammunition; the owner’s call is that dragging clean out of the panel is deliberate enough to tell apart from a slip, and a release inside the panel still snaps back. Both gestures also drop worn gear. |
+| A dropped pile is held off from its dropper until they step away, rather than on a timer | Dropping spawns the pile at your feet, inside the pickup radius, so the magnet reclaimed it the next frame and dropping was a no-op. A timer would still snatch it back if you stood still a moment too long; "you have to leave it" is what a player means by dropping. Re-arms at `range * 1.2`, wider than the `range * 0.45` collect radius, so standing on the edge cannot flicker. Keyed to the player who dropped it rather than to whoever is nearest, or a teammate standing over the pile would suppress it for everyone and dropping could not be used to hand things over. |
 | Threat meter instead of a day-N raid timer | Ties danger to player behaviour, which is pillar 6. A calendar would make power free. |
 | Bullets ignore player structures | Pillar 3. Tested the alternative; a walled base could not defend itself. |
 | Enemy `structMul` split from `dmg` | Lets walkers threaten the player while brutes threaten walls. This is what makes raid 3 feel like a different game. |
@@ -638,6 +640,13 @@ Distilled. The running log is in `tasks/lessons.md`.
 project was invisible in review and obvious within seconds of running the game.
 Assertions about *outcomes* (`killed > 0`, `raid completes`) catch classes of bug
 that assertions about *calls* never will.
+
+**A control that acts on what you are hovering cannot be a separate button.**
+The inventory's drop button was dead from the day it shipped: hovering armed
+it, and travelling to the button un-armed it, so `enabled` was false at the
+instant of every click. Nothing in review looks wrong — the bug is that a mouse
+is in exactly one place at a time. Any "act on the hovered thing" affordance
+has to latch its target.
 
 **Silent no-ops are the worst failure mode.** The scavenger's "prefer reachable
 containers" check passed 0 of 281 containers because every container blocks its
@@ -953,31 +962,53 @@ input (`key`, `tap`, `mouseDown`, `aimAt`) and the whole `api` surface.
 
 Newest first. One line per meaningful change.
 
-- **2026-09-07** — The survival round: twelve notes from a play session, in one
+- **2026-09-08** — The survival round: twelve notes from a play session, in one
   PR. **Stamina**: a harvest swing costs 6 and stops recovery, so a full bar is
-  three trees and then a real pause; exhaustion latches and clears at half.
-  CON raises recovery as well as the ceiling, and a new perk, Woodcraft, cuts
-  the cost. **Litter** cut again, 4,246 → 2,372, made safe by a guaranteed
-  starter cache at the camp rather than by hoping the map-wide odds land near
-  the spawn. **Light**: an off-hand slot, a Torch of sticks and fiber that
-  burns itself up, and a battery-fed Flashlight that throws a beam; a lit
+  three trees and then a real pause; exhaustion latches on the refusal and
+  clears at half. CON raises recovery as well as the ceiling, and a new perk,
+  Woodcraft, cuts the cost. **Litter** cut again, 4,246 → 2,372, made safe by a
+  guaranteed starter cache at the camp rather than by hoping the map-wide odds
+  land near the spawn. **Light**: an off-hand slot, a Torch of sticks and fiber
+  that burns itself up, and a battery-fed Flashlight that throws a beam; a lit
   player is noticed 90px further out. **Storage**: everything is slot-limited
   now, the shared stash included (48 slots), plus a Wooden Chest (16) and a
   Steel Locker (32) and a two-panel screen to drag between them; `G.stashItems`
-  is gone. **Noise**: `alertEnemies` existed and had never worked, because
-  aggro was set once and never cleared — the noise branch in enemies.js was
-  unreachable while any player lived. One implementation now, aggro expires,
-  and turrets, generators, building and chopping are audible. **The bow**: a
-  gun as far as the code is concerned, at a quarter of a rifle's damage and a
-  seventh of a pistol's noise, firing arrows made of sticks, stone and fiber —
-  which is the sink that made the litter cut safe. **Manned towers**: four
-  armaments bought once and set per tower, trading noise against effectiveness
-  — arrows 90, fire 120, sniper 700, cannon 950. **Fire**: burning zombies
-  spread to zombies and to scenery, burn out and take the prop with them, and
-  hurt whoever stands in them. Player structures never catch, by choice.
-  Save → v12, fingerprint `a62c50c2` → `cd427428`. Node 126, smoke 395,
-  raid harness 1–3 all completing — index 1 and 3 moved, because a turret that
-  makes noise pulls the horde onto itself.
+  is gone. **Noise**: the mechanic existed and had never worked, and it took
+  two goes to fix — aggro renewed its own timer from its own flag, *and*
+  `makeNoise` set aggro, whose branch outranks the noise branch. It now gives a
+  destination and nothing else, and turrets, generators, building and chopping
+  are audible. **The bow**: a gun as far as the code is concerned, at a quarter
+  of a rifle's damage and a seventh of a pistol's noise, firing arrows made of
+  sticks, stone and fiber — the sink that made the litter cut safe. **Manned
+  towers**: four armaments bought once and set per tower, trading noise against
+  effectiveness — arrows 90, fire 120, sniper 700, cannon 950. **Fire**: burning
+  zombies spread to zombies and to scenery, burn out and take the prop with
+  them, and hurt whoever stands in them. Player structures never catch, by
+  choice. Save → v12, fingerprint `a62c50c2` → `cd427428`. Node 129, smoke 395,
+  raid harness 1–3 completing twice over. The Codex review found five real
+  defects, four of them P1, including that noise still did not work and that
+  the measurement offered as proof had been taken along an axis that could not
+  tell "investigates the sound" from "walks at the player past it".
+
+- **2026-09-07** — You can put things on the ground. The owner asked how, and
+  the honest answer was: you cannot. Two bugs, stacked. The `DROP HOVERED`
+  button read the *live* hover, so moving the cursor onto the button cleared
+  the very stack it acted on and `enabled` was false at the instant of every
+  click — dead since it shipped. Behind it, `dropStack` spawned the pile at
+  `p.x, p.y`, inside the collection radius, so the magnet handed it straight
+  back the next frame (`frame+1 ground=1` → `frame+2 ground=0`). The button is
+  now gone entirely, at the owner’s call, in favour of two direct gestures:
+  **ctrl+click a slot**, or **drag it out of the window** and release over the
+  world. Both work on worn gear too, which finally gives `dropEquipped` a
+  caller. Releasing over open space *inside* the panel still snaps back. And a
+  pile you put down yourself is held off until you step clear of it once — a
+  state, not a timer, so it stays where you dropped it for as long as you stand
+  there. The hold-off belongs to the *dropper*, not to whoever is nearest, so a
+  teammate can pick up what you put at their feet immediately; that is how you
+  hand something over. It rides along in the save as `q` on the pickup record,
+  because a save taken while standing over your own drop otherwise handed the
+  pile straight back on load. No version bump — old saves simply lack the field
+  and mean "not held off". Both found by the Codex review. Node 98.
 
 - **2026-09-07** — Mining balance, and the metal tool tier. The owner: "there
   are WAY too many sticks, stones and fiber on the map... it is way too easy to

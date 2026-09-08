@@ -113,9 +113,9 @@ export const act = {
     if (isClient()) return sendCommand('split', { c: cont, fi: fromIndex, ti: toIndex }), false;
     return splitStack(G.player, cont, fromIndex, toIndex);
   },
-  dropStack(cont, index, all = true) {
-    if (isClient()) return sendCommand('drop', { c: cont, i: index, all }), false;
-    return dropStack(G.player, cont, index, all);
+  dropStack(cont, index, all = true, at = null) {
+    if (isClient()) return sendCommand('drop', { c: cont, i: index, all, at }), false;
+    return dropStack(G.player, cont, index, all, at);
   },
   dropEquipped(slot) {
     if (isClient()) return sendCommand('dropEq', { slot }), false;
@@ -158,7 +158,7 @@ export function executeCommand(p, name, a) {
     case 'deposit': return depositAll(p, storeAt(p, tileArg(a.at))) > 0;
     case 'withdraw': return withdrawSupplies(p, storeAt(p, tileArg(a.at))) > 0;
     case 'split': return splitStack(p, String(a.c), a.fi | 0, a.ti | 0);
-    case 'drop': return dropStack(p, String(a.c), a.i | 0, a.all !== false);
+    case 'drop': return dropStack(p, String(a.c), a.i | 0, a.all !== false, tileArg(a.at));
     case 'dropEq': return dropEquipped(p, String(a.slot));
     case 'unequipTo': return unequipTo(p, String(a.slot), String(a.c), a.i | 0);
     case 'equipFromSlot': return equipFromSlot(p, String(a.c), a.i | 0, String(a.slot));
